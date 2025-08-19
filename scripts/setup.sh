@@ -35,7 +35,13 @@ pacman -S --noconfirm \
   tree \
   which \
   man-db \
-  man-pages
+  man-pages \
+  starship \
+  eza \
+  bat \
+  fd \
+  fzf \
+  zoxide
 
 echo -e "${GREEN}Configuring enhanced Zsh...${NC}"
 
@@ -52,63 +58,32 @@ fi
 # Configure enhanced zsh for the actual user
 sudo -u $REAL_USER bash << 'EOF'
 
-# Enhanced zsh config with lots of improvements
+# DarkMatter-inspired Zsh configuration for GNAR
 cat > ~/.zshrc << 'ZSHRC'
-# GNAR Enhanced TTY Zsh Configuration
+# GNAR DarkMatter TTY Zsh Configuration
 
-# History configuration
-HISTFILE=~/.zsh_history
-HISTSIZE=10000
+# History setup
+HISTFILE=$HOME/.zsh_history
 SAVEHIST=10000
-setopt SHARE_HISTORY
-setopt HIST_IGNORE_DUPS
-setopt HIST_FIND_NO_DUPS
-setopt HIST_IGNORE_SPACE
-setopt HIST_VERIFY
-setopt HIST_EXPIRE_DUPS_FIRST
+HISTSIZE=10000
+setopt share_history
+setopt hist_expire_dups_first
+setopt hist_ignore_dups
+setopt hist_verify
 
-# Zsh options for better UX
-setopt AUTO_CD              # cd by typing directory name
-setopt CORRECT              # spelling correction
-setopt EXTENDED_GLOB        # better globbing
-setopt NO_CASE_GLOB         # case insensitive globbing
-setopt NUMERIC_GLOB_SORT    # sort numerically
-setopt AUTO_PUSHD           # automatic pushd
-setopt PUSHD_IGNORE_DUPS    # ignore duplicate dirs in stack
+# Completion using arrow keys (based on history)
+bindkey '^[[A' history-search-backward
+bindkey '^[[B' history-search-forward
 
-# Colors and prompt
-autoload -U colors && colors
+# Completion using vim keys
+bindkey '^k' history-search-backward
+bindkey '^j' history-search-forward
 
-# Git prompt function
-autoload -Uz vcs_info
-precmd() { vcs_info }
-zstyle ':vcs_info:git:*' formats ' %F{red}[%b]%f'
-zstyle ':vcs_info:*' enable git
-setopt PROMPT_SUBST
-
-# Enhanced prompt with path, git, and status
-PS1='%F{cyan}┌─[%f%F{green}%n@%m%f%F{cyan}]─[%f%F{blue}%~%f%F{cyan}]%f${vcs_info_msg_0_}
-%F{cyan}└─%f%F{yellow}❯%f '
-
-# Right prompt with time
-RPS1='%F{gray}[%T]%f'
-
-# Key bindings for history search
-bindkey '^[[A' history-search-backward  # Up arrow
-bindkey '^[[B' history-search-forward   # Down arrow
-bindkey '^R' history-incremental-search-backward
-
-# Enhanced aliases
-alias ls='ls --color=auto --group-directories-first'
-alias ll='ls -la --color=auto --group-directories-first'
-alias la='ls -A --color=auto --group-directories-first'
-alias l='ls -CF --color=auto --group-directories-first'
-alias tree='tree -C'
-alias grep='grep --color=auto'
-alias fgrep='fgrep --color=auto'
-alias egrep='egrep --color=auto'
-alias diff='diff --color=auto'
-alias ip='ip --color=auto'
+# Enhanced aliases - DarkMatter style
+alias ls="eza --icons=always --group-directories-first"
+alias ll="eza --icons=always --long --group-directories-first"
+alias la="eza --icons=always --all --group-directories-first"
+alias tree="eza --icons=always --tree"
 
 # Directory navigation
 alias ..='cd ..'
@@ -117,6 +92,7 @@ alias ....='cd ../../..'
 alias .....='cd ../../../..'
 alias ~='cd ~'
 alias -- -='cd -'
+alias cd='z'  # Use zoxide for smart jumping
 
 # File operations
 alias cp='cp -i'
@@ -130,6 +106,13 @@ alias du='du -h'
 alias free='free -h'
 alias ps='ps aux'
 alias top='htop'
+alias cat='bat --style=plain'
+alias grep='grep --color=auto'
+alias fgrep='fgrep --color=auto'
+alias egrep='egrep --color=auto'
+alias diff='diff --color=auto'
+alias ip='ip --color=auto'
+alias find='fd'
 
 # Git shortcuts
 alias g='git'
@@ -151,6 +134,21 @@ alias nano='nvim'
 # Network
 alias ping='ping -c 5'
 alias wget='wget -c'
+
+# Exports
+export BAT_THEME="ansi"
+export EDITOR="nvim"
+export PAGER="bat"
+
+# FZF settings with DarkMatter colors
+export FZF_DEFAULT_COMMAND='fd --type f --hidden --exclude ".git"'
+export FZF_DEFAULT_OPTS='
+  --color=fg:#c1c1c1,fg+:#ffffff,bg:#121113,bg+:#222222
+  --color=hl:#5f8787,hl+:#fbcb97,info:#e78a53,marker:#fbcb97
+  --color=prompt:#e78a53,spinner:#5f8787,pointer:#fbcb97,header:#aaaaaa
+  --color=border:#333333,label:#888888,query:#ffffff
+  --border="rounded" --border-label="" --preview-window="border-rounded" --prompt="> "
+  --marker=">" --pointer="◆" --separator="─" --scrollbar="│"'
 
 # Useful functions
 function mkcd() {
@@ -205,13 +203,12 @@ alias ta='tmux attach -t'
 alias tl='tmux ls'
 alias tk='tmux kill-session -t'
 
-# Auto-start tmux on TTY login (optional - uncomment to enable)
-# if [[ -z "$TMUX" && "$TERM" == "linux" ]]; then
-#     tmux new-session -A -s main
-# fi
+# Setup zoxide and starship (DarkMatter essentials)
+eval "$(zoxide init zsh)"
+eval "$(starship init zsh)"
 
 # Welcome message
-echo "Welcome to GNAR TTY - Enhanced Zsh Terminal"
+echo "Welcome to GNAR DarkMatter TTY"
 echo "Type 'gnar-info' for system information"
 echo "Type 'help-gnar' for command reference"
 echo "Type 'tmux' to start tiling terminal"
@@ -474,6 +471,152 @@ echo
 echo "Update complete!"
 SCRIPT
 
+# Create theme switcher
+cat > /usr/local/bin/gnar-theme << 'SCRIPT'
+#!/bin/bash
+# GNAR Theme Switcher
+
+GREEN='\033[0;32m'
+CYAN='\033[0;36m'
+YELLOW='\033[0;33m'
+RED='\033[0;31m'
+NC='\033[0m'
+
+show_themes() {
+    echo "Available GNAR Themes:"
+    echo
+    echo "  1) darkmatter  - Sleek dark theme with starship prompt"
+    echo "  2) matrix      - Green-on-black hacker aesthetic"
+    echo "  3) minimal     - Clean, distraction-free"
+    echo "  4) retro       - 80s terminal vibes"
+    echo "  5) ocean       - Deep blue nautical theme"
+    echo
+    echo "Current theme: $(cat ~/.gnar_theme 2>/dev/null || echo "darkmatter")"
+}
+
+apply_theme() {
+    local theme=$1
+    echo "$theme" > ~/.gnar_theme
+    
+    case "$theme" in
+        darkmatter)
+            # DarkMatter FZF colors
+            sed -i '/^export FZF_DEFAULT_OPTS=/,/'"'"'$/d' ~/.zshrc
+            cat >> ~/.zshrc << 'EOF'
+export FZF_DEFAULT_OPTS='
+  --color=fg:#c1c1c1,fg+:#ffffff,bg:#121113,bg+:#222222
+  --color=hl:#5f8787,hl+:#fbcb97,info:#e78a53,marker:#fbcb97
+  --color=prompt:#e78a53,spinner:#5f8787,pointer:#fbcb97,header:#aaaaaa
+  --color=border:#333333,label:#888888,query:#ffffff
+  --border="rounded" --border-label="" --preview-window="border-rounded" --prompt="> "
+  --marker=">" --pointer="◆" --separator="─" --scrollbar="│"'
+EOF
+            echo -e "${GREEN}DarkMatter theme applied!${NC}"
+            ;;
+            
+        matrix)
+            # Matrix green theme
+            sed -i '/^export FZF_DEFAULT_OPTS=/,/'"'"'$/d' ~/.zshrc
+            cat >> ~/.zshrc << 'EOF'
+export FZF_DEFAULT_OPTS='
+  --color=fg:#00ff00,fg+:#00ff00,bg:#000000,bg+:#001100
+  --color=hl:#00aa00,hl+:#00ff00,info:#00ff00,marker:#00ff00
+  --color=prompt:#00ff00,spinner:#00aa00,pointer:#00ff00,header:#00aa00
+  --color=border:#00aa00,label:#00ff00,query:#00ff00
+  --border="rounded" --border-label="" --preview-window="border-rounded" --prompt="> "
+  --marker=">" --pointer=">" --separator="─" --scrollbar="│"'
+EOF
+            echo -e "${GREEN}Matrix theme applied!${NC}"
+            ;;
+            
+        minimal)
+            # Minimal monochrome
+            sed -i '/^export FZF_DEFAULT_OPTS=/,/'"'"'$/d' ~/.zshrc
+            cat >> ~/.zshrc << 'EOF'
+export FZF_DEFAULT_OPTS='
+  --color=fg:#ffffff,fg+:#ffffff,bg:#000000,bg+:#222222
+  --color=hl:#888888,hl+:#ffffff,info:#cccccc,marker:#ffffff
+  --color=prompt:#ffffff,spinner:#888888,pointer:#ffffff,header:#888888
+  --color=border:#444444,label:#888888,query:#ffffff
+  --border="sharp" --border-label="" --preview-window="border-sharp" --prompt="> "
+  --marker=">" --pointer=">" --separator="─" --scrollbar="│"'
+EOF
+            echo -e "${GREEN}Minimal theme applied!${NC}"
+            ;;
+            
+        retro)
+            # Retro 80s colors
+            sed -i '/^export FZF_DEFAULT_OPTS=/,/'"'"'$/d' ~/.zshrc
+            cat >> ~/.zshrc << 'EOF'
+export FZF_DEFAULT_OPTS='
+  --color=fg:#ff00ff,fg+:#00ffff,bg:#000033,bg+:#000066
+  --color=hl:#ffff00,hl+:#ff00ff,info:#00ffff,marker:#ff00ff
+  --color=prompt:#ff00ff,spinner:#00ffff,pointer:#ffff00,header:#ff00ff
+  --color=border:#ff00ff,label:#00ffff,query:#ffffff
+  --border="double" --border-label="" --preview-window="border-double" --prompt="> "
+  --marker="▸" --pointer="▶" --separator="═" --scrollbar="║"'
+EOF
+            echo -e "${GREEN}Retro theme applied!${NC}"
+            ;;
+            
+        ocean)
+            # Ocean blue theme
+            sed -i '/^export FZF_DEFAULT_OPTS=/,/'"'"'$/d' ~/.zshrc
+            cat >> ~/.zshrc << 'EOF'
+export FZF_DEFAULT_OPTS='
+  --color=fg:#a0c4e0,fg+:#ffffff,bg:#001122,bg+:#002244
+  --color=hl:#4488cc,hl+:#66aaff,info:#3377bb,marker:#5599dd
+  --color=prompt:#66aaff,spinner:#4488cc,pointer:#88ccff,header:#5599dd
+  --color=border:#334466,label:#6699cc,query:#ffffff
+  --border="rounded" --border-label="" --preview-window="border-rounded" --prompt="~ "
+  --marker="~" --pointer="◈" --separator="─" --scrollbar="│"'
+EOF
+            echo -e "${GREEN}Ocean theme applied!${NC}"
+            ;;
+            
+        *)
+            echo -e "${RED}Unknown theme: $theme${NC}"
+            show_themes
+            exit 1
+            ;;
+    esac
+    
+    echo "Restart your shell or run: source ~/.zshrc"
+}
+
+case "$1" in
+    list|ls)
+        show_themes
+        ;;
+    set|apply)
+        if [ -z "$2" ]; then
+            show_themes
+            echo
+            read -p "Select theme (1-5): " choice
+            case "$choice" in
+                1) apply_theme "darkmatter" ;;
+                2) apply_theme "matrix" ;;
+                3) apply_theme "minimal" ;;
+                4) apply_theme "retro" ;;
+                5) apply_theme "ocean" ;;
+                *) echo -e "${RED}Invalid choice${NC}" ;;
+            esac
+        else
+            apply_theme "$2"
+        fi
+        ;;
+    *)
+        echo "Usage: gnar-theme [command] [theme]"
+        echo
+        echo "Commands:"
+        echo "  list, ls       - Show available themes"
+        echo "  set, apply     - Apply a theme"
+        echo
+        show_themes
+        ;;
+esac
+SCRIPT
+
 # Create help command
 cat > /usr/local/bin/help-gnar << 'SCRIPT'
 #!/bin/bash
@@ -487,6 +630,7 @@ echo
 echo "System Commands:"
 echo "  gnar-info        - System information"
 echo "  gnar-update      - Update system"
+echo "  gnar-theme       - Switch terminal themes"
 echo "  htop            - Process monitor"
 echo "  fastfetch       - Quick system info"
 echo

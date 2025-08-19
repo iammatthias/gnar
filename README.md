@@ -15,11 +15,11 @@ _GNAR_ came from "Gnome + Arch", and stuck as a name despite abandoning Gnome. A
 ## What You Get
 
 - **Tmux** - Tiling terminal multiplexer for TTY
-- **Enhanced Zsh** - Advanced shell with git integration, smart history, and 50+ aliases
+- **DarkMatter Zsh** - Enhanced shell with starship prompt, eza, bat, fzf, and zoxide
 - **Neovim** - Modern text editor
 - **Git** - Version control with shortcuts
 - **System tools** - fastfetch, htop, tree, curl
-- **Helper utilities** - gnar-info, gnar-update, help-gnar
+- **Helper utilities** - gnar-info, gnar-update, gnar-theme, help-gnar
 - **Smart functions** - mkcd, extract, backup, weather, calc
 
 Pure TTY experience. No desktop environment, no GUI applications.
@@ -82,6 +82,11 @@ gnar-update     # Full system update and maintenance
                 # Runs: pacman -Syu (update all packages)
                 # Then: pacman -Sc (clean old package cache)
                 # Keeps system lean and current
+
+gnar-theme      # Terminal theme switcher
+                # Choose from: darkmatter, matrix, minimal, retro, ocean
+                # Changes FZF colors and terminal aesthetics
+                # Run 'gnar-theme list' to see all options
 
 help-gnar       # Interactive command reference guide
                 # Lists all GNAR commands, aliases, and functions

@@ -169,6 +169,40 @@ gnar-update
 - Single command for full system maintenance
 - No need to remember pacman flags
 
+### gnar-theme
+Terminal theme switcher with multiple aesthetic options.
+
+```bash
+gnar-theme           # Show usage and current theme
+gnar-theme list      # List all available themes
+gnar-theme set       # Interactive theme selection
+gnar-theme set matrix  # Apply specific theme directly
+```
+
+**Available Themes:**
+- **darkmatter** - Sleek dark theme with warm accents (default)
+- **matrix** - Classic green-on-black hacker aesthetic
+- **minimal** - Clean monochrome, distraction-free
+- **retro** - 80s terminal with vibrant neon colors
+- **ocean** - Deep blue nautical theme
+
+**What it changes:**
+- FZF color scheme
+- Terminal color palette for fuzzy finding
+- Border styles and prompt characters
+
+**Usage example:**
+```bash
+# View available themes
+gnar-theme list
+
+# Apply the matrix theme
+gnar-theme set matrix
+
+# Interactive selection
+gnar-theme set
+```
+
 ### help-gnar
 Interactive command reference for the entire GNAR system.
 

@@ -83,8 +83,9 @@ else
     rm -f "$USER_HOME/.tmux.conf" 2>/dev/null || true
 fi
 
-# Remove fastfetch config
+# Remove fastfetch config and theme file
 rm -rf "$USER_HOME/.config/fastfetch" 2>/dev/null || true
+rm -f "$USER_HOME/.gnar_theme" 2>/dev/null || true
 
 rm -f "$USER_HOME/.zsh_history" 2>/dev/null || true
 echo "  Configuration files handled"
@@ -109,7 +110,7 @@ echo
 case "$REPLY" in
     1)
         echo "Removing ALL GNAR packages..."
-        PACKAGES="zsh tmux neovim fastfetch htop tree git curl which man-db man-pages"
+        PACKAGES="zsh tmux neovim fastfetch htop tree starship eza bat fd fzf zoxide git curl which man-db man-pages"
         for pkg in $PACKAGES; do
             if pacman -Qi "$pkg" &>/dev/null; then
                 echo "  Removing $pkg..."
@@ -120,7 +121,7 @@ case "$REPLY" in
         ;;
     2)
         echo "Removing non-essential GNAR packages..."
-        PACKAGES="zsh tmux neovim fastfetch htop tree"
+        PACKAGES="zsh tmux neovim fastfetch htop tree starship eza bat fd fzf zoxide"
         for pkg in $PACKAGES; do
             if pacman -Qi "$pkg" &>/dev/null; then
                 echo "  Removing $pkg..."
