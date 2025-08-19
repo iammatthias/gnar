@@ -110,7 +110,7 @@ echo
 case "$REPLY" in
     1)
         echo "Removing ALL GNAR packages..."
-        PACKAGES="zsh tmux neovim fastfetch htop tree starship eza bat fd fzf zoxide git curl which man-db man-pages"
+        PACKAGES="zsh tmux neovim fastfetch htop tree starship eza bat fd fzf zoxide git curl which man-db man-pages bc net-tools"
         for pkg in $PACKAGES; do
             if pacman -Qi "$pkg" &>/dev/null; then
                 echo "  Removing $pkg..."
@@ -121,7 +121,7 @@ case "$REPLY" in
         ;;
     2)
         echo "Removing non-essential GNAR packages..."
-        PACKAGES="zsh tmux neovim fastfetch htop tree starship eza bat fd fzf zoxide"
+        PACKAGES="zsh tmux neovim fastfetch htop tree starship eza bat fd fzf zoxide bc net-tools"
         for pkg in $PACKAGES; do
             if pacman -Qi "$pkg" &>/dev/null; then
                 echo "  Removing $pkg..."
