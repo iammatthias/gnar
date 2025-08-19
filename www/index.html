@@ -1,0 +1,382 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>GNAR</title>
+    <meta
+      name="description"
+      content="GNAR is a minimal and opinionated setup for Arch Linux tailored to provide a minimal yet powerful baseline remote experience."
+    />
+
+    <style>
+      :root {
+        --color-primary: #222;
+        --color-secondary: #eee;
+      }
+
+      /* Well-structured minimal CSS reset */
+
+      /* Box sizing rules */
+      *,
+      *::before,
+      *::after {
+        box-sizing: border-box;
+      }
+
+      /* Remove default margin and padding */
+      * {
+        margin: 0;
+        padding: 0;
+      }
+
+      /* Set core body defaults */
+      body {
+        line-height: 1.5;
+        -webkit-font-smoothing: antialiased;
+        -moz-osx-font-smoothing: grayscale;
+        text-rendering: optimizeLegibility;
+      }
+
+      /* Make images easier to work with */
+      img,
+      picture,
+      video,
+      canvas,
+      svg {
+        display: block;
+        max-width: 100%;
+      }
+
+      /* Remove built-in form typography styles */
+      input,
+      button,
+      textarea,
+      select {
+        font: inherit;
+      }
+
+      /* Avoid text overflows */
+      p,
+      h1,
+      h2,
+      h3,
+      h4,
+      h5,
+      h6 {
+        overflow-wrap: break-word;
+      }
+
+      /* Create a root stacking context */
+      #root,
+      #__next {
+        isolation: isolate;
+      }
+
+      body {
+        background-color: var(--color-primary);
+        color: var(--color-secondary);
+        font-family: monospace;
+        width: 100vw;
+        min-height: 100vh;
+      }
+
+      main {
+        max-width: 600px;
+        margin: 0 auto;
+        padding: 1rem;
+      }
+
+      .ascii {
+        font-size: clamp(0.6rem, 0.23vi + 0.82rem, 1rem);
+        font-weight: 700;
+        margin-top: 2rem;
+        width: fit-content;
+        margin-left: auto;
+        margin-right: auto;
+        overflow-x: auto;
+        white-space: pre;
+        font-family: monospace;
+        text-align: left;
+        background: none;
+      }
+
+      pre.ascii {
+        margin: 0 auto;
+        padding: 0;
+      }
+
+      h1 {
+        font-size: 1.5rem;
+        font-weight: 700;
+        margin-top: 2rem;
+      }
+
+      h2 {
+        font-size: 1.2rem;
+        font-weight: 700;
+        margin-top: 2rem;
+        margin-bottom: 1rem;
+      }
+
+      p {
+        margin: 1rem 0;
+      }
+
+      strong {
+        color: var(--color-secondary);
+        font-weight: 700;
+      }
+
+      details {
+        margin: 1rem 0;
+        background: #1a1a1a;
+        border-radius: 4px;
+      }
+
+      summary {
+        padding: 0.2rem 0.4rem;
+        cursor: pointer;
+        background: #1a1a1a;
+        font-weight: 700;
+        user-select: none;
+        list-style: none;
+        border-radius: 4px;
+      }
+
+      summary:hover {
+        background: #252525;
+      }
+
+      summary::-webkit-details-marker {
+        display: none;
+      }
+
+      summary::before {
+        content: "▶ ";
+        display: inline-block;
+        transition: transform 0.2s;
+        margin-right: 0.5rem;
+      }
+
+      details[open] summary::before {
+        transform: rotate(90deg);
+      }
+
+      details[open] summary {
+        border-radius: 4px 4px 0 0;
+      }
+
+      .install-content {
+        padding: 0;
+        background: #1a1a1a;
+        border-radius: 0 0 4px 4px;
+      }
+
+      .install-content pre {
+        margin: 0;
+      }
+
+      .code-wrapper {
+        position: relative;
+      }
+
+      .copy-btn {
+        position: absolute;
+        top: 0.5rem;
+        right: 0.5rem;
+        background: #333;
+        border: none;
+        color: var(--color-secondary);
+        padding: 0.2rem 0.4rem;
+        font-size: 0.6rem;
+        cursor: pointer;
+        border-radius: 3px;
+        z-index: 1;
+      }
+
+      .copy-btn:hover {
+        background: #444;
+      }
+
+      .copy-btn.copied {
+        background: #0a5a0a;
+      }
+
+      code {
+        background: #333;
+        padding: 0.2rem 0.4rem;
+        border-radius: 3px;
+        font-family: monospace;
+      }
+
+      pre {
+        background: #1a1a1a;
+        padding: 1rem;
+        border-radius: 4px;
+        overflow-x: auto;
+      }
+
+      pre code {
+        background: none;
+        padding: 0;
+      }
+
+      a {
+        color: var(--color-secondary);
+        text-decoration: underline;
+      }
+
+      a:hover {
+        text-decoration: none;
+      }
+
+      footer {
+        margin-top: 3rem;
+        border-top: 1px solid #444;
+        opacity: 0.7;
+        font-size: 0.7rem;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <pre class="ascii">
+        <code>
+  ____   _   _      _      ____
+ / ___| | \ | |    / \    |  _ \
+| |  _  |  \| |   / _ \   | |_) |
+| |_| | | |\  |  / ___ \  |  _ <
+ \____| |_| \_| /_/   \_\ |_| \_\
+        </code>
+    </pre>
+      <p>
+        GNAR is a minimal setup for Arch Linux tailored to provide a minimal yet powerful baseline remote experience.
+      </p>
+      <p>It is highly opinionated.</p>
+
+      <p>
+        Comes with <strong>tmux</strong>, <strong>zsh</strong>, <strong>neovim</strong>, <strong>git</strong>,
+        <strong>fastfetch</strong>, <strong>htop</strong>, and helpful utilities.
+      </p>
+
+      <h2>Installation</h2>
+
+      <details>
+        <summary>Git (Recommended)</summary>
+        <div class="install-content">
+          <div class="code-wrapper">
+            <button class="copy-btn" onclick="copyCode(this)">Copy</button>
+            <pre><code>git clone https://github.com/iammatthias/gnar.git
+cd gnar
+sudo ./scripts/setup.sh</code></pre>
+          </div>
+        </div>
+      </details>
+
+      <details>
+        <summary>Curl</summary>
+        <div class="install-content">
+          <div class="code-wrapper">
+            <button class="copy-btn" onclick="copyCode(this)">Copy</button>
+            <pre><code>curl -L https://github.com/iammatthias/gnar/archive/main.tar.gz | tar xz
+cd gnar-main
+sudo ./scripts/setup.sh</code></pre>
+          </div>
+        </div>
+      </details>
+
+      <details>
+        <summary>Wget</summary>
+        <div class="install-content">
+          <div class="code-wrapper">
+            <button class="copy-btn" onclick="copyCode(this)">Copy</button>
+            <pre><code>wget https://github.com/iammatthias/gnar/archive/main.tar.gz
+tar xzf main.tar.gz
+cd gnar-main
+sudo ./scripts/setup.sh</code></pre>
+          </div>
+        </div>
+      </details>
+
+      <h2>Post-Installation</h2>
+
+      <div class="code-wrapper">
+        <button class="copy-btn" onclick="copyCode(this)">Copy</button>
+        <pre><code>tmux          # Start tiling terminal
+gnar-info     # System information
+help-gnar     # Command reference</code></pre>
+      </div>
+
+      <h2>Uninstall</h2>
+
+      <div class="code-wrapper">
+        <button class="copy-btn" onclick="copyCode(this)">Copy</button>
+        <pre><code>sudo ./scripts/uninstall.sh</code></pre>
+      </div>
+
+      <footer>
+        <p><a href="https://github.com/iammatthias/gnar">GitHub</a> | MIT License | Built for Arch Linux</p>
+      </footer>
+    </main>
+
+    <script>
+      function copyCode(button) {
+        const codeElement = button.nextElementSibling.querySelector('code');
+        const code = codeElement.textContent.trim();
+
+        const originalText = button.textContent;
+
+        // Try modern clipboard API first
+        if (navigator.clipboard && window.isSecureContext) {
+          navigator.clipboard
+            .writeText(code)
+            .then(() => {
+              button.textContent = "Copied!";
+              button.classList.add("copied");
+
+              setTimeout(() => {
+                button.textContent = originalText;
+                button.classList.remove("copied");
+              }, 2000);
+            })
+            .catch(() => {
+              fallbackCopy(code, button, originalText);
+            });
+        } else {
+          fallbackCopy(code, button, originalText);
+        }
+      }
+
+      function fallbackCopy(text, button, originalText) {
+        // Fallback using selection and execCommand
+        const textArea = document.createElement("textarea");
+        textArea.value = text;
+        textArea.style.position = "fixed";
+        textArea.style.left = "-999999px";
+        textArea.style.top = "-999999px";
+        document.body.appendChild(textArea);
+        textArea.focus();
+        textArea.select();
+
+        try {
+          document.execCommand("copy");
+          button.textContent = "Copied!";
+          button.classList.add("copied");
+
+          setTimeout(() => {
+            button.textContent = originalText;
+            button.classList.remove("copied");
+          }, 2000);
+        } catch (err) {
+          button.textContent = "Failed";
+          setTimeout(() => {
+            button.textContent = originalText;
+          }, 2000);
+        } finally {
+          document.body.removeChild(textArea);
+        }
+      }
+    </script>
+  </body>
+</html>
