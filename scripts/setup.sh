@@ -442,9 +442,11 @@ set -g status-right '#[fg=yellow]#H #[fg=cyan]%H:%M'
 bind r source-file ~/.tmux.conf \; display "Config reloaded!"
 TMUX
 
-# Change shell to zsh
-chsh -s /usr/bin/zsh
 EOF
+
+# Change shell to zsh (needs to be done as root for the actual user)
+echo -e "${GREEN}Setting zsh as default shell...${NC}"
+chsh -s /usr/bin/zsh "$REAL_USER"
 
 echo -e "${GREEN}Creating enhanced helper utilities...${NC}"
 
