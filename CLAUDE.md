@@ -55,11 +55,17 @@ help-gnar
 **Pure TTY Installation** with essential components:
 
 **Core Components Installed:**
-- `zsh` - Enhanced shell with comprehensive configuration
+- `zsh` - Enhanced shell with DarkMatter-inspired configuration
+- `starship` - Cross-shell prompt with modern styling
 - `tmux` - Terminal multiplexer for tiling window management in TTY
 - `neovim` - Modern text editor
 - `git` - Version control with integrated shortcuts
 - `fastfetch` - System information display
+- `eza` - Modern replacement for ls with icons
+- `bat` - Cat replacement with syntax highlighting
+- `fd` - Modern find replacement
+- `fzf` - Fuzzy finder with custom DarkMatter colors
+- `zoxide` - Smart directory jumping
 - `htop` - Process monitor
 - `curl` - HTTP client
 - `tree` - Directory tree viewer
@@ -70,6 +76,7 @@ help-gnar
 **GNAR Management Tools** (created in `/usr/local/bin/`):
 - `gnar-info` - Pretty TTY system information display
 - `gnar-update` - Update system and clean cache
+- `gnar-theme` - Switch between 5 terminal themes (darkmatter, matrix, minimal, retro, ocean)
 - `help-gnar` - Complete command reference
 
 **Configuration Files Generated:**
