@@ -1,0 +1,30 @@
+# OS Files
+.DS_Store
+Thumbs.db
+
+# Editor
+*.swp
+*.swo
+*~
+.vscode/
+.idea/
+
+# Backups
+*.bak
+*.backup
+*.old
+
+# Archives
+*.tar.gz
+*.zip
+
+# Logs
+*.log
+
+# Test files
+test/
+tmp/
+
+# User configs (if someone runs setup in the repo)
+.arckase-config/
+.arckase-config-override/

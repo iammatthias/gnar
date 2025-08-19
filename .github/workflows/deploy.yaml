@@ -1,0 +1,20 @@
+name: Deploy to Orbiter
+on:
+  push:
+    branches: [main]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Deploy to Orbiter
+        uses: orbiterhost/orbiter-github-actions@v0.1.4
+        with:
+          project-name: "gnar"
+          build-dir: "./www"
+          api-key: ${{ secrets.ORBITER_API_KEY }}
+          node-version: "20.x"
+          build-command: "echo 'No build needed - static HTML'"
