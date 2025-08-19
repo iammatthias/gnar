@@ -267,11 +267,6 @@ cat > ~/.config/fastfetch/config.jsonc << 'FASTFETCH'
             "format": "├┴┴┴┴┴┴┴┴┴┴┴┴┴┴┴┴┴┴┴┴┴┴┴┴┴┴┴┴┴┴┴┴┴┴┴┴┴┴┴┴┴┴┴┴┴┴┴┴┴┴┴┴┴┴┴┤"
         },
         {
-            "type": "version",
-            "key": " ",
-            "format": "│                   FASTFETCH v{version}                   │"
-        },
-        {
             "type": "custom",
             "format": "│                  GNAR MACHINE REPORT                  │"
         },
@@ -396,7 +391,7 @@ cat > ~/.config/fastfetch/config.jsonc << 'FASTFETCH'
         {
             "type": "users",
             "key": "│ LAST LOGIN │{$1}",
-            "format": "{login-time}{?client-ip} ({client-ip})",
+            "format": "{login-time}{?client-ip})",
             "myselfOnly": true
         },
         {
