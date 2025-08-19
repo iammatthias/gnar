@@ -1,0 +1,25 @@
+{
+  "name": "gnar",
+  "version": "1.0.0",
+  "description": "GNAR - Shreddable TTY for Arch Linux",
+  "main": "www/index.html",
+  "scripts": {
+    "build": "echo 'No build needed - static HTML'",
+    "start": "echo 'Static site - open www/index.html'"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/iammatthias/gnar.git"
+  },
+  "keywords": [
+    "arch-linux",
+    "tty",
+    "tmux",
+    "zsh",
+    "neovim"
+  ],
+  "author": "iammatthias",
+  "license": "MIT",
+  "devDependencies": {},
+  "dependencies": {}
+}
