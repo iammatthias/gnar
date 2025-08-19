@@ -149,6 +149,7 @@ alias j='jobs -l'
 alias path='echo -e ${PATH//:/\\n}'  # Display PATH on separate lines
 alias now='date +"%Y-%m-%d %H:%M:%S"'
 alias week='date +%V'
+alias reload='source ~/.zshrc'       # Reload shell configuration
 
 # Exports
 export BAT_THEME="ansi"

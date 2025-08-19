@@ -151,6 +151,7 @@ j               # Jobs list
 path            # Display PATH on separate lines
 now             # Current date/time (YYYY-MM-DD HH:MM:SS)
 week            # Current week number
+reload          # Reload shell configuration (source ~/.zshrc)
 myip            # Public IP address
 localip         # Local IP addresses
 ports           # Show open ports
