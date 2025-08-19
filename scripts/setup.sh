@@ -41,7 +41,9 @@ pacman -S --noconfirm \
   bat \
   fd \
   fzf \
-  zoxide
+  zoxide \
+  bc \
+  net-tools
 
 echo -e "${GREEN}Configuring enhanced Zsh...${NC}"
 
@@ -197,7 +199,16 @@ function backup() {
 }
 
 function weather() {
-    curl "wttr.in/${1:-}"
+    local location="${1:-}"
+    if command -v curl >/dev/null 2>&1; then
+        if [ -z "$location" ]; then
+            curl -s "wttr.in" || echo "Failed to fetch weather. Check your internet connection."
+        else
+            curl -s "wttr.in/$location" || echo "Failed to fetch weather for $location"
+        fi
+    else
+        echo "curl is required for weather function"
+    fi
 }
 
 function calc() {
