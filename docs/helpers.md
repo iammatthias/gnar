@@ -113,6 +113,57 @@ tmux new -s project2
 Ctrl-a s        # Switch between sessions
 ```
 
+## Quick Aliases
+
+GNAR includes many helpful aliases for common tasks:
+
+### System Information
+```bash
+ff              # Fastfetch - quick system info with GNAR theme
+nf              # Alternative alias for neofetch users
+gnar-info       # Full GNAR machine report
+```
+
+### File Operations
+```bash
+ls              # List files with icons (eza)
+ll              # Long format with details
+la              # Show all including hidden
+l               # One file per line
+tree            # Full directory tree
+lt              # Tree limited to 2 levels
+```
+
+### Navigation
+```bash
+..              # Go up one directory
+...             # Go up two directories
+....            # Go up three directories
+-               # Previous directory
+cd              # Smart jumping with zoxide (aliased to z)
+```
+
+### Quick Shortcuts
+```bash
+c               # Clear screen
+h               # History
+j               # Jobs list
+path            # Display PATH on separate lines
+now             # Current date/time (YYYY-MM-DD HH:MM:SS)
+week            # Current week number
+myip            # Public IP address
+localip         # Local IP addresses
+ports           # Show open ports
+```
+
+### Enhanced Commands
+```bash
+cat             # Uses bat with syntax highlighting
+find            # Uses fd for faster searching
+grep            # Auto-colored output
+diff            # Auto-colored output
+```
+
 ## Built-in Commands
 
 ### gnar-info
