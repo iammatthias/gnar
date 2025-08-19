@@ -79,11 +79,13 @@ bindkey '^[[B' history-search-forward
 bindkey '^k' history-search-backward
 bindkey '^j' history-search-forward
 
-# Enhanced aliases - DarkMatter style
+# File listing - Enhanced with eza
 alias ls="eza --icons=always --group-directories-first"
 alias ll="eza --icons=always --long --group-directories-first"
 alias la="eza --icons=always --all --group-directories-first"
+alias l="eza --icons=always --oneline"
 alias tree="eza --icons=always --tree"
+alias lt="eza --icons=always --tree --level=2"  # Tree with depth limit
 
 # Directory navigation
 alias ..='cd ..'
@@ -106,13 +108,15 @@ alias du='du -h'
 alias free='free -h'
 alias ps='ps aux'
 alias top='htop'
-alias cat='bat --style=plain'
+alias ff='fastfetch'           # Quick system info display
+alias nf='fastfetch'           # Alternative for neofetch users
+alias cat='bat --style=plain'  # Better cat with syntax highlighting
 alias grep='grep --color=auto'
 alias fgrep='fgrep --color=auto'
 alias egrep='egrep --color=auto'
 alias diff='diff --color=auto'
 alias ip='ip --color=auto'
-alias find='fd'
+alias find='fd'                # Modern find replacement
 
 # Git shortcuts
 alias g='git'
@@ -131,9 +135,20 @@ alias vim='nvim'
 alias vi='nvim'
 alias nano='nvim'
 
-# Network
+# Network & System
 alias ping='ping -c 5'
 alias wget='wget -c'
+alias ports='netstat -tulpn'        # Show open ports
+alias myip='curl -s ifconfig.me'    # Public IP address
+alias localip='ip addr show | grep inet'  # Local IP addresses
+
+# Quick shortcuts
+alias c='clear'
+alias h='history'
+alias j='jobs -l'
+alias path='echo -e ${PATH//:/\\n}'  # Display PATH on separate lines
+alias now='date +"%Y-%m-%d %H:%M:%S"'
+alias week='date +%V'
 
 # Exports
 export BAT_THEME="ansi"
@@ -649,11 +664,27 @@ echo "  Ctrl-a d        - Detach session"
 echo "  exit            - Exit pane/tmux"
 echo
 echo "File Operations:"
-echo "  ll              - Detailed file list"
-echo "  tree            - Directory tree"
+echo "  ls              - List with icons (eza)"
+echo "  ll              - Long listing with details"
+echo "  la              - Show all including hidden"
+echo "  l               - One file per line"
+echo "  tree            - Full directory tree"
+echo "  lt              - Tree limited to 2 levels"
 echo "  mkcd <dir>      - Create and enter directory"
 echo "  backup <file>   - Backup file with timestamp"
-echo "  extract <file>  - Extract archives"
+echo "  extract <file>  - Extract any archive"
+echo
+
+echo "Quick Aliases:"
+echo "  ff              - Fastfetch system info"
+echo "  c               - Clear screen"
+echo "  h               - History"
+echo "  j               - Jobs list"
+echo "  path            - Show PATH clearly"
+echo "  now             - Current date/time"
+echo "  myip            - Public IP address"
+echo "  localip         - Local IP addresses"
+echo "  ports           - Open ports"
 echo
 echo "Navigation:"
 echo "  ..              - Go up one directory"

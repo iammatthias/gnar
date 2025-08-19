@@ -46,11 +46,19 @@ After reboot, login to TTY and enjoy your enhanced terminal.
 ### Smart Aliases & Functions
 
 ```bash
+# File Listing (using eza with icons)
+ls              # List files with icons
+ll              # Long format with details
+la              # Show all including hidden
+l               # One file per line
+tree            # Full directory tree
+lt              # Tree limited to 2 levels
+
 # Navigation
-ll              # Detailed file listing with permissions, size, dates
-..              # Go up one directory (cd ..)
-...             # Go up two directories (cd ../..)
--               # Go to previous directory (cd -)
+..              # Go up one directory
+...             # Go up two directories
+-               # Go to previous directory
+cd              # Uses zoxide for smart jumping
 
 # Git Shortcuts
 gs              # git status - see what's changed
@@ -65,10 +73,21 @@ mkcd newdir     # Create directory and cd into it
 backup file.txt # Creates file.txt.backup.20240118_143022
 extract any.zip # Universal archive extractor (zip/tar/gz/7z)
 
+# Quick Shortcuts
+ff              # Fastfetch system info
+c               # Clear screen
+h               # History
+path            # Display PATH on separate lines
+now             # Current date/time
+myip            # Show public IP
+ports           # Show open ports
+
 # System Info
 df              # Disk usage in human-readable format
 free            # Memory usage in human-readable format
 ps              # All running processes
+cat             # Uses bat with syntax highlighting
+find            # Uses fd for faster searching
 ```
 
 ### Helper Commands
