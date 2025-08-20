@@ -23,6 +23,13 @@ REAL_USER=$(logname)
 # Update system
 pacman -Syu --noconfirm
 
+# Ensure UTF-8 locale is configured
+if ! grep -q "en_US.UTF-8 UTF-8" /etc/locale.gen 2>/dev/null; then
+    echo "en_US.UTF-8 UTF-8" >> /etc/locale.gen
+fi
+locale-gen
+echo "LANG=en_US.UTF-8" > /etc/locale.conf
+
 # Install minimal packages - just essentials
 pacman -S --noconfirm \
   zsh \
@@ -63,6 +70,11 @@ sudo -u $REAL_USER bash << 'EOF'
 # DarkMatter-inspired Zsh configuration for GNAR
 cat > ~/.zshrc << 'ZSHRC'
 # GNAR DarkMatter TTY Zsh Configuration
+
+# Set UTF-8 locale for proper tmux support
+export LANG=en_US.UTF-8
+export LC_ALL=en_US.UTF-8
+export LC_CTYPE=en_US.UTF-8
 
 # History setup
 HISTFILE=$HOME/.zsh_history
@@ -223,12 +235,14 @@ function pid_port() {
     netstat -tulpn | grep ":$1 "
 }
 
-# Tmux aliases
-alias tmux='tmux -2'  # Force 256 colors
-alias tn='tmux new -s'
-alias ta='tmux attach -t'
+# Tmux aliases - universal UTF-8 support
+alias tmux='tmux -u'  # Always use UTF-8
+alias tn='tmux -u new -s'
+alias ta='tmux -u attach -t'
 alias tl='tmux ls'
 alias tk='tmux kill-session -t'
+# For iTerm2 users who want integration mode
+alias tmux-cc='tmux -CC -u new -A -s main'
 
 # Setup zoxide and starship (DarkMatter essentials)
 eval "$(zoxide init zsh)"
@@ -423,9 +437,17 @@ FASTFETCH
 cat > ~/.tmux.conf << 'TMUX'
 # GNAR Tmux Configuration
 
+# Universal terminal compatibility
+set -g default-terminal "screen-256color"
+set-option -ga terminal-overrides ",*256col*:Tc"
+
 # Keep tmux defaults, only add vim-style navigation
 # Enable mouse support
 set -g mouse on
+
+# Ensure prefix key works (default Ctrl-b)
+set -g prefix C-b
+bind C-b send-prefix
 
 # Vim-style pane navigation (in addition to defaults)
 bind h select-pane -L
@@ -436,9 +458,6 @@ bind l select-pane -R
 # Vim-style splits (in addition to defaults)
 bind v split-window -h
 bind S split-window -v  # Capital S to avoid conflict with session list
-
-# Enable 256 colors
-set -g default-terminal "screen-256color"
 
 # Status bar
 set -g status-style bg=black,fg=white
@@ -668,6 +687,51 @@ case "$1" in
         show_themes
         ;;
 esac
+SCRIPT
+
+# Create tmux diagnostic tool
+cat > /usr/local/bin/gnar-tmux-test << 'SCRIPT'
+#!/bin/bash
+# GNAR Tmux Diagnostic Tool
+
+echo "=== GNAR Tmux Diagnostic ==="
+echo "Terminal: $TERM"
+echo "Tmux version: $(tmux -V 2>/dev/null || echo 'Not installed')"
+echo "Inside tmux: ${TMUX:-No}"
+echo "SSH connection: ${SSH_CONNECTION:-Local}"
+echo ""
+
+if [ -n "$TMUX" ]; then
+    echo "✓ You are inside tmux"
+    echo ""
+    echo "Testing prefix key (Ctrl-b)..."
+    echo "Try these commands:"
+    echo "  Ctrl-b ?    - Show all keybindings"
+    echo "  Ctrl-b d    - Detach from session"
+    echo "  Ctrl-b c    - Create new window"
+    echo "  Ctrl-b v    - Split vertically"
+    echo ""
+    echo "If Ctrl-b doesn't work:"
+    echo "  1. Check if your Mac terminal is intercepting it"
+    echo "  2. Try using iTerm2 instead of Terminal.app"
+    echo "  3. Run: export TERM=xterm-256color"
+else
+    echo "✗ You are NOT in tmux"
+    echo ""
+    echo "Start tmux with: tmux"
+    echo "Or attach to existing: tmux attach"
+fi
+
+if [ -n "$SSH_CONNECTION" ]; then
+    echo ""
+    echo "=== SSH Info ==="
+    echo "Connected from: $(echo $SSH_CONNECTION | awk '{print $1}')"
+    echo ""
+    echo "For better tmux over SSH:"
+    echo "  1. Use iTerm2 on your Mac"
+    echo "  2. Set TERM=xterm-256color"
+    echo "  3. Use 'ssh -t' for proper TTY allocation"
+fi
 SCRIPT
 
 # Create help command

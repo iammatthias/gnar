@@ -39,6 +39,13 @@ sudo ./scripts/setup.sh
 
 After reboot, login to TTY and enjoy your enhanced terminal.
 
+**SSH from any terminal:**
+```bash
+# Works with Terminal.app, iTerm2, Alacritty, Windows Terminal, etc.
+ssh user@server
+tmux  # UTF-8 is automatically enabled
+```
+
 ## Enhanced Zsh Features
 
 ### Beautiful Prompt
