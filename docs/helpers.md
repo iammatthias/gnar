@@ -14,47 +14,47 @@ tmux kill-session -t work # Kill specific session
 tmux kill-server        # Kill all sessions
 ```
 
-### Key Bindings (Prefix: Ctrl-a)
+### Key Bindings (Prefix: ` backtick)
 
 #### Pane Management
 ```bash
-Ctrl-a |        # Split window vertically
-Ctrl-a -        # Split window horizontally
-Ctrl-a h/j/k/l  # Navigate panes (vim-style)
-Ctrl-a H/J/K/L  # Resize panes (5 units)
-Ctrl-a x        # Close current pane (with confirmation)
-Ctrl-a q        # Show pane numbers (press number to jump)
-Ctrl-a z        # Toggle pane zoom (fullscreen)
-Ctrl-a space    # Cycle through pane layouts
-Ctrl-a {        # Move pane left
-Ctrl-a }        # Move pane right
+` v             # Split window vertically (vim-style)
+` s             # Split window horizontally (vim-style)
+` h/j/k/l       # Navigate panes (vim-style)
+` H/J/K/L       # Resize panes (5 units)
+` x             # Close current pane (with confirmation)
+` q             # Show pane numbers (press number to jump)
+` z             # Toggle pane zoom (fullscreen)
+` space         # Cycle through pane layouts
+` {             # Move pane left
+` }             # Move pane right
 ```
 
 #### Window Management
 ```bash
-Ctrl-a c        # Create new window
-Ctrl-a n        # Next window
-Ctrl-a p        # Previous window
-Ctrl-a 0-9      # Jump to window by number
-Ctrl-a ,        # Rename current window
-Ctrl-a &        # Close current window (with confirmation)
-Ctrl-a w        # List all windows
+` c             # Create new window
+` n             # Next window
+` p             # Previous window
+` 0-9           # Jump to window by number
+` ,             # Rename current window
+` &             # Close current window (with confirmation)
+` w             # List all windows
 ```
 
 #### Session Control
 ```bash
-Ctrl-a d        # Detach from session (keeps running)
-Ctrl-a D        # Choose client to detach
-Ctrl-a s        # List and switch sessions
-Ctrl-a $        # Rename current session
+` d             # Detach from session (keeps running)
+` D             # Choose client to detach
+` s             # List and switch sessions
+` $             # Rename current session
 ```
 
 #### Other Commands
 ```bash
-Ctrl-a r        # Reload tmux config
-Ctrl-a ?        # Show all key bindings
-Ctrl-a :        # Enter command mode
-Ctrl-a [        # Enter copy mode (scroll/select)
+` r             # Reload tmux config
+` ?             # Show all key bindings
+` :             # Enter command mode
+` [             # Enter copy mode (scroll/select)
 ```
 
 ### Exiting Tmux
@@ -62,13 +62,13 @@ Ctrl-a [        # Enter copy mode (scroll/select)
 There are several ways to exit tmux:
 
 1. **Exit a pane**: Type `exit` or press `Ctrl-d` in the shell
-2. **Close a pane**: `Ctrl-a x` (will ask for confirmation)
-3. **Detach from session**: `Ctrl-a d` (session continues running)
+2. **Close a pane**: `` ` x`` (will ask for confirmation)
+3. **Detach from session**: `` ` d`` (session continues running)
 4. **Kill entire session**: Exit all panes, or from outside tmux: `tmux kill-session -t session-name`
 
 ### Copy Mode (Scrolling & Selection)
 ```bash
-Ctrl-a [        # Enter copy mode
+` [             # Enter copy mode
 # In copy mode:
 h/j/k/l         # Navigate (vim-style)
 g               # Go to top
@@ -95,7 +95,7 @@ q               # Exit copy mode
 # On remote server
 tmux new -s dev
 # Do work, split panes as needed
-Ctrl-a d        # Detach before disconnecting
+` d             # Detach before disconnecting
 
 # Later, reconnect
 ssh server
@@ -106,11 +106,11 @@ tmux attach -t dev  # Resume exactly where you left off
 ```bash
 tmux new -s project1
 # Work on project1
-Ctrl-a d
+` d
 
 tmux new -s project2
 # Work on project2
-Ctrl-a s        # Switch between sessions
+` s             # Switch between sessions
 ```
 
 ## Quick Aliases

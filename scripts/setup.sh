@@ -392,6 +392,7 @@ cat > ~/.config/fastfetch/config.jsonc << 'FASTFETCH'
             "type": "disk",
             "key": "│ DISK USAGE │{$1}",
             "format": "",
+            "folders": "/",
             "percent": {
                 "type": ["bar", "hide-others"]
             }
@@ -422,10 +423,10 @@ FASTFETCH
 cat > ~/.tmux.conf << 'TMUX'
 # GNAR Tmux Configuration
 
-# Set prefix to Ctrl-a (like screen)
+# Set prefix to backtick (more SSH-friendly than Ctrl)
 unbind C-b
-set -g prefix C-a
-bind C-a send-prefix
+set -g prefix `
+bind ` send-prefix
 
 # Enable mouse support
 set -g mouse on
@@ -434,9 +435,9 @@ set -g mouse on
 set -g base-index 1
 setw -g pane-base-index 1
 
-# Split panes with | and -
-bind | split-window -h
-bind - split-window -v
+# Split panes with v and s (vim-style)
+bind v split-window -h
+bind s split-window -v
 unbind '"'
 unbind %
 
@@ -663,11 +664,11 @@ echo "  tmux            - Start new session"
 echo "  tn <name>       - New named session"
 echo "  ta <name>       - Attach to session"
 echo "  tl              - List sessions"
-echo "  Ctrl-a |        - Split vertical"
-echo "  Ctrl-a -        - Split horizontal"
-echo "  Ctrl-a h/j/k/l  - Navigate panes"
-echo "  Ctrl-a x        - Close pane"
-echo "  Ctrl-a d        - Detach session"
+echo "  \` v             - Split vertical (vim-style)"
+echo "  \` s             - Split horizontal (vim-style)"
+echo "  \` h/j/k/l       - Navigate panes"
+echo "  \` x             - Close pane"
+echo "  \` d             - Detach session"
 echo "  exit            - Exit pane/tmux"
 echo
 echo "File Operations:"

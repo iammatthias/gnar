@@ -117,12 +117,12 @@ help-gnar       # Interactive command reference guide
 
 ```bash
 tmux            # Start new session
-Ctrl-a |        # Split vertical
-Ctrl-a -        # Split horizontal
-Ctrl-a h/j/k/l  # Navigate panes
-Ctrl-a H/J/K/L  # Resize panes (hold shift)
-Ctrl-a x        # Close current pane
-Ctrl-a d        # Detach (session continues)
+` v             # Split vertical (vim-style)
+` s             # Split horizontal (vim-style)
+` h/j/k/l       # Navigate panes
+` H/J/K/L       # Resize panes (hold shift)
+` x             # Close current pane
+` d             # Detach (session continues)
 exit            # Exit pane/tmux
 ```
 
