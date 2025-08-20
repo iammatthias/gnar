@@ -14,47 +14,122 @@ tmux kill-session -t work # Kill specific session
 tmux kill-server        # Kill all sessions
 ```
 
-### Key Bindings (Prefix: ` backtick)
+### Key Bindings (Prefix: Ctrl-b)
 
 #### Pane Management
 ```bash
-` v             # Split window vertically (vim-style)
-` s             # Split window horizontally (vim-style)
-` h/j/k/l       # Navigate panes (vim-style)
-` H/J/K/L       # Resize panes (5 units)
-` x             # Close current pane (with confirmation)
-` q             # Show pane numbers (press number to jump)
-` z             # Toggle pane zoom (fullscreen)
-` space         # Cycle through pane layouts
-` {             # Move pane left
-` }             # Move pane right
+Ctrl-b "        # Split window horizontally (default)
+Ctrl-b %        # Split window vertically (default)
+Ctrl-b v        # Split window vertically (vim-style - added)
+Ctrl-b S        # Split window horizontally (capital S, vim-style - added)
+Ctrl-b h/j/k/l  # Navigate panes (vim-style - added)
+Ctrl-b arrows   # Navigate panes (default arrows)
+Ctrl-b x        # Close current pane (with confirmation)
+Ctrl-b q        # Show pane numbers (press number to jump)
+Ctrl-b z        # Toggle pane zoom (fullscreen)
+Ctrl-b space    # Cycle through pane layouts
+Ctrl-b {        # Move pane left
+Ctrl-b }        # Move pane right
+```
+
+#### SSH Remote Splits (Plugin)
+```bash
+Ctrl-b Ctrl-h   # Split horizontally and SSH to server
+Ctrl-b Ctrl-v   # Split vertically and SSH to server
+Ctrl-b Ctrl-w   # New window and SSH to server
+# After pressing these, you'll be prompted for the SSH destination
 ```
 
 #### Window Management
 ```bash
-` c             # Create new window
-` n             # Next window
-` p             # Previous window
-` 0-9           # Jump to window by number
-` ,             # Rename current window
-` &             # Close current window (with confirmation)
-` w             # List all windows
+Ctrl-b c        # Create new window
+Ctrl-b n        # Next window
+Ctrl-b p        # Previous window
+Ctrl-b 0-9      # Jump to window by number
+Ctrl-b ,        # Rename current window
+Ctrl-b &        # Close current window (with confirmation)
+Ctrl-b w        # List all windows
 ```
 
 #### Session Control
 ```bash
-` d             # Detach from session (keeps running)
-` D             # Choose client to detach
-` s             # List and switch sessions
-` $             # Rename current session
+Ctrl-b d        # Detach from session (keeps running)
+Ctrl-b D        # Choose client to detach
+Ctrl-b s        # List and switch sessions
+Ctrl-b $        # Rename current session
 ```
 
 #### Other Commands
 ```bash
-` r             # Reload tmux config
-` ?             # Show all key bindings
-` :             # Enter command mode
-` [             # Enter copy mode (scroll/select)
+Ctrl-b r        # Reload tmux config
+Ctrl-b ?        # Show all key bindings
+Ctrl-b :        # Enter command mode
+Ctrl-b [        # Enter copy mode (scroll/select)
+```
+
+#### Plugin Features (Auto-installed)
+
+**Session Management (resurrect/continuum)**
+```bash
+Ctrl-b Ctrl-s   # Save current session manually
+Ctrl-b Ctrl-r   # Restore saved session
+# Sessions auto-save every 15 minutes
+# Sessions auto-restore after reboot
+```
+
+**Enhanced Search (copycat)**
+```bash
+Ctrl-b /        # Search with regex support
+Ctrl-b Ctrl-f   # Search for files
+Ctrl-b Ctrl-u   # Search for URLs
+Ctrl-b Ctrl-d   # Search for digits
+Ctrl-b Ctrl-i   # Search for IP addresses
+```
+
+**Copy/Paste (yank)**
+```bash
+# In copy mode (Ctrl-b [):
+y               # Copy selection to system clipboard
+Y               # Copy current line to system clipboard
+# Normal mode:
+Ctrl-b y        # Copy current pane's command line to clipboard
+Ctrl-b Y        # Copy current pane's working directory
+```
+
+**File/URL Opening (open)**
+```bash
+# In copy mode, highlight a file/URL then:
+o               # Open file/URL
+Ctrl-o          # Open with $EDITOR
+S               # Search highlighted text in browser
+```
+
+**Better Pane Control (pain-control)**
+```bash
+Ctrl-b |        # Split pane vertically
+Ctrl-b -        # Split pane horizontally
+Ctrl-b \        # Split full width vertically
+Ctrl-b _        # Split full height horizontally
+Ctrl-b <        # Move pane left
+Ctrl-b >        # Move pane right
+```
+
+**Session Utils (sessionist)**
+```bash
+Ctrl-b g        # Switch to session by name (with completion)
+Ctrl-b C        # Create new session by name
+Ctrl-b X        # Kill current session without detaching
+Ctrl-b S        # Switch to last session
+Ctrl-b @        # Promote current pane to new session
+```
+
+**Logging (logging)**
+```bash
+Ctrl-b P        # Toggle logging current pane to file
+Ctrl-b alt-p    # Save visible text to file
+Ctrl-b alt-P    # Save complete pane history to file
+Ctrl-b alt-c    # Clear pane history
+# Logs saved to ~/tmux-logs/
 ```
 
 ### Exiting Tmux
@@ -62,13 +137,13 @@ tmux kill-server        # Kill all sessions
 There are several ways to exit tmux:
 
 1. **Exit a pane**: Type `exit` or press `Ctrl-d` in the shell
-2. **Close a pane**: `` ` x`` (will ask for confirmation)
-3. **Detach from session**: `` ` d`` (session continues running)
+2. **Close a pane**: `Ctrl-b x` (will ask for confirmation)
+3. **Detach from session**: `Ctrl-b d` (session continues running)
 4. **Kill entire session**: Exit all panes, or from outside tmux: `tmux kill-session -t session-name`
 
 ### Copy Mode (Scrolling & Selection)
 ```bash
-` [             # Enter copy mode
+Ctrl-b [        # Enter copy mode
 # In copy mode:
 h/j/k/l         # Navigate (vim-style)
 g               # Go to top
@@ -83,10 +158,11 @@ q               # Exit copy mode
 ### Tips & Tricks
 - **Mouse support**: Click to select panes, scroll to navigate
 - **Persistent sessions**: Detached sessions survive logout/disconnect
-- **Nested tmux**: Press `Ctrl-a a` to send prefix to inner tmux
 - **Config location**: `~/.tmux.conf`
 - **Windows vs Panes**: Windows are like tabs, panes split the current window
 - **Session naming**: Use descriptive names like 'work', 'personal', 'servers'
+- **Install plugins**: After first tmux start, press `Ctrl-b I` (capital i) to install plugins
+- **Update plugins**: Press `Ctrl-b U` to update all plugins
 
 ### Common Workflows
 
@@ -95,7 +171,7 @@ q               # Exit copy mode
 # On remote server
 tmux new -s dev
 # Do work, split panes as needed
-` d             # Detach before disconnecting
+Ctrl-b d        # Detach before disconnecting
 
 # Later, reconnect
 ssh server
@@ -106,11 +182,20 @@ tmux attach -t dev  # Resume exactly where you left off
 ```bash
 tmux new -s project1
 # Work on project1
-` d
+Ctrl-b d
 
 tmux new -s project2
 # Work on project2
-` s             # Switch between sessions
+Ctrl-b s        # Switch between sessions
+```
+
+#### Multiple SSH Servers
+```bash
+tmux new -s servers
+# Start with local pane
+Ctrl-b Ctrl-v   # Split vertically and SSH to server1
+Ctrl-b Ctrl-h   # Split horizontally and SSH to server2
+# Now you have local + server1 + server2 in one session
 ```
 
 ## Quick Aliases

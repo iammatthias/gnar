@@ -8,17 +8,22 @@
 
 **Shreddable TTY**
 
-A TTY setup Arch Linux. It is opinionated, and tailored to provide a minimal yet powerful baseline remote experience.
+An opionated Arch setup tailored to provide a minimal yet powerful baseline remote experience.
 
 _GNAR_ came from "Gnome + Arch", and stuck as a name despite abandoning Gnome. Along the way this project has flirted with Hyprland, PaperWM, i3, and other window managers. In the end the answer was always tmux.
 
 ## What You Get
 
-- **Tmux** - Tiling terminal multiplexer for TTY
+- **Tmux** - Tiling terminal multiplexer with 10+ plugins:
+  - Session persistence (survives reboots)
+  - System clipboard integration
+  - Enhanced search with regex
+  - SSH split panes for remote work
+  - Session/pane logging capabilities
 - **DarkMatter Zsh** - Enhanced shell with starship prompt, eza, bat, fzf, and zoxide
 - **Neovim** - Modern text editor
 - **Git** - Version control with shortcuts
-- **System tools** - fastfetch, htop, tree, curl
+- **System tools** - fastfetch, htop, tree, curl, bc, net-tools
 - **Helper utilities** - gnar-info, gnar-update, gnar-theme, help-gnar
 - **Smart functions** - mkcd, extract, backup, weather, calc
 
@@ -117,12 +122,11 @@ help-gnar       # Interactive command reference guide
 
 ```bash
 tmux            # Start new session
-` v             # Split vertical (vim-style)
-` s             # Split horizontal (vim-style)
-` h/j/k/l       # Navigate panes
-` H/J/K/L       # Resize panes (hold shift)
-` x             # Close current pane
-` d             # Detach (session continues)
+Ctrl-b v        # Split vertical (vim-style added)
+Ctrl-b S        # Split horizontal (capital S, vim-style added)
+Ctrl-b h/j/k/l  # Navigate panes (vim-style added)
+Ctrl-b x        # Close current pane
+Ctrl-b d        # Detach (session continues)
 exit            # Exit pane/tmux
 ```
 
