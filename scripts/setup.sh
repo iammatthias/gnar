@@ -423,35 +423,19 @@ FASTFETCH
 cat > ~/.tmux.conf << 'TMUX'
 # GNAR Tmux Configuration
 
-# Set prefix to backtick (more SSH-friendly than Ctrl)
-unbind C-b
-set -g prefix `
-bind ` send-prefix
-
+# Keep tmux defaults, only add vim-style navigation
 # Enable mouse support
 set -g mouse on
 
-# Start windows and panes at 1, not 0
-set -g base-index 1
-setw -g pane-base-index 1
-
-# Split panes with v and s (vim-style)
-bind v split-window -h
-bind s split-window -v
-unbind '"'
-unbind %
-
-# Vim-style pane navigation
+# Vim-style pane navigation (in addition to defaults)
 bind h select-pane -L
 bind j select-pane -D
 bind k select-pane -U
 bind l select-pane -R
 
-# Resize panes with vim keys
-bind -r H resize-pane -L 5
-bind -r J resize-pane -D 5
-bind -r K resize-pane -U 5
-bind -r L resize-pane -R 5
+# Vim-style splits (in addition to defaults)
+bind v split-window -h
+bind S split-window -v  # Capital S to avoid conflict with session list
 
 # Enable 256 colors
 set -g default-terminal "screen-256color"
@@ -463,9 +447,53 @@ set -g status-right '#[fg=yellow]#H #[fg=cyan]%H:%M'
 
 # Reload config
 bind r source-file ~/.tmux.conf \; display "Config reloaded!"
+
+# Tmux Plugin Manager (TPM)
+set -g @plugin 'tmux-plugins/tpm'
+
+# Essential plugins for better tmux experience
+set -g @plugin 'tmux-plugins/tmux-sensible'       # Better tmux defaults
+set -g @plugin 'tmux-plugins/tmux-resurrect'      # Restore sessions after reboot
+set -g @plugin 'tmux-plugins/tmux-continuum'      # Auto-save sessions
+set -g @plugin 'tmux-plugins/tmux-yank'           # Copy to system clipboard
+set -g @plugin 'tmux-plugins/tmux-copycat'        # Enhanced search (prefix + /)
+set -g @plugin 'tmux-plugins/tmux-open'           # Open files/URLs (prefix + o)
+set -g @plugin 'tmux-plugins/tmux-pain-control'   # Better pane management
+set -g @plugin 'tmux-plugins/tmux-sessionist'     # Session management utilities
+set -g @plugin 'tmux-plugins/tmux-logging'        # Log pane output to file
+
+# SSH split plugin for remote development
+set -g @plugin 'pschmitt/tmux-ssh-split'
+
+# Plugin configurations
+# Resurrect - restore pane contents
+set -g @resurrect-capture-pane-contents 'on'
+set -g @resurrect-strategy-vim 'session'
+set -g @resurrect-strategy-nvim 'session'
+
+# Continuum - automatic restore and save
+set -g @continuum-restore 'on'
+set -g @continuum-save-interval '15'
+
+# SSH split keybindings
+set -g @ssh-split-h-key 'C-h'  # Ctrl-b Ctrl-h - horizontal SSH split
+set -g @ssh-split-v-key 'C-v'  # Ctrl-b Ctrl-v - vertical SSH split
+set -g @ssh-split-w-key 'C-w'  # Ctrl-b Ctrl-w - new SSH window
+
+# Yank - use system clipboard
+set -g @yank_selection_mouse 'clipboard'
+
+# Initialize TPM (must be at bottom)
+run '~/.tmux/plugins/tpm/tpm'
 TMUX
 
 EOF
+
+# Install TPM (Tmux Plugin Manager)
+if [ ! -d "/home/$REAL_USER/.tmux/plugins/tpm" ]; then
+    echo "Installing Tmux Plugin Manager..."
+    sudo -u $REAL_USER git clone https://github.com/tmux-plugins/tpm /home/$REAL_USER/.tmux/plugins/tpm
+fi
 
 # Change shell to zsh (needs to be done as root for the actual user)
 echo -e "${GREEN}Setting zsh as default shell...${NC}"
@@ -664,11 +692,11 @@ echo "  tmux            - Start new session"
 echo "  tn <name>       - New named session"
 echo "  ta <name>       - Attach to session"
 echo "  tl              - List sessions"
-echo "  \` v             - Split vertical (vim-style)"
-echo "  \` s             - Split horizontal (vim-style)"
-echo "  \` h/j/k/l       - Navigate panes"
-echo "  \` x             - Close pane"
-echo "  \` d             - Detach session"
+echo "  Ctrl-b v        - Split vertical (vim-style added)"
+echo "  Ctrl-b S        - Split horizontal (capital S, vim-style added)"
+echo "  Ctrl-b h/j/k/l  - Navigate panes (vim-style added)"
+echo "  Ctrl-b x        - Close pane"
+echo "  Ctrl-b d        - Detach session"
 echo "  exit            - Exit pane/tmux"
 echo
 echo "File Operations:"
@@ -728,4 +756,5 @@ echo "  • gnar-update - Update system and clean cache"
 echo "  • help-gnar - Complete command reference"
 echo
 echo "Start tmux for tiling terminal experience!"
+echo "First time tmux setup: Press Ctrl-b I (capital i) to install plugins"
 echo "Reboot and enjoy your enhanced TTY!"
