@@ -561,53 +561,29 @@ show_themes() {
 apply_theme() {
     local theme=$1
     echo "$theme" > ~/.gnar_theme
+    mkdir -p ~/.config
     
     case "$theme" in
         darkmatter)
-            # DarkMatter FZF colors
-            sed -i '/^export FZF_DEFAULT_OPTS=/,/'"'"'$/d' ~/.zshrc
-            cat >> ~/.zshrc << 'EOF'
-export FZF_DEFAULT_OPTS='
-  --color=fg:#c1c1c1,fg+:#ffffff,bg:#121113,bg+:#222222
-  --color=hl:#5f8787,hl+:#fbcb97,info:#e78a53,marker:#fbcb97
-  --color=prompt:#e78a53,spinner:#5f8787,pointer:#fbcb97,header:#aaaaaa
-  --color=border:#333333,label:#888888,query:#ffffff
-  --border="rounded" --border-label="" --preview-window="border-rounded" --prompt="> "
-  --marker=">" --pointer="◆" --separator="─" --scrollbar="│"'
-EOF
-            
-            # DarkMatter Starship theme
-            mkdir -p ~/.config
             cat > ~/.config/starship.toml << 'STARSHIP'
 format = """
-[┌───────────────────────────────────────────────────────────────────────](bold #5f8787)
-[│](bold #5f8787)$os$username$hostname$directory$git_branch$git_status$cmd_duration
+[┌─](bold #5f8787)[$user](bold #fbcb97)[@](bold #5f8787)[$hostname](bold #c1c1c1)[ in ](bold #5f8787)[$path](bold #fbcb97)[$git_branch][$git_status][$cmd_duration]
 [└─](bold #5f8787)$character"""
-
-[os]
-format = "[$symbol]($style)"
-style = "bold #e78a53"
-disabled = false
-
-[os.symbols]
-Arch = "  "
-Ubuntu = "  "
-Macos = "  "
 
 [username]
 show_always = true
 style_user = "bold #fbcb97"
 style_root = "bold #ff6b6b"
-format = "[$user]($style)"
+format = "$user"
 
 [hostname]
 ssh_only = false
 style = "bold #c1c1c1"
-format = " in [$hostname](bold #5f8787) "
+format = "$hostname"
 
 [directory]
 style = "bold #fbcb97"
-format = "in [$path]($style)"
+format = "$path"
 truncation_length = 3
 truncation_symbol = "…/"
 
@@ -621,7 +597,7 @@ format = "[$all_status$ahead_behind]($style)"
 
 [cmd_duration]
 style = "bold #888888"
-format = " took [$duration]($style)"
+format = " [$duration]($style)"
 
 [character]
 success_symbol = "[❯](bold #e78a53)"
@@ -631,50 +607,25 @@ STARSHIP
             ;;
             
         matrix)
-            # Matrix green theme
-            sed -i '/^export FZF_DEFAULT_OPTS=/,/'"'"'$/d' ~/.zshrc
-            cat >> ~/.zshrc << 'EOF'
-export FZF_DEFAULT_OPTS='
-  --color=fg:#00ff00,fg+:#00ff00,bg:#000000,bg+:#001100
-  --color=hl:#00aa00,hl+:#00ff00,info:#00ff00,marker:#00ff00
-  --color=prompt:#00ff00,spinner:#00aa00,pointer:#00ff00,header:#00aa00
-  --color=border:#00aa00,label:#00ff00,query:#00ff00
-  --border="rounded" --border-label="" --preview-window="border-rounded" --prompt="> "
-  --marker=">" --pointer=">" --separator="─" --scrollbar="│"'
-EOF
-            
-            # Matrix Starship theme
-            mkdir -p ~/.config
             cat > ~/.config/starship.toml << 'STARSHIP'
 format = """
-[▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄](bold green)
-[█](bold green)$os$username$hostname$directory$git_branch$git_status$cmd_duration
-[▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀](bold green)$character"""
-
-[os]
-format = "[$symbol]($style)"
-style = "bold bright-green"
-disabled = false
-
-[os.symbols]
-Arch = " ⚡ "
-Ubuntu = " ⚡ "
-Macos = " ⚡ "
+[数](bold bright-green) [$user](bold bright-green)[@](bold green)[$hostname](bold green)[ in ](bold green)[$path](bold bright-green)[$git_branch][$git_status][$cmd_duration]
+$character"""
 
 [username]
 show_always = true
 style_user = "bold bright-green"
 style_root = "bold red"
-format = "[$user]($style)"
+format = "$user"
 
 [hostname]
 ssh_only = false
 style = "bold green"
-format = " in [$hostname]($style) "
+format = "$hostname"
 
 [directory]
 style = "bold bright-green"
-format = "in [$path]($style)"
+format = "$path"
 truncation_length = 3
 truncation_symbol = "…/"
 
@@ -688,7 +639,7 @@ format = "[$all_status$ahead_behind]($style)"
 
 [cmd_duration]
 style = "bold green"
-format = " took [$duration]($style)"
+format = " [$duration]($style)"
 
 [character]
 success_symbol = "[>](bold bright-green)"
@@ -698,39 +649,25 @@ STARSHIP
             ;;
             
         minimal)
-            # Minimal monochrome
-            sed -i '/^export FZF_DEFAULT_OPTS=/,/'"'"'$/d' ~/.zshrc
-            cat >> ~/.zshrc << 'EOF'
-export FZF_DEFAULT_OPTS='
-  --color=fg:#ffffff,fg+:#ffffff,bg:#000000,bg+:#222222
-  --color=hl:#888888,hl+:#ffffff,info:#cccccc,marker:#ffffff
-  --color=prompt:#ffffff,spinner:#888888,pointer:#ffffff,header:#888888
-  --color=border:#444444,label:#888888,query:#ffffff
-  --border="sharp" --border-label="" --preview-window="border-sharp" --prompt="> "
-  --marker=">" --pointer=">" --separator="─" --scrollbar="│"'
-EOF
-            
-            # Minimal Starship theme
-            mkdir -p ~/.config
             cat > ~/.config/starship.toml << 'STARSHIP'
 format = """
-$username$hostname$directory$git_branch$git_status$cmd_duration
+[$user](bold white)[@](white)[$hostname](bold white)[ in ](white)[$path](bold white)[$git_branch][$git_status][$cmd_duration]
 $character"""
 
 [username]
 show_always = true
 style_user = "bold white"
 style_root = "bold red"
-format = "[$user]($style)"
+format = "$user"
 
 [hostname]
 ssh_only = false
 style = "bold white"
-format = "@[$hostname]($style)"
+format = "$hostname"
 
 [directory]
 style = "bold white"
-format = ":[$path]($style)"
+format = "$path"
 truncation_length = 3
 truncation_symbol = "…/"
 
@@ -747,57 +684,32 @@ style = "bold white"
 format = " [$duration]($style)"
 
 [character]
-success_symbol = "[❯](bold white)"
-error_symbol = "[❯](bold red)"
+success_symbol = "[>](bold white)"
+error_symbol = "[>](bold red)"
 STARSHIP
             echo -e "${GREEN}Minimal theme applied!${NC}"
             ;;
             
         retro)
-            # Retro 80s colors
-            sed -i '/^export FZF_DEFAULT_OPTS=/,/'"'"'$/d' ~/.zshrc
-            cat >> ~/.zshrc << 'EOF'
-export FZF_DEFAULT_OPTS='
-  --color=fg:#ff00ff,fg+:#00ffff,bg:#000033,bg+:#000066
-  --color=hl:#ffff00,hl+:#ff00ff,info:#00ffff,marker:#ff00ff
-  --color=prompt:#ff00ff,spinner:#00ffff,pointer:#ffff00,header:#ff00ff
-  --color=border:#ff00ff,label:#00ffff,query:#ffffff
-  --border="double" --border-label="" --preview-window="border-double" --prompt="> "
-  --marker="▸" --pointer="▶" --separator="═" --scrollbar="║"'
-EOF
-            
-            # Retro Starship theme
-            mkdir -p ~/.config
             cat > ~/.config/starship.toml << 'STARSHIP'
 format = """
-[╔══════════════════════════════════════════════════════════════════════════════╗](bold magenta)
-[║](bold magenta)$os$username$hostname$directory$git_branch$git_status$cmd_duration
-[╚══════════════════════════════════════════════════════════════════════════════╝](bold magenta)$character"""
-
-[os]
-format = "[$symbol]($style)"
-style = "bold bright-magenta"
-disabled = false
-
-[os.symbols]
-Arch = " ◉ "
-Ubuntu = " ◉ "
-Macos = " ◉ "
+[★](bold bright-magenta) [$user](bold bright-cyan)[@](bold magenta)[$hostname](bold magenta)[ in ](bold magenta)[$path](bold bright-magenta)[$git_branch][$git_status][$cmd_duration]
+$character"""
 
 [username]
 show_always = true
 style_user = "bold bright-cyan"
 style_root = "bold red"
-format = "[$user]($style)"
+format = "$user"
 
 [hostname]
 ssh_only = false
-style = "bold bright-yellow"
-format = " in [$hostname]($style) "
+style = "bold magenta"
+format = "$hostname"
 
 [directory]
 style = "bold bright-magenta"
-format = "in [$path]($style)"
+format = "$path"
 truncation_length = 3
 truncation_symbol = "…/"
 
@@ -811,7 +723,7 @@ format = "[$all_status$ahead_behind]($style)"
 
 [cmd_duration]
 style = "bold bright-yellow"
-format = " took [$duration]($style)"
+format = " [$duration]($style)"
 
 [character]
 success_symbol = "[▶](bold bright-magenta)"
@@ -821,50 +733,25 @@ STARSHIP
             ;;
             
         ocean)
-            # Ocean blue theme
-            sed -i '/^export FZF_DEFAULT_OPTS=/,/'"'"'$/d' ~/.zshrc
-            cat >> ~/.zshrc << 'EOF'
-export FZF_DEFAULT_OPTS='
-  --color=fg:#a0c4e0,fg+:#ffffff,bg:#001122,bg+:#002244
-  --color=hl:#4488cc,hl+:#66aaff,info:#3377bb,marker:#5599dd
-  --color=prompt:#66aaff,spinner:#4488cc,pointer:#88ccff,header:#5599dd
-  --color=border:#334466,label:#6699cc,query:#ffffff
-  --border="rounded" --border-label="" --preview-window="border-rounded" --prompt="~ "
-  --marker="~" --pointer="◈" --separator="─" --scrollbar="│"'
-EOF
-            
-            # Ocean Starship theme
-            mkdir -p ~/.config
             cat > ~/.config/starship.toml << 'STARSHIP'
 format = """
-[~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~](bold blue)
-[~](bold blue)$os$username$hostname$directory$git_branch$git_status$cmd_duration
-[~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~](bold blue)$character"""
-
-[os]
-format = "[$symbol]($style)"
-style = "bold bright-blue"
-disabled = false
-
-[os.symbols]
-Arch = " 🌊 "
-Ubuntu = " 🌊 "
-Macos = " 🌊 "
+[🌊](bold bright-blue) [$user](bold bright-cyan)[@](bold blue)[$hostname](bold blue)[ in ](bold blue)[$path](bold bright-blue)[$git_branch][$git_status][$cmd_duration]
+$character"""
 
 [username]
 show_always = true
 style_user = "bold bright-cyan"
 style_root = "bold red"
-format = "[$user]($style)"
+format = "$user"
 
 [hostname]
 ssh_only = false
 style = "bold blue"
-format = " in [$hostname]($style) "
+format = "$hostname"
 
 [directory]
 style = "bold bright-blue"
-format = "in [$path]($style)"
+format = "$path"
 truncation_length = 3
 truncation_symbol = "…/"
 
@@ -878,7 +765,7 @@ format = "[$all_status$ahead_behind]($style)"
 
 [cmd_duration]
 style = "bold blue"
-format = " took [$duration]($style)"
+format = " [$duration]($style)"
 
 [character]
 success_symbol = "[◈](bold bright-blue)"
@@ -894,9 +781,8 @@ STARSHIP
             ;;
     esac
     
-    echo "Restart your shell or run: source ~/.zshrc"
+    echo "Run: exec zsh"
 }
-
 case "$1" in
     list|ls)
         show_themes
