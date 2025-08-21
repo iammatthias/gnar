@@ -25,6 +25,53 @@ tty
 # If locked out, boot from USB and chroot to fix
 ```
 
+## Tmux Issues
+
+### Prefix Key Not Working
+```bash
+# Test if keyboard input is working
+/usr/bin/cat -v
+# Press Ctrl+b, should show: ^B
+# Press Ctrl+c to exit
+
+# Check if you're actually in tmux
+echo $TMUX
+# Should show something like: /tmp/tmux-1000/default,1234,0
+
+# Check tmux keybindings
+tmux list-keys | grep "C-b"
+```
+
+### Clean Config for Testing
+```bash
+# Kill all tmux sessions
+tmux kill-server
+
+# Create minimal test config
+cat > ~/.tmux.conf.test << 'EOF'
+set -g prefix C-b
+bind C-b send-prefix
+set -g mouse on
+EOF
+
+# Test with minimal config
+tmux -f ~/.tmux.conf.test
+# Try: Ctrl+b then d (should detach)
+```
+
+### Plugin Issues
+```bash
+# Check if plugins are installed
+ls -la ~/.tmux/plugins/
+
+# Install plugins manually
+# In tmux: Press Ctrl+b I (capital i)
+
+# If plugins break tmux, remove them
+rm -rf ~/.tmux/plugins/
+# Restart tmux - should work with built-in features
+```
+
 ## Zsh Issues
 
 ### History Not Working

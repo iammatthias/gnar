@@ -129,12 +129,15 @@ help-gnar       # Interactive command reference guide
 
 ```bash
 tmux            # Start new session
-Ctrl-b v        # Split vertical (vim-style added)
-Ctrl-b S        # Split horizontal (capital S, vim-style added)
-Ctrl-b h/j/k/l  # Navigate panes (vim-style added)
+Ctrl-b v        # Split vertical (vim-style)
+Ctrl-b S        # Split horizontal (vim-style) 
+Ctrl-b h/j/k/l  # Navigate panes (vim-style)
 Ctrl-b x        # Close current pane
 Ctrl-b d        # Detach (session continues)
 exit            # Exit pane/tmux
+
+# Install plugins for enhanced features (optional)
+Ctrl-b I        # Install plugins (capital i)
 ```
 
 ## Key Features
