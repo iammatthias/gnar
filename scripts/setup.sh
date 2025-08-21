@@ -575,6 +575,58 @@ export FZF_DEFAULT_OPTS='
   --border="rounded" --border-label="" --preview-window="border-rounded" --prompt="> "
   --marker=">" --pointer="◆" --separator="─" --scrollbar="│"'
 EOF
+            
+            # DarkMatter Starship theme
+            mkdir -p ~/.config
+            cat > ~/.config/starship.toml << 'STARSHIP'
+format = """
+[┌───────────────────────────────────────────────────────────────────────](bold #5f8787)
+[│](bold #5f8787)$os$username$hostname$directory$git_branch$git_status$cmd_duration
+[└─](bold #5f8787)$character"""
+
+[os]
+format = "[$symbol]($style)"
+style = "bold #e78a53"
+disabled = false
+
+[os.symbols]
+Arch = "  "
+Ubuntu = "  "
+Macos = "  "
+
+[username]
+show_always = true
+style_user = "bold #fbcb97"
+style_root = "bold #ff6b6b"
+format = "[$user]($style)"
+
+[hostname]
+ssh_only = false
+style = "bold #c1c1c1"
+format = " in [$hostname](bold #5f8787) "
+
+[directory]
+style = "bold #fbcb97"
+format = "in [$path]($style)"
+truncation_length = 3
+truncation_symbol = "…/"
+
+[git_branch]
+style = "bold #e78a53"
+format = " [$branch]($style)"
+
+[git_status]
+style = "bold #ff6b6b"
+format = "[$all_status$ahead_behind]($style)"
+
+[cmd_duration]
+style = "bold #888888"
+format = " took [$duration]($style)"
+
+[character]
+success_symbol = "[❯](bold #e78a53)"
+error_symbol = "[❯](bold #ff6b6b)"
+STARSHIP
             echo -e "${GREEN}DarkMatter theme applied!${NC}"
             ;;
             
@@ -590,6 +642,58 @@ export FZF_DEFAULT_OPTS='
   --border="rounded" --border-label="" --preview-window="border-rounded" --prompt="> "
   --marker=">" --pointer=">" --separator="─" --scrollbar="│"'
 EOF
+            
+            # Matrix Starship theme
+            mkdir -p ~/.config
+            cat > ~/.config/starship.toml << 'STARSHIP'
+format = """
+[▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄](bold green)
+[█](bold green)$os$username$hostname$directory$git_branch$git_status$cmd_duration
+[▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀](bold green)$character"""
+
+[os]
+format = "[$symbol]($style)"
+style = "bold bright-green"
+disabled = false
+
+[os.symbols]
+Arch = " ⚡ "
+Ubuntu = " ⚡ "
+Macos = " ⚡ "
+
+[username]
+show_always = true
+style_user = "bold bright-green"
+style_root = "bold red"
+format = "[$user]($style)"
+
+[hostname]
+ssh_only = false
+style = "bold green"
+format = " in [$hostname]($style) "
+
+[directory]
+style = "bold bright-green"
+format = "in [$path]($style)"
+truncation_length = 3
+truncation_symbol = "…/"
+
+[git_branch]
+style = "bold green"
+format = " [$branch]($style)"
+
+[git_status]
+style = "bold red"
+format = "[$all_status$ahead_behind]($style)"
+
+[cmd_duration]
+style = "bold green"
+format = " took [$duration]($style)"
+
+[character]
+success_symbol = "[>](bold bright-green)"
+error_symbol = "[>](bold red)"
+STARSHIP
             echo -e "${GREEN}Matrix theme applied!${NC}"
             ;;
             
@@ -605,6 +709,47 @@ export FZF_DEFAULT_OPTS='
   --border="sharp" --border-label="" --preview-window="border-sharp" --prompt="> "
   --marker=">" --pointer=">" --separator="─" --scrollbar="│"'
 EOF
+            
+            # Minimal Starship theme
+            mkdir -p ~/.config
+            cat > ~/.config/starship.toml << 'STARSHIP'
+format = """
+$username$hostname$directory$git_branch$git_status$cmd_duration
+$character"""
+
+[username]
+show_always = true
+style_user = "bold white"
+style_root = "bold red"
+format = "[$user]($style)"
+
+[hostname]
+ssh_only = false
+style = "bold white"
+format = "@[$hostname]($style)"
+
+[directory]
+style = "bold white"
+format = ":[$path]($style)"
+truncation_length = 3
+truncation_symbol = "…/"
+
+[git_branch]
+style = "bold white"
+format = " [$branch]($style)"
+
+[git_status]
+style = "bold white"
+format = "[$all_status$ahead_behind]($style)"
+
+[cmd_duration]
+style = "bold white"
+format = " [$duration]($style)"
+
+[character]
+success_symbol = "[❯](bold white)"
+error_symbol = "[❯](bold red)"
+STARSHIP
             echo -e "${GREEN}Minimal theme applied!${NC}"
             ;;
             
@@ -620,6 +765,58 @@ export FZF_DEFAULT_OPTS='
   --border="double" --border-label="" --preview-window="border-double" --prompt="> "
   --marker="▸" --pointer="▶" --separator="═" --scrollbar="║"'
 EOF
+            
+            # Retro Starship theme
+            mkdir -p ~/.config
+            cat > ~/.config/starship.toml << 'STARSHIP'
+format = """
+[╔══════════════════════════════════════════════════════════════════════════════╗](bold magenta)
+[║](bold magenta)$os$username$hostname$directory$git_branch$git_status$cmd_duration
+[╚══════════════════════════════════════════════════════════════════════════════╝](bold magenta)$character"""
+
+[os]
+format = "[$symbol]($style)"
+style = "bold bright-magenta"
+disabled = false
+
+[os.symbols]
+Arch = " ◉ "
+Ubuntu = " ◉ "
+Macos = " ◉ "
+
+[username]
+show_always = true
+style_user = "bold bright-cyan"
+style_root = "bold red"
+format = "[$user]($style)"
+
+[hostname]
+ssh_only = false
+style = "bold bright-yellow"
+format = " in [$hostname]($style) "
+
+[directory]
+style = "bold bright-magenta"
+format = "in [$path]($style)"
+truncation_length = 3
+truncation_symbol = "…/"
+
+[git_branch]
+style = "bold bright-cyan"
+format = " [$branch]($style)"
+
+[git_status]
+style = "bold red"
+format = "[$all_status$ahead_behind]($style)"
+
+[cmd_duration]
+style = "bold bright-yellow"
+format = " took [$duration]($style)"
+
+[character]
+success_symbol = "[▶](bold bright-magenta)"
+error_symbol = "[▶](bold red)"
+STARSHIP
             echo -e "${GREEN}Retro theme applied!${NC}"
             ;;
             
@@ -635,6 +832,58 @@ export FZF_DEFAULT_OPTS='
   --border="rounded" --border-label="" --preview-window="border-rounded" --prompt="~ "
   --marker="~" --pointer="◈" --separator="─" --scrollbar="│"'
 EOF
+            
+            # Ocean Starship theme
+            mkdir -p ~/.config
+            cat > ~/.config/starship.toml << 'STARSHIP'
+format = """
+[~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~](bold blue)
+[~](bold blue)$os$username$hostname$directory$git_branch$git_status$cmd_duration
+[~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~](bold blue)$character"""
+
+[os]
+format = "[$symbol]($style)"
+style = "bold bright-blue"
+disabled = false
+
+[os.symbols]
+Arch = " 🌊 "
+Ubuntu = " 🌊 "
+Macos = " 🌊 "
+
+[username]
+show_always = true
+style_user = "bold bright-cyan"
+style_root = "bold red"
+format = "[$user]($style)"
+
+[hostname]
+ssh_only = false
+style = "bold blue"
+format = " in [$hostname]($style) "
+
+[directory]
+style = "bold bright-blue"
+format = "in [$path]($style)"
+truncation_length = 3
+truncation_symbol = "…/"
+
+[git_branch]
+style = "bold cyan"
+format = " [$branch]($style)"
+
+[git_status]
+style = "bold red"
+format = "[$all_status$ahead_behind]($style)"
+
+[cmd_duration]
+style = "bold blue"
+format = " took [$duration]($style)"
+
+[character]
+success_symbol = "[◈](bold bright-blue)"
+error_symbol = "[◈](bold red)"
+STARSHIP
             echo -e "${GREEN}Ocean theme applied!${NC}"
             ;;
             
