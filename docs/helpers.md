@@ -16,13 +16,13 @@ tmux kill-server        # Kill all sessions
 
 ### Key Bindings (Prefix: Ctrl-b)
 
-#### Pane Management
+#### Pane Management (Built-in)
 ```bash
 Ctrl-b "        # Split window horizontally (default)
 Ctrl-b %        # Split window vertically (default)
-Ctrl-b v        # Split window vertically (vim-style - added)
-Ctrl-b S        # Split window horizontally (capital S, vim-style - added)
-Ctrl-b h/j/k/l  # Navigate panes (vim-style - added)
+Ctrl-b v        # Split window vertically (vim-style)
+Ctrl-b S        # Split window horizontally (vim-style)
+Ctrl-b h/j/k/l  # Navigate panes (vim-style)
 Ctrl-b arrows   # Navigate panes (default arrows)
 Ctrl-b x        # Close current pane (with confirmation)
 Ctrl-b q        # Show pane numbers (press number to jump)
@@ -30,14 +30,6 @@ Ctrl-b z        # Toggle pane zoom (fullscreen)
 Ctrl-b space    # Cycle through pane layouts
 Ctrl-b {        # Move pane left
 Ctrl-b }        # Move pane right
-```
-
-#### SSH Remote Splits (Plugin)
-```bash
-Ctrl-b Ctrl-h   # Split horizontally and SSH to server
-Ctrl-b Ctrl-v   # Split vertically and SSH to server
-Ctrl-b Ctrl-w   # New window and SSH to server
-# After pressing these, you'll be prompted for the SSH destination
 ```
 
 #### Window Management
@@ -67,7 +59,9 @@ Ctrl-b :        # Enter command mode
 Ctrl-b [        # Enter copy mode (scroll/select)
 ```
 
-#### Plugin Features (Auto-installed)
+#### Plugin Features (Install with Ctrl-b I)
+
+Once you install plugins with `Ctrl-b I`, these enhanced features become available:
 
 **Session Management (resurrect/continuum)**
 ```bash
@@ -104,32 +98,20 @@ Ctrl-o          # Open with $EDITOR
 S               # Search highlighted text in browser
 ```
 
-**Better Pane Control (pain-control)**
-```bash
-Ctrl-b |        # Split pane vertically
-Ctrl-b -        # Split pane horizontally
-Ctrl-b \        # Split full width vertically
-Ctrl-b _        # Split full height horizontally
-Ctrl-b <        # Move pane left
-Ctrl-b >        # Move pane right
-```
-
 **Session Utils (sessionist)**
 ```bash
 Ctrl-b g        # Switch to session by name (with completion)
 Ctrl-b C        # Create new session by name
 Ctrl-b X        # Kill current session without detaching
-Ctrl-b S        # Switch to last session
 Ctrl-b @        # Promote current pane to new session
 ```
 
-**Logging (logging)**
+**SSH Remote Splits (ssh-split)**
 ```bash
-Ctrl-b P        # Toggle logging current pane to file
-Ctrl-b alt-p    # Save visible text to file
-Ctrl-b alt-P    # Save complete pane history to file
-Ctrl-b alt-c    # Clear pane history
-# Logs saved to ~/tmux-logs/
+Ctrl-b Ctrl-h   # Split horizontally and SSH to server
+Ctrl-b Ctrl-v   # Split vertically and SSH to server
+Ctrl-b Ctrl-w   # New window and SSH to server
+# After pressing these, you'll be prompted for the SSH destination
 ```
 
 ### Exiting Tmux
@@ -161,8 +143,12 @@ q               # Exit copy mode
 - **Config location**: `~/.tmux.conf`
 - **Windows vs Panes**: Windows are like tabs, panes split the current window
 - **Session naming**: Use descriptive names like 'work', 'personal', 'servers'
-- **Install plugins**: After first tmux start, press `Ctrl-b I` (capital i) to install plugins
+
+### Plugin Installation (Optional)
+- **Basic tmux works immediately** - All core keybindings work out of the box
+- **Install plugins for enhanced features**: Press `Ctrl-b I` (capital i) after starting tmux
 - **Update plugins**: Press `Ctrl-b U` to update all plugins
+- **Plugin features include**: Session persistence, clipboard integration, enhanced search
 
 ### Common Workflows
 

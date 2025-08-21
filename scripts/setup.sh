@@ -125,6 +125,7 @@ alias top='htop'
 alias ff='fastfetch'           # Quick system info display
 alias nf='fastfetch'           # Alternative for neofetch users
 alias cat='bat --style=plain'  # Better cat with syntax highlighting
+alias realcat='/usr/bin/cat'  # Original cat for when you need it
 alias grep='grep --color=auto'
 alias fgrep='fgrep --color=auto'
 alias egrep='egrep --color=auto'
@@ -248,11 +249,6 @@ alias tmux-cc='tmux -CC -u new -A -s main'
 eval "$(zoxide init zsh)"
 eval "$(starship init zsh)"
 
-# Welcome message
-echo "Welcome to GNAR DarkMatter TTY"
-echo "Type 'gnar-info' for system information"
-echo "Type 'help-gnar' for command reference"
-echo "Type 'tmux' to start tiling terminal"
 ZSHRC
 
 # Create fastfetch configuration directory and config
@@ -435,19 +431,18 @@ FASTFETCH
 
 # Create tmux configuration
 cat > ~/.tmux.conf << 'TMUX'
-# GNAR Tmux Configuration
+# GNAR Tmux Configuration - Working Base
 
 # Universal terminal compatibility
 set -g default-terminal "screen-256color"
 set-option -ga terminal-overrides ",*256col*:Tc"
 
-# Keep tmux defaults, only add vim-style navigation
-# Enable mouse support
-set -g mouse on
-
 # Ensure prefix key works (default Ctrl-b)
 set -g prefix C-b
 bind C-b send-prefix
+
+# Enable mouse support
+set -g mouse on
 
 # Vim-style pane navigation (in addition to defaults)
 bind h select-pane -L
@@ -457,7 +452,7 @@ bind l select-pane -R
 
 # Vim-style splits (in addition to defaults)
 bind v split-window -h
-bind S split-window -v  # Capital S to avoid conflict with session list
+bind S split-window -v
 
 # Status bar
 set -g status-style bg=black,fg=white
@@ -467,43 +462,40 @@ set -g status-right '#[fg=yellow]#H #[fg=cyan]%H:%M'
 # Reload config
 bind r source-file ~/.tmux.conf \; display "Config reloaded!"
 
-# Tmux Plugin Manager (TPM)
-set -g @plugin 'tmux-plugins/tpm'
+# Tmux Plugin Manager (TPM) - Only if plugins directory exists
+if-shell "test -d ~/.tmux/plugins/tpm" {
+    # Core plugins for enhanced functionality
+    set -g @plugin 'tmux-plugins/tpm'
+    set -g @plugin 'tmux-plugins/tmux-sensible'       # Better tmux defaults
+    set -g @plugin 'tmux-plugins/tmux-resurrect'      # Restore sessions after reboot
+    set -g @plugin 'tmux-plugins/tmux-continuum'      # Auto-save sessions
+    set -g @plugin 'tmux-plugins/tmux-yank'           # Copy to system clipboard
+    set -g @plugin 'tmux-plugins/tmux-copycat'        # Enhanced search
+    set -g @plugin 'tmux-plugins/tmux-open'           # Open files/URLs
+    set -g @plugin 'tmux-plugins/tmux-sessionist'     # Session management
+    set -g @plugin 'pschmitt/tmux-ssh-split'          # SSH split plugin
 
-# Essential plugins for better tmux experience
-set -g @plugin 'tmux-plugins/tmux-sensible'       # Better tmux defaults
-set -g @plugin 'tmux-plugins/tmux-resurrect'      # Restore sessions after reboot
-set -g @plugin 'tmux-plugins/tmux-continuum'      # Auto-save sessions
-set -g @plugin 'tmux-plugins/tmux-yank'           # Copy to system clipboard
-set -g @plugin 'tmux-plugins/tmux-copycat'        # Enhanced search (prefix + /)
-set -g @plugin 'tmux-plugins/tmux-open'           # Open files/URLs (prefix + o)
-set -g @plugin 'tmux-plugins/tmux-pain-control'   # Better pane management
-set -g @plugin 'tmux-plugins/tmux-sessionist'     # Session management utilities
-set -g @plugin 'tmux-plugins/tmux-logging'        # Log pane output to file
+    # Plugin configurations
+    # Resurrect - restore pane contents
+    set -g @resurrect-capture-pane-contents 'on'
+    set -g @resurrect-strategy-vim 'session'
+    set -g @resurrect-strategy-nvim 'session'
 
-# SSH split plugin for remote development
-set -g @plugin 'pschmitt/tmux-ssh-split'
+    # Continuum - automatic restore and save
+    set -g @continuum-restore 'on'
+    set -g @continuum-save-interval '15'
 
-# Plugin configurations
-# Resurrect - restore pane contents
-set -g @resurrect-capture-pane-contents 'on'
-set -g @resurrect-strategy-vim 'session'
-set -g @resurrect-strategy-nvim 'session'
+    # SSH split keybindings
+    set -g @ssh-split-h-key 'C-h'
+    set -g @ssh-split-v-key 'C-v'
+    set -g @ssh-split-w-key 'C-w'
 
-# Continuum - automatic restore and save
-set -g @continuum-restore 'on'
-set -g @continuum-save-interval '15'
+    # Yank - use system clipboard
+    set -g @yank_selection_mouse 'clipboard'
 
-# SSH split keybindings
-set -g @ssh-split-h-key 'C-h'  # Ctrl-b Ctrl-h - horizontal SSH split
-set -g @ssh-split-v-key 'C-v'  # Ctrl-b Ctrl-v - vertical SSH split
-set -g @ssh-split-w-key 'C-w'  # Ctrl-b Ctrl-w - new SSH window
-
-# Yank - use system clipboard
-set -g @yank_selection_mouse 'clipboard'
-
-# Initialize TPM (must be at bottom)
-run '~/.tmux/plugins/tpm/tpm'
+    # Initialize TPM (must be at bottom)
+    run '~/.tmux/plugins/tpm/tpm'
+}
 TMUX
 
 EOF
@@ -756,11 +748,12 @@ echo "  tmux            - Start new session"
 echo "  tn <name>       - New named session"
 echo "  ta <name>       - Attach to session"
 echo "  tl              - List sessions"
-echo "  Ctrl-b v        - Split vertical (vim-style added)"
-echo "  Ctrl-b S        - Split horizontal (capital S, vim-style added)"
-echo "  Ctrl-b h/j/k/l  - Navigate panes (vim-style added)"
+echo "  Ctrl-b v        - Split vertical (vim-style)"
+echo "  Ctrl-b S        - Split horizontal (vim-style)"
+echo "  Ctrl-b h/j/k/l  - Navigate panes (vim-style)"
 echo "  Ctrl-b x        - Close pane"
 echo "  Ctrl-b d        - Detach session"
+echo "  Ctrl-b I        - Install plugins (capital i)"
 echo "  exit            - Exit pane/tmux"
 echo
 echo "File Operations:"
@@ -819,6 +812,10 @@ echo "  • gnar-info - Pretty TTY system information"
 echo "  • gnar-update - Update system and clean cache"
 echo "  • help-gnar - Complete command reference"
 echo
-echo "Start tmux for tiling terminal experience!"
-echo "First time tmux setup: Press Ctrl-b I (capital i) to install plugins"
+echo "Tmux Setup:"
+echo "  1. Start tmux: tmux"
+echo "  2. Basic keybindings work immediately (Ctrl-b v, Ctrl-b h/j/k/l, etc.)"
+echo "  3. Install plugins: Press Ctrl-b I (capital i) for enhanced features"
+echo "  4. Plugin features activate after installation"
+echo
 echo "Reboot and enjoy your enhanced TTY!"
