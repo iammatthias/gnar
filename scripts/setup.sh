@@ -157,7 +157,6 @@ plugins=(
   ruby
   rust
   golang
-  maven
   gradle
   zsh-autosuggestions
   zsh-syntax-highlighting
@@ -189,7 +188,6 @@ SPACESHIP_PROMPT_ORDER=(
   exec_time     # Execution time
   line_sep      # Line break
   battery       # Battery level and status
-  vi_mode       # Vi-mode indicator
   jobs          # Background jobs indicator
   exit_code     # Exit code section
   char          # Prompt character
@@ -320,13 +318,13 @@ alias ta="tmux attach -t"
 alias tl="tmux list-sessions"
 alias tk="tmux kill-session -t"
 
-# Docker shortcuts
-alias d="docker"
-alias dc="docker-compose"
-alias dps="docker ps"
-alias dpa="docker ps -a"
-alias di="docker images"
-alias dex="docker exec -it"
+# Docker shortcuts (using functions to avoid alias conflicts)
+d() { docker "$@"; }
+dc() { docker-compose "$@"; }
+dps() { docker ps "$@"; }
+dpa() { docker ps -a "$@"; }
+di() { docker images "$@"; }
+dex() { docker exec -it "$@"; }
 
 # Enhanced system shortcuts
 alias c="clear"
