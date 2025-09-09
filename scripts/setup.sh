@@ -318,26 +318,16 @@ alias ta="tmux attach -t"
 alias tl="tmux list-sessions"
 alias tk="tmux kill-session -t"
 
-# Docker shortcuts (using functions to avoid alias conflicts)
-# Unset any existing aliases first
-unalias d 2>/dev/null || true
-unalias dc 2>/dev/null || true
-unalias dps 2>/dev/null || true
-unalias dpa 2>/dev/null || true
-unalias di 2>/dev/null || true
-unalias dex 2>/dev/null || true
-
-# Define Docker functions
-d() { docker "$@"; }
-dc() { docker-compose "$@"; }
-dps() { docker ps "$@"; }
-dpa() { docker ps -a "$@"; }
-di() { docker images "$@"; }
-dex() { docker exec -it "$@"; }
+# Docker shortcuts - using unique names to avoid conflicts
+alias dkr="docker"
+alias dkc="docker-compose"
+alias dkps="docker ps"
+alias dkpa="docker ps -a"
+alias dki="docker images"
+alias dkex="docker exec -it"
 
 # Enhanced system shortcuts
 alias c="clear"
-alias h="history"
 alias reload="source ~/.zshrc"
 alias r="source ~/.zshrc"
 alias myip="curl -s ifconfig.me"
@@ -474,18 +464,9 @@ setopt auto_resume
 setopt long_list_jobs
 setopt notify
 
-# Enhanced useful functions
+# Essential utility functions (using unique names to avoid conflicts)
 mkcd() {
     mkdir -p "$1" && cd "$1"
-}
-
-# Enhanced directory navigation
-d() {
-    if [ -z "$1" ]; then
-        dirs -v
-    else
-        cd "$1"
-    fi
 }
 
 # Quick directory up function
@@ -498,257 +479,14 @@ up() {
     cd "$path"
 }
 
-# Quick directory navigation with numbers
-up1() { cd .. }
-up2() { cd ../.. }
-up3() { cd ../../.. }
-up4() { cd ../../../.. }
-up5() { cd ../../../../.. }
-up6() { cd ../../../../../.. }
-up7() { cd ../../../../../../.. }
-up8() { cd ../../../../../../../.. }
-up9() { cd ../../../../../../../../.. }
+# Simple utility aliases (avoiding function conflicts)
+alias e="nvim"
 
-# Smart directory navigation
-cd() {
-    if [ -z "$1" ]; then
-        builtin cd ~
-    elif [ "$1" = "-" ]; then
-        builtin cd -
-    elif [ -d "$1" ]; then
-        builtin cd "$1"
-    else
-        # Try to find directory with pattern matching
-        local found=$(find . -maxdepth 3 -type d -name "*$1*" 2>/dev/null | head -1)
-        if [ -n "$found" ]; then
-            builtin cd "$found"
-        else
-            echo "Directory not found: $1"
-            return 1
-        fi
-    fi
-}
+# Additional utility aliases
+alias edit="nvim"
 
-# Quick directory jumping (using functions to avoid conflicts)
-function 1() { cd -1 }
-function 2() { cd -2 }
-function 3() { cd -3 }
-function 4() { cd -4 }
-function 5() { cd -5 }
-function 6() { cd -6 }
-function 7() { cd -7 }
-function 8() { cd -8 }
-function 9() { cd -9 }
-
-# Enhanced file operations
-cp() {
-    if [ -d "$1" ]; then
-        command cp -r "$@"
-    else
-        command cp "$@"
-    fi
-}
-
-# Enhanced history search
-h() {
-    if [ -z "$1" ]; then
-        history | tail -20
-    else
-        history | grep -i "$1"
-    fi
-}
-
-# Quick file editing
-e() {
-    if [ -z "$1" ]; then
-        nvim .
-    else
-        nvim "$1"
-    fi
-}
-
-# Enhanced process management
-p() {
-    if [ -z "$1" ]; then
-        ps aux | head -20
-    else
-        ps aux | grep -i "$1"
-    fi
-}
-
-# Quick directory listing with details
-l() {
-    if [ -z "$1" ]; then
-        eza --icons --long --group-directories-first --color=auto
-    else
-        eza --icons --long --group-directories-first --color=auto "$1"
-    fi
-}
-
-# Enhanced grep with context
-g() {
-    if [ -z "$1" ]; then
-        echo "Usage: g <pattern> [file]"
-        return 1
-    fi
-    if [ -z "$2" ]; then
-        grep -rn --color=auto --exclude-dir=.git "$1" .
-    else
-        grep -rn --color=auto --exclude-dir=.git "$1" "$2"
-    fi
-}
-
-# Enhanced file operations
-m() {
-    if [ -z "$1" ]; then
-        echo "Usage: m <file1> <file2> ... <destination>"
-        return 1
-    fi
-    command mv "$@"
-}
-
-# Enhanced copy with progress
-cp() {
-    if command -v rsync >/dev/null 2>&1; then
-        rsync -avz --progress "$@"
-    else
-        command cp "$@"
-    fi
-}
-
-# Enhanced remove with confirmation
-rm() {
-    if [ -z "$1" ]; then
-        echo "Usage: rm <file1> <file2> ..."
-        return 1
-    fi
-    command rm -i "$@"
-}
-
-# Enhanced directory creation
-mkdir() {
-    if [ -z "$1" ]; then
-        echo "Usage: mkdir <directory>"
-        return 1
-    fi
-    command mkdir -p "$@"
-}
-
-# Enhanced file viewing
-view() {
-    if [ -z "$1" ]; then
-        echo "Usage: view <file>"
-        return 1
-    fi
-    if command -v bat >/dev/null 2>&1; then
-        bat "$1"
-    else
-        less "$1"
-    fi
-}
-
-# Enhanced file editing
-edit() {
-    if [ -z "$1" ]; then
-        nvim .
-    else
-        nvim "$1"
-    fi
-}
-
-# Enhanced file searching
-find() {
-    if [ -z "$1" ]; then
-        echo "Usage: find <pattern> [directory]"
-        return 1
-    fi
-    if command -v fd >/dev/null 2>&1; then
-        fd --hidden --exclude=.git "$1" "${2:-.}"
-    else
-        command find "${2:-.}" -name "*$1*" 2>/dev/null
-    fi
-}
-
-# Enhanced directory listing
-list() {
-    if [ -z "$1" ]; then
-        eza --icons --long --group-directories-first --color=auto
-    else
-        eza --icons --long --group-directories-first --color=auto "$1"
-    fi
-}
-
-# Enhanced process management
-process() {
-    if [ -z "$1" ]; then
-        ps aux | head -20
-    else
-        ps aux | grep -i "$1"
-    fi
-}
-
-# Enhanced system information
-info() {
-    if [ -z "$1" ]; then
-        fastfetch
-    else
-        case "$1" in
-            "cpu") lscpu ;;
-            "mem") free -h ;;
-            "disk") df -h ;;
-            "net") ip addr show ;;
-            "proc") ps aux | head -20 ;;
-            *) echo "Available: cpu, mem, disk, net, proc" ;;
-        esac
-    fi
-}
-
-extract() {
-    if [ -f "$1" ]; then
-        case "$1" in
-            *.tar.bz2)   tar xjf "$1"     ;;
-            *.tar.gz)    tar xzf "$1"     ;;
-            *.tar.xz)    tar xJf "$1"     ;;
-            *.bz2)       bunzip2 "$1"     ;;
-            *.rar)       unrar x "$1"     ;;
-            *.gz)        gunzip "$1"      ;;
-            *.tar)       tar xf "$1"      ;;
-            *.tbz2)      tar xjf "$1"     ;;
-            *.tgz)       tar xzf "$1"     ;;
-            *.zip)       unzip "$1"       ;;
-            *.Z)         uncompress "$1"  ;;
-            *.7z)        7z x "$1"        ;;
-            *)           echo "'$1' cannot be extracted via extract()" ;;
-        esac
-    else
-        echo "'$1' is not a valid file"
-    fi
-}
-
-backup() {
-    cp "$1"{,.backup.$(date +%Y%m%d_%H%M%S)}
-}
-
-calc() {
-    echo "scale=3; $*" | bc -l
-}
-
-find_large_files() {
-    find "${1:-.}" -type f -exec du -h {} + | sort -rh | head -20
-}
-
-pid_port() {
-    sudo netstat -tulpn | grep ":$1 "
-}
-
-weather() {
-    local location="${1:-}"
-    if [ -z "$location" ]; then
-        curl -s "wttr.in?format=v2" || echo "Failed to fetch weather"
-    else
-        curl -s "wttr.in/$location?format=v2" || echo "Failed to fetch weather for $location"
-    fi
-}
+# Keep only essential utility functions that don't conflict
+# The extract functionality is available via the 'extract' plugin in Oh-My-Zsh
 
 # Add site to Caddy
 add-site() {
@@ -1286,42 +1024,20 @@ alias dev="cd /dev"
 alias proc="cd /proc"
 alias sys="cd /sys"
 
-# Enhanced file operations
-alias cp="cp -i"
-alias mv="mv -i"
-alias rm="rm -i"
-alias mkdir="mkdir -p"
-alias rmdir="rmdir -p"
-
-# Enhanced text processing
-alias wc="wc -l"
-alias head="head -20"
-alias tail="tail -20"
-alias less="less -R"
-alias more="more -R"
-
-# Enhanced system monitoring
+# System monitoring shortcuts (using unique names)
 alias mem="free -h"
 alias disk="df -h"
 alias cpu="lscpu"
-alias uptime="uptime -p"
-alias load="uptime"
 
-# Enhanced network tools
-alias ping="ping -c 4"
-alias traceroute="traceroute -n"
-alias netstat="netstat -tulpn"
-alias ss="ss -tulpn"
-
-# Enhanced development tools
-alias node="node --version"
-alias npm="npm --version"
+# Development tool shortcuts (using unique names)
+alias nodeversion="node --version"
+alias npmversion="npm --version"
 alias python="python3"
 alias pip="pip3"
-alias ruby="ruby --version"
-alias rust="rustc --version"
-alias go="go version"
-alias java="java -version"
+alias rubyversion="ruby --version"
+alias rustversion="rustc --version"
+alias goversion="go version"
+alias javaversion="java -version"
 
 ZSHRC
 
@@ -1537,7 +1253,7 @@ sudo -u $REAL_USER mkdir -p /home/$REAL_USER/.config/code-server
 
 # Configure code-server with better security
 cat > /home/$REAL_USER/.config/code-server/config.yaml << 'CODESERVER'
-bind-addr: 127.0.0.1:8080
+bind-addr: 0.0.0.0:8080
 auth: password
 password: $(openssl rand -base64 32 | tr -d "=+/" | cut -c1-25)
 cert: false
@@ -1550,6 +1266,15 @@ CODESERVER
 VSCODE_PASSWORD="gnar-vscode-2024"
 sed -i "s/password: .*/password: $VSCODE_PASSWORD/" /home/$REAL_USER/.config/code-server/config.yaml
 
+# Configure VS Code settings for proper terminal shell
+sudo -u $REAL_USER mkdir -p /home/$REAL_USER/.local/share/code-server/User
+cat > /home/$REAL_USER/.local/share/code-server/User/settings.json << 'VSCODESETTINGS'
+{
+    "terminal.integrated.shell.linux": "/usr/bin/zsh",
+    "terminal.integrated.defaultProfile.linux": "zsh"
+}
+VSCODESETTINGS
+
 # Create systemd service for code-server
 cat > /etc/systemd/system/code-server@$REAL_USER.service << 'CODESERVICESERVICE'
 [Unit]
@@ -1561,7 +1286,7 @@ Type=simple
 User=%i
 WorkingDirectory=/home/%i
 Environment=PATH=/usr/bin:/usr/local/bin
-ExecStart=/usr/bin/code-server --bind-addr 127.0.0.1:8080
+ExecStart=/usr/bin/code-server
 Restart=always
 
 [Install]
