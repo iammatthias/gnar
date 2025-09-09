@@ -1,15 +1,19 @@
 #!/bin/bash
 #
-# GNAR - Pure TTY with Enhanced Zsh
+# GNAR - Streamlined TTY Setup for Arch Linux
+# Focused on: Spaceship + Zsh + Tmux + Caddy + Runtime Support
 #
 
 set -euo pipefail
 
 RED='\033[0;31m'
 GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
 NC='\033[0m'
 
-echo -e "${GREEN}Installing pure TTY setup with enhanced Zsh...${NC}"
+echo -e "${GREEN}🚀 GNAR - Streamlined TTY Setup${NC}"
+echo -e "${YELLOW}Setting up: Spaceship + Zsh + Tmux + Caddy + Runtimes${NC}"
+echo
 
 # Check if root
 if [[ $EUID -ne 0 ]]; then
@@ -20,158 +24,299 @@ fi
 # Get actual user
 REAL_USER=$(logname)
 
-# Update system
+echo -e "${GREEN}📦 Updating system packages...${NC}"
 pacman -Syu --noconfirm
 
-# Ensure UTF-8 locale is configured
+# Ensure UTF-8 locale
 if ! grep -q "en_US.UTF-8 UTF-8" /etc/locale.gen 2>/dev/null; then
     echo "en_US.UTF-8 UTF-8" >> /etc/locale.gen
 fi
 locale-gen
 echo "LANG=en_US.UTF-8" > /etc/locale.conf
 
-# Install minimal packages - just essentials
+echo -e "${GREEN}📦 Installing core packages...${NC}"
 pacman -S --noconfirm \
   zsh \
   tmux \
   neovim \
   git \
-  fastfetch \
-  htop \
   curl \
-  tree \
-  which \
+  wget \
+  unzip \
+  caddy \
+  docker \
+  docker-compose \
+  nodejs \
+  npm \
+  python \
+  python-pip \
+  ruby \
+  ruby-rdoc \
+  ruby-irb \
+  rust \
+  go \
+  jdk-openjdk \
+  maven \
+  gradle \
+  base-devel \
   man-db \
-  man-pages \
-  starship \
+  man-pages
+
+echo -e "${GREEN}📦 Installing development tools...${NC}"
+pacman -S --noconfirm \
   eza \
   bat \
   fd \
   fzf \
   zoxide \
+  ripgrep \
+  jq \
+  yq \
+  htop \
+  tree \
   bc \
-  net-tools
+  net-tools \
+  openssh \
+  ufw \
+  fail2ban \
+  nmap \
+  tcpdump \
+  wireshark-cli \
+  rsync \
+  rclone \
+  p7zip \
+  imagemagick \
+  httpie \
+  postgresql \
+  redis \
+  sqlite \
+  btop \
+  iotop \
+  nethogs \
+  lsof \
+  ncdu \
+  smartmontools
 
-echo -e "${GREEN}Configuring enhanced Zsh...${NC}"
+echo -e "${GREEN}🐚 Configuring Zsh with Spaceship...${NC}"
 
-# Backup existing configs if present
+# Backup existing configs
 if [[ -f "/home/$REAL_USER/.zshrc" ]]; then
-    cp "/home/$REAL_USER/.zshrc" "/home/$REAL_USER/.zshrc.pre-gnar" 2>/dev/null || true
-    echo "  Backed up existing .zshrc to .zshrc.pre-gnar"
-fi
-if [[ -f "/home/$REAL_USER/.tmux.conf" ]]; then
-    cp "/home/$REAL_USER/.tmux.conf" "/home/$REAL_USER/.tmux.conf.pre-gnar" 2>/dev/null || true
-    echo "  Backed up existing .tmux.conf to .tmux.conf.pre-gnar"
+    cp "/home/$REAL_USER/.zshrc" "/home/$REAL_USER/.zshrc.backup.$(date +%Y%m%d_%H%M%S)" 2>/dev/null || true
 fi
 
-# Configure enhanced zsh for the actual user
+# Configure zsh for the actual user
 sudo -u $REAL_USER bash << 'EOF'
 
-# DarkMatter-inspired Zsh configuration for GNAR
+# Create zsh configuration directory
+mkdir -p ~/.config/zsh
+
+# Install Oh My Zsh (for plugin management)
+if [ ! -d "$HOME/.oh-my-zsh" ]; then
+    echo "Installing Oh My Zsh..."
+    sh -c "$(curl -fsSL https://raw.github.com/ohmyzsh/ohmyzsh/master/tools/install.sh)" "" --unattended
+fi
+
+# Install essential zsh plugins
+echo "Installing zsh plugins..."
+git clone https://github.com/zsh-users/zsh-autosuggestions ${ZSH_CUSTOM:-~/.oh-my-zsh/custom}/plugins/zsh-autosuggestions
+git clone https://github.com/zsh-users/zsh-syntax-highlighting.git ${ZSH_CUSTOM:-~/.oh-my-zsh/custom}/plugins/zsh-syntax-highlighting
+git clone https://github.com/zsh-users/zsh-completions ${ZSH_CUSTOM:-~/.oh-my-zsh/custom}/plugins/zsh-completions
+
+# Install spaceship prompt
+git clone https://github.com/spaceship-prompt/spaceship-prompt.git "$ZSH_CUSTOM/themes/spaceship-prompt" --depth=1
+ln -s "$ZSH_CUSTOM/themes/spaceship-prompt/spaceship.zsh-theme" "$ZSH_CUSTOM/themes/spaceship.zsh-theme"
+
+# Create streamlined .zshrc
 cat > ~/.zshrc << 'ZSHRC'
-# GNAR DarkMatter TTY Zsh Configuration
+# GNAR - Streamlined Zsh Configuration
 
-# Set UTF-8 locale for proper tmux support
-export LANG=en_US.UTF-8
-export LC_ALL=en_US.UTF-8
-export LC_CTYPE=en_US.UTF-8
+# Oh My Zsh
+export ZSH="$HOME/.oh-my-zsh"
+ZSH_THEME="spaceship"
 
-# History setup
+# Plugins
+plugins=(
+  git
+  docker
+  docker-compose
+  node
+  npm
+  python
+  pip
+  ruby
+  rust
+  golang
+  maven
+  gradle
+  zsh-autosuggestions
+  zsh-syntax-highlighting
+  zsh-completions
+  zoxide
+  fzf
+)
+
+source $ZSH/oh-my-zsh.sh
+
+# Spaceship prompt configuration
+SPACESHIP_PROMPT_ORDER=(
+  user          # Username section
+  dir           # Current directory section
+  host          # Hostname section
+  git           # Git section (git_branch + git_status)
+  node          # Node.js section
+  python        # Python section
+  ruby          # Ruby section
+  docker        # Docker section
+  exec_time     # Execution time
+  line_sep      # Line break
+  battery       # Battery level and status
+  vi_mode       # Vi-mode indicator
+  jobs          # Background jobs indicator
+  exit_code     # Exit code section
+  char          # Prompt character
+)
+
+# Spaceship settings
+SPACESHIP_CHAR_SYMBOL="❯ "
+SPACESHIP_CHAR_SUFFIX=" "
+SPACESHIP_USER_SHOW="always"
+SPACESHIP_USER_PREFIX=""
+SPACESHIP_USER_SUFFIX=""
+SPACESHIP_HOST_SHOW="always"
+SPACESHIP_HOST_PREFIX="@"
+SPACESHIP_DIR_PREFIX=""
+SPACESHIP_DIR_TRUNC=3
+SPACESHIP_GIT_PREFIX=""
+SPACESHIP_GIT_SUFFIX=""
+SPACESHIP_GIT_BRANCH_PREFIX=""
+SPACESHIP_GIT_STATUS_PREFIX=" ["
+SPACESHIP_GIT_STATUS_SUFFIX="]"
+
+# History configuration
 HISTFILE=$HOME/.zsh_history
-SAVEHIST=10000
 HISTSIZE=10000
+SAVEHIST=10000
 setopt share_history
 setopt hist_expire_dups_first
 setopt hist_ignore_dups
 setopt hist_verify
 
-# Completion using arrow keys (based on history)
+# Key bindings
 bindkey '^[[A' history-search-backward
 bindkey '^[[B' history-search-forward
 
-# Completion using vim keys
-bindkey '^k' history-search-backward
-bindkey '^j' history-search-forward
+# Essential aliases
+alias ls="eza --icons --group-directories-first"
+alias ll="eza --icons --long --group-directories-first"
+alias la="eza --icons --all --group-directories-first"
+alias tree="eza --icons --tree"
+alias cat="bat --style=plain"
+alias grep="grep --color=auto"
+alias find="fd"
+alias ps="ps aux"
+alias top="htop"
+alias df="df -h"
+alias du="du -h"
+alias free="free -h"
 
-# File listing - Enhanced with eza
-alias ls="eza --icons=always --group-directories-first"
-alias ll="eza --icons=always --long --group-directories-first"
-alias la="eza --icons=always --all --group-directories-first"
-alias l="eza --icons=always --oneline"
-alias tree="eza --icons=always --tree"
-alias lt="eza --icons=always --tree --level=2"  # Tree with depth limit
-
-# Directory navigation
-alias ..='cd ..'
-alias ...='cd ../..'
-alias ....='cd ../../..'
-alias .....='cd ../../../..'
-alias ~='cd ~'
-alias -- -='cd -'
-alias cd='z'  # Use zoxide for smart jumping
-
-# File operations
-alias cp='cp -i'
-alias mv='mv -i'
-alias rm='rm -i'
-alias mkdir='mkdir -p'
-
-# System info
-alias df='df -h'
-alias du='du -h'
-alias free='free -h'
-alias ps='ps aux'
-alias top='htop'
-alias ff='fastfetch'           # Quick system info display
-alias nf='fastfetch'           # Alternative for neofetch users
-alias cat='bat --style=plain'  # Better cat with syntax highlighting
-alias realcat='/usr/bin/cat'  # Original cat for when you need it
-alias grep='grep --color=auto'
-alias fgrep='fgrep --color=auto'
-alias egrep='egrep --color=auto'
-alias diff='diff --color=auto'
-alias ip='ip --color=auto'
-alias find='fd'                # Modern find replacement
+# Navigation
+alias ..="cd .."
+alias ...="cd ../.."
+alias ....="cd ../../.."
+alias ~="cd ~"
+alias -- -="cd -"
 
 # Git shortcuts
-alias g='git'
-alias gs='git status'
-alias ga='git add'
-alias gc='git commit'
-alias gp='git push'
-alias gl='git pull'
-alias gd='git diff'
-alias gb='git branch'
-alias gco='git checkout'
-alias glog='git log --oneline --graph --decorate'
+alias g="git"
+alias gs="git status"
+alias ga="git add"
+alias gc="git commit"
+alias gp="git push"
+alias gl="git pull"
+alias gd="git diff"
+alias gb="git branch"
+alias gco="git checkout"
+alias glog="git log --oneline --graph --decorate"
 
-# Text editing
-alias vim='nvim'
-alias vi='nvim'
-alias nano='nvim'
+# Tmux shortcuts
+alias t="tmux"
+alias tn="tmux new -s"
+alias ta="tmux attach -t"
+alias tl="tmux list-sessions"
+alias tk="tmux kill-session -t"
 
-# Network & System
-alias ping='ping -c 5'
-alias wget='wget -c'
-alias ports='netstat -tulpn'        # Show open ports
-alias myip='curl -s ifconfig.me'    # Public IP address
-alias localip='ip addr show | grep inet'  # Local IP addresses
+# Docker shortcuts
+alias d="docker"
+alias dc="docker-compose"
+alias dps="docker ps"
+alias dpa="docker ps -a"
+alias di="docker images"
+alias dex="docker exec -it"
 
-# Quick shortcuts
-alias c='clear'
-alias h='history'
-alias j='jobs -l'
-alias path='echo -e ${PATH//:/\\n}'  # Display PATH on separate lines
-alias now='date +"%Y-%m-%d %H:%M:%S"'
-alias week='date +%V'
-alias reload='source ~/.zshrc'       # Reload shell configuration
+# System shortcuts
+alias c="clear"
+alias h="history"
+alias reload="source ~/.zshrc"
+alias myip="curl -s ifconfig.me"
+alias localip="ip addr show | grep inet"
+alias ff="fastfetch"
+alias nf="fastfetch"
+alias ports="netstat -tulpn"
+alias now="date +\"%Y-%m-%d %H:%M:%S\""
+alias week="date +%V"
 
-# Exports
-export BAT_THEME="ansi"
+# Enhanced system monitoring
+alias top="btop"
+alias htop="btop"
+alias iotop="sudo iotop"
+alias nethogs="sudo nethogs"
+alias disk="ncdu"
+alias smart="sudo smartctl -a"
+
+# Network tools
+alias nmap-local="nmap -sn 192.168.1.0/24"
+alias nmap-scan="nmap -sS -O -F"
+alias tcpdump="sudo tcpdump"
+alias lsof-port="lsof -i"
+
+# Database shortcuts
+alias psql="psql -U $USER"
+alias redis-cli="redis-cli"
+alias sqlite="sqlite3"
+
+# Security tools
+alias ufw-status="sudo ufw status verbose"
+alias fail2ban-status="sudo fail2ban-client status"
+alias ssh-keys="ssh-keygen -l -f"
+
+# File operations
+alias rsync="rsync -avz --progress"
+alias 7z="7z"
+alias convert="convert"
+
+# Caddy shortcuts
+alias caddy-edit="sudo $EDITOR /etc/caddy/Caddyfile"
+alias caddy-reload="sudo systemctl reload caddy"
+alias caddy-logs="sudo journalctl -u caddy -f"
+alias caddy-test="test-caddy"
+alias caddy-restart="sudo systemctl restart caddy"
+
+# VS Code Server shortcuts
+alias vscode="vscode-status"
+alias vscode-restart="vscode-restart"
+alias vscode-logs="vscode-logs"
+
+# AUR shortcuts
+alias yay-update="yay -Syu"
+alias yay-install="yay -S"
+alias yay-remove="yay -R"
+alias yay-search="yay -Ss"
+alias yay-info="yay -Si"
+
+# Environment variables
 export EDITOR="nvim"
 export PAGER="bat"
-
-# FZF settings with DarkMatter colors
+export BAT_THEME="ansi"
 export FZF_DEFAULT_COMMAND='fd --type f --hidden --exclude ".git"'
 export FZF_DEFAULT_OPTS='
   --color=fg:#c1c1c1,fg+:#ffffff,bg:#121113,bg+:#222222
@@ -181,16 +326,20 @@ export FZF_DEFAULT_OPTS='
   --border="rounded" --border-label="" --preview-window="border-rounded" --prompt="> "
   --marker=">" --pointer="◆" --separator="─" --scrollbar="│"'
 
+# Initialize tools
+eval "$(zoxide init zsh)"
+
 # Useful functions
-function mkcd() {
+mkcd() {
     mkdir -p "$1" && cd "$1"
 }
 
-function extract() {
+extract() {
     if [ -f "$1" ]; then
         case "$1" in
             *.tar.bz2)   tar xjf "$1"     ;;
             *.tar.gz)    tar xzf "$1"     ;;
+            *.tar.xz)    tar xJf "$1"     ;;
             *.bz2)       bunzip2 "$1"     ;;
             *.rar)       unrar x "$1"     ;;
             *.gz)        gunzip "$1"      ;;
@@ -207,53 +356,789 @@ function extract() {
     fi
 }
 
-function backup() {
+backup() {
     cp "$1"{,.backup.$(date +%Y%m%d_%H%M%S)}
 }
 
-function weather() {
-    local location="${1:-}"
-    if command -v curl >/dev/null 2>&1; then
-        if [ -z "$location" ]; then
-            curl -s "wttr.in" || echo "Failed to fetch weather. Check your internet connection."
-        else
-            curl -s "wttr.in/$location" || echo "Failed to fetch weather for $location"
-        fi
-    else
-        echo "curl is required for weather function"
-    fi
-}
-
-function calc() {
+calc() {
     echo "scale=3; $*" | bc -l
 }
 
-function find_large_files() {
+find_large_files() {
     find "${1:-.}" -type f -exec du -h {} + | sort -rh | head -20
 }
 
-function pid_port() {
-    netstat -tulpn | grep ":$1 "
+pid_port() {
+    sudo netstat -tulpn | grep ":$1 "
 }
 
-# Tmux aliases - universal UTF-8 support
-alias tmux='tmux -u'  # Always use UTF-8
-alias tn='tmux -u new -s'
-alias ta='tmux -u attach -t'
-alias tl='tmux ls'
-alias tk='tmux kill-session -t'
-# For iTerm2 users who want integration mode
-alias tmux-cc='tmux -CC -u new -A -s main'
+weather() {
+    local location="${1:-}"
+    if [ -z "$location" ]; then
+        curl -s "wttr.in?format=v2" || echo "Failed to fetch weather"
+    else
+        curl -s "wttr.in/$location?format=v2" || echo "Failed to fetch weather for $location"
+    fi
+}
 
-# Setup zoxide and starship (DarkMatter essentials)
-eval "$(zoxide init zsh)"
-eval "$(starship init zsh)"
+# Add site to Caddy
+add-site() {
+    if [ -z "$1" ]; then
+        echo "Usage: add-site <name> [port|directory]"
+        echo "Examples:"
+        echo "  add-site myapp 3000          # Reverse proxy to localhost:3000"
+        echo "  add-site static /var/www/site # Serve static files from directory"
+        echo "  add-site api 8080            # Reverse proxy to localhost:8080"
+        return 1
+    fi
+    
+    local name=$1
+    local target=$2
+    
+    # If no target provided, default to port 3000
+    if [ -z "$target" ]; then
+        target="3000"
+    fi
+    
+    # Backup before modifying
+    sudo cp /etc/caddy/Caddyfile /etc/caddy/Caddyfile.backup.$(date +%Y%m%d_%H%M%S)
+    
+    # Check if target is a directory or port
+    if [[ "$target" =~ ^[0-9]+$ ]]; then
+        # It's a port number
+        echo -e "\n# $name service (reverse proxy)\n$name.local:80 {\n    reverse_proxy localhost:$target\n}" | sudo tee -a /etc/caddy/Caddyfile > /dev/null
+        echo "✅ Added $name.local:80 -> localhost:$target (reverse proxy)"
+    else
+        # It's a directory path
+        if [ ! -d "$target" ]; then
+            echo "❌ Directory $target does not exist"
+            return 1
+        fi
+        echo -e "\n# $name service (static files)\n$name.local:80 {\n    root * $target\n    file_server\n}" | sudo tee -a /etc/caddy/Caddyfile > /dev/null
+        echo "✅ Added $name.local:80 -> $target (static files)"
+    fi
+    
+    # Test and reload
+    if caddy validate --config /etc/caddy/Caddyfile 2>/dev/null; then
+        sudo systemctl reload caddy
+        echo "🌐 Site available at: http://$name.local"
+    else
+        echo "❌ Configuration error! Rolling back..."
+        sudo mv /etc/caddy/Caddyfile.backup.$(date +%Y%m%d_%H%M%S) /etc/caddy/Caddyfile
+        return 1
+    fi
+}
+
+# List configured sites
+list-sites() {
+    echo "=== Caddy Sites ==="
+    if [ -f "/etc/caddy/Caddyfile" ]; then
+    sudo grep -E "^[a-zA-Z0-9.-]+(.local)?(:[0-9]+)? {" /etc/caddy/Caddyfile 2>/dev/null | sed 's/ {//' || echo "No sites configured"
+    else
+        echo "No Caddyfile found"
+    fi
+}
+
+# Remove site from Caddy
+remove-site() {
+    if [ -z "$1" ]; then
+        echo "Usage: remove-site <name>"
+        echo "Example: remove-site myapp"
+        return 1
+    fi
+    
+    local name=$1
+    
+    # Backup before modifying
+    sudo cp /etc/caddy/Caddyfile /etc/caddy/Caddyfile.backup.$(date +%Y%m%d_%H%M%S)
+    
+    # Remove site block (from site name to closing brace)
+    sudo sed -i "/^$name\.local:80 {/,/^}/d" /etc/caddy/Caddyfile
+    
+    # Test and reload
+    if caddy validate --config /etc/caddy/Caddyfile 2>/dev/null; then
+        sudo systemctl reload caddy
+        echo "✅ Removed $name.local from Caddy"
+    else
+        echo "❌ Configuration error! Rolling back..."
+        sudo mv /etc/caddy/Caddyfile.backup.$(date +%Y%m%d_%H%M%S) /etc/caddy/Caddyfile
+        return 1
+    fi
+}
+
+# Test Caddy configuration
+test-caddy() {
+    echo "Testing Caddy configuration..."
+    if caddy validate --config /etc/caddy/Caddyfile 2>/dev/null; then
+        echo "✅ Caddy configuration is valid"
+    else
+        echo "❌ Caddy configuration has errors:"
+        caddy validate --config /etc/caddy/Caddyfile
+    fi
+}
+
+# Show Caddy status and logs
+caddy-status() {
+    echo "=== Caddy Service Status ==="
+    sudo systemctl status caddy --no-pager
+    echo
+    echo "=== Recent Caddy Logs ==="
+    sudo journalctl -u caddy --no-pager -n 10
+}
+
+# PM2 management functions
+pm2-start() {
+    if [ -z "$1" ]; then
+        echo "Usage: pm2-start <ecosystem-file>"
+        echo "Example: pm2-start ecosystem.config.js"
+        return 1
+    fi
+    
+    local ecosystem_file=$1
+    
+    if [ ! -f "$ecosystem_file" ]; then
+        echo "❌ Ecosystem file $ecosystem_file not found"
+        return 1
+    fi
+    
+    echo "🚀 Starting PM2 app with $ecosystem_file"
+    pm2 start "$ecosystem_file"
+    
+    echo "📊 PM2 Status:"
+    pm2 list
+}
+
+pm2-add-site() {
+    if [ -z "$1" ] || [ -z "$2" ] || [ -z "$3" ]; then
+        echo "Usage: pm2-add-site <name> <port> <ecosystem-file>"
+        echo "Example: pm2-add-site myapp 3000 ecosystem.config.js"
+        return 1
+    fi
+    
+    local name=$1
+    local port=$2
+    local ecosystem_file=$3
+    
+    # Start PM2 app
+    pm2-start "$ecosystem_file"
+    
+    # Add to Caddy
+    add-site "$name" "$port"
+    
+    echo "✅ PM2 app started and added to Caddy: $name.local"
+}
+
+pm2-remove() {
+    if [ -z "$1" ]; then
+        echo "Usage: pm2-remove <name>"
+        echo "Example: pm2-remove myapp"
+        return 1
+    fi
+    
+    local name=$1
+    
+    echo "🛑 Stopping PM2 app: $name"
+    pm2 stop "$name" 2>/dev/null || true
+    pm2 delete "$name" 2>/dev/null || true
+    
+    echo "✅ PM2 app removed: $name"
+}
+
+pm2-restart() {
+    if [ -z "$1" ]; then
+        echo "Usage: pm2-restart <name>"
+        echo "Example: pm2-restart myapp"
+        return 1
+    fi
+    
+    local name=$1
+    
+    echo "🔄 Restarting PM2 app: $name"
+    pm2 restart "$name"
+    
+    echo "📊 PM2 Status:"
+    pm2 list
+}
+
+pm2-logs() {
+    if [ -z "$1" ]; then
+        echo "Usage: pm2-logs <name>"
+        echo "Example: pm2-logs myapp"
+        echo "Or: pm2-logs all (for all apps)"
+        return 1
+    fi
+    
+    local name=$1
+    
+    pm2 logs "$name"
+}
+
+pm2-status() {
+    echo "=== PM2 Apps ==="
+    pm2 list
+    echo
+    echo "=== Caddy Sites ==="
+    list-sites
+}
+
+# System monitoring functions
+system-status() {
+    echo "=== System Status ==="
+    echo "Uptime: $(uptime -p)"
+    echo "Load: $(uptime | awk -F'load average:' '{print $2}')"
+    echo "Memory: $(free -h | grep Mem | awk '{print $3 "/" $2}')"
+    echo "Disk: $(df -h / | tail -1 | awk '{print $3 "/" $2 " (" $5 " used)"}')"
+    echo
+    echo "=== Top Processes ==="
+    ps aux --sort=-%cpu | head -10
+    echo
+    echo "=== Network Connections ==="
+    netstat -tulpn | grep LISTEN | head -10
+}
+
+# Database management
+db-status() {
+    echo "=== PostgreSQL Status ==="
+    sudo systemctl status postgresql --no-pager
+    echo
+    echo "=== Redis Status ==="
+    sudo systemctl status redis --no-pager
+    echo
+    echo "=== Database Connections ==="
+    psql -c "SELECT count(*) as connections FROM pg_stat_activity;"
+    redis-cli info clients | grep connected_clients
+}
+
+# Security status
+security-status() {
+    echo "=== Firewall Status ==="
+    ufw-status
+    echo
+    echo "=== Fail2ban Status ==="
+    fail2ban-status
+    echo
+    echo "=== SSH Status ==="
+    sudo systemctl status sshd --no-pager
+    echo
+    echo "=== Recent SSH Logins ==="
+    sudo journalctl -u sshd --no-pager -n 10
+}
+
+# Port management
+port-check() {
+    if [ -z "$1" ]; then
+        echo "Usage: port-check <port>"
+        echo "Example: port-check 3000"
+        return 1
+    fi
+    
+    local port=$1
+    echo "Checking port $port..."
+    
+    if lsof -i :$port >/dev/null 2>&1; then
+        echo "❌ Port $port is in use:"
+        lsof -i :$port
+    else
+        echo "✅ Port $port is available"
+    fi
+}
+
+# Project scaffolding
+create-react-hono() {
+    if [ -z "$1" ]; then
+        echo "Usage: create-react-hono <project-name>"
+        echo "Example: create-react-hono myapp"
+        return 1
+    fi
+    
+    local name=$1
+    local dir="$HOME/projects/$name"
+    
+    echo "🚀 Creating React + Hono project: $name"
+    
+    # Create project directory
+    mkdir -p "$dir"
+    cd "$dir"
+    
+    # Initialize package.json
+    npm init -y
+    
+    # Install dependencies
+    npm install hono @hono/node-server
+    npm install -D @types/node typescript tsx
+    npm install -D vite @vitejs/plugin-react
+    npm install react react-dom
+    npm install -D @types/react @types/react-dom
+    
+    # Create basic structure
+    mkdir -p src/{client,server}
+    
+    # Create Hono server
+    cat > src/server/index.ts << 'HONO'
+import { Hono } from 'hono'
+import { serve } from '@hono/node-server'
+
+const app = new Hono()
+
+app.get('/', (c) => {
+  return c.json({ message: 'Hello Hono!' })
+})
+
+app.get('/api/health', (c) => {
+  return c.json({ status: 'ok', timestamp: new Date().toISOString() })
+})
+
+const port = 3000
+console.log(`Server is running on port ${port}`)
+
+serve({
+  fetch: app.fetch,
+  port
+})
+HONO
+
+    # Create React app
+    cat > src/client/App.tsx << 'REACT'
+import React from 'react'
+
+function App() {
+  return (
+    <div className="App">
+      <h1>React + Hono App</h1>
+      <p>Hello from React!</p>
+    </div>
+  )
+}
+
+export default App
+REACT
+
+    # Create Vite config
+    cat > vite.config.ts << 'VITE'
+import { defineConfig } from 'vite'
+import react from '@vitejs/plugin-react'
+
+export default defineConfig({
+  plugins: [react()],
+  server: {
+    proxy: {
+      '/api': 'http://localhost:3000'
+    }
+  }
+})
+VITE
+
+    # Create TypeScript config
+    cat > tsconfig.json << 'TSCONFIG'
+{
+  "compilerOptions": {
+    "target": "ES2020",
+    "useDefineForClassFields": true,
+    "lib": ["ES2020", "DOM", "DOM.Iterable"],
+    "module": "ESNext",
+    "skipLibCheck": true,
+    "moduleResolution": "bundler",
+    "allowImportingTsExtensions": true,
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "noEmit": true,
+    "jsx": "react-jsx",
+    "strict": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "noFallthroughCasesInSwitch": true
+  },
+  "include": ["src"],
+  "references": [{ "path": "./tsconfig.node.json" }]
+}
+TSCONFIG
+
+    # Create tsconfig.node.json
+    cat > tsconfig.node.json << 'TSCONFIGNODE'
+{
+  "compilerOptions": {
+    "composite": true,
+    "skipLibCheck": true,
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "allowSyntheticDefaultImports": true
+  },
+  "include": ["vite.config.ts"]
+}
+TSCONFIGNODE
+
+    # Create package.json scripts
+    cat > package.json << 'PACKAGE'
+{
+  "name": "$name",
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "concurrently \"npm run dev:server\" \"npm run dev:client\"",
+    "dev:server": "tsx watch src/server/index.ts",
+    "dev:client": "vite",
+    "build": "npm run build:client && npm run build:server",
+    "build:client": "vite build",
+    "build:server": "tsc --project tsconfig.server.json",
+    "start": "node dist/server/index.js"
+  },
+  "dependencies": {
+    "hono": "^3.0.0",
+    "@hono/node-server": "^1.0.0",
+    "react": "^18.0.0",
+    "react-dom": "^18.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "@types/react": "^18.0.0",
+    "@types/react-dom": "^18.0.0",
+    "@vitejs/plugin-react": "^4.0.0",
+    "concurrently": "^8.0.0",
+    "tsx": "^4.0.0",
+    "typescript": "^5.0.0",
+    "vite": "^5.0.0"
+  }
+}
+PACKAGE
+
+    # Install concurrently
+    npm install -D concurrently
+    
+    echo "✅ React + Hono project created: $dir"
+    echo "📁 Project structure:"
+    tree -I node_modules
+    echo
+    echo "🚀 To start development:"
+    echo "  cd $dir"
+    echo "  npm run dev"
+    echo
+    echo "🌐 To add to Caddy:"
+    echo "  add-site $name 3000"
+}
+
+# VS Code Server management
+vscode-status() {
+    echo "=== VS Code Server Status ==="
+    sudo systemctl status code-server@$USER --no-pager
+    echo
+    echo "=== VS Code Server Logs ==="
+    sudo journalctl -u code-server@$USER --no-pager -n 10
+    echo
+    echo "🌐 Access VS Code at: http://vscode.local"
+    echo "🔑 Password: $(grep 'password:' /home/$USER/.config/code-server/config.yaml | cut -d' ' -f2)"
+}
+
+vscode-restart() {
+    echo "🔄 Restarting VS Code Server..."
+    sudo systemctl restart code-server@$USER
+    echo "✅ VS Code Server restarted"
+    vscode-status
+}
+
+vscode-logs() {
+    echo "📋 VS Code Server Logs:"
+    sudo journalctl -u code-server@$USER -f
+}
+
+vscode-change-password() {
+    if [ -z "$1" ]; then
+        echo "Usage: vscode-change-password <new-password>"
+        echo "Example: vscode-change-password mynewpassword"
+        return 1
+    fi
+    
+    local new_password=$1
+    
+    # Update config file
+    sudo -u $REAL_USER sed -i "s/password: .*/password: $new_password/" /home/$REAL_USER/.config/code-server/config.yaml
+    
+    # Restart service
+    sudo systemctl restart code-server@$REAL_USER
+    
+    echo "✅ VS Code Server password updated"
+    echo "🌐 Access VS Code at: http://vscode.local"
+    echo "🔑 New password: $new_password"
+}
+
+vscode-password() {
+    echo "🔑 VS Code Server Password:"
+    echo "$(grep 'password:' /home/$USER/.config/code-server/config.yaml | cut -d' ' -f2)"
+    echo
+    echo "🌐 Access at: http://vscode.local"
+}
+
+# Backup functions
+backup-system() {
+    local backup_dir="/home/$REAL_USER/backups/$(date +%Y%m%d_%H%M%S)"
+    mkdir -p "$backup_dir"
+    
+    echo "🔄 Creating system backup to $backup_dir"
+    
+    # Backup important configs
+    sudo cp -r /etc/caddy "$backup_dir/"
+    sudo cp -r /etc/ssh "$backup_dir/"
+    sudo cp -r /etc/ufw "$backup_dir/"
+    sudo cp -r /etc/fail2ban "$backup_dir/"
+    
+    # Backup user configs
+    cp -r ~/.zshrc "$backup_dir/"
+    cp -r ~/.tmux.conf "$backup_dir/"
+    cp -r ~/.config "$backup_dir/"
+    
+    # Fix permissions
+    sudo chown -R $REAL_USER:$REAL_USER "$backup_dir"
+    
+    echo "✅ Backup created: $backup_dir"
+    echo "📁 Backup contents:"
+    ls -la "$backup_dir"
+}
+
+# Help commands using fzf
+alias ?='alias | fzf --height=80% --prompt="Search aliases: "'
+alias ??='print -l ${(ok)functions} | grep -v "^_" | fzf --preview "which {}" --height=80% --prompt="Search functions: "'
+alias ???='alias | bat --style=plain --language=bash'
 
 ZSHRC
 
+# Create tmux configuration
+cat > ~/.tmux.conf << 'TMUX'
+# GNAR - Streamlined Tmux Configuration
+
+# Basic settings
+set -g default-terminal "screen-256color"
+set-option -ga terminal-overrides ",*256col*:Tc"
+set -g mouse on
+set -g history-limit 10000
+
+# Key bindings
+set -g prefix C-a
+bind C-a send-prefix
+
+# Vim-style navigation
+bind h select-pane -L
+bind j select-pane -D
+bind k select-pane -U
+bind l select-pane -R
+
+# Vim-style splits
+bind v split-window -h
+bind s split-window -v
+
+# Status bar
+set -g status-style bg=black,fg=white
+set -g status-left '#[fg=green]#S '
+set -g status-right '#[fg=yellow]#H #[fg=cyan]%H:%M'
+
+# Reload config
+bind r source-file ~/.tmux.conf \; display "Config reloaded!"
+
+# Start windows and panes at 1
+set -g base-index 1
+setw -g pane-base-index 1
+
+# Renumber windows when a window is closed
+set -g renumber-windows on
+
+# Increase scrollback buffer size
+set -g history-limit 10000
+
+# Enable focus events
+set -g focus-events on
+
+# Set default shell
+set -g default-command /bin/zsh
+TMUX
+
+EOF
+
+echo -e "${GREEN}🔧 Configuring Caddy...${NC}"
+
+# Enable and start Caddy
+systemctl enable caddy
+systemctl start caddy
+
+# Create basic Caddyfile
+cat > /etc/caddy/Caddyfile << 'CADDYFILE'
+# GNAR - Caddy Configuration
+# Add your sites here using: add-site <name> <port>
+
+# Default site
+:80 {
+    respond "GNAR Server - Add sites with: add-site <name> <port>"
+}
+CADDYFILE
+
+# Reload Caddy
+systemctl reload caddy
+
+echo -e "${GREEN}🐳 Configuring Docker...${NC}"
+
+# Enable Docker
+systemctl enable docker
+systemctl start docker
+
+# Add user to docker group
+usermod -aG docker "$REAL_USER"
+
+echo -e "${GREEN}🔒 Configuring security...${NC}"
+
+# Configure UFW firewall
+ufw --force enable
+ufw default deny incoming
+ufw default allow outgoing
+ufw allow ssh
+ufw allow 80/tcp
+ufw allow 443/tcp
+ufw allow 3000:8000/tcp  # Development ports
+ufw allow 5432/tcp       # PostgreSQL
+ufw allow 6379/tcp       # Redis
+
+# Configure Fail2ban
+systemctl enable fail2ban
+systemctl start fail2ban
+
+# Create fail2ban jail for SSH
+cat > /etc/fail2ban/jail.local << 'FAIL2BAN'
+[DEFAULT]
+bantime = 3600
+findtime = 600
+maxretry = 3
+
+[sshd]
+enabled = true
+port = ssh
+logpath = /var/log/auth.log
+maxretry = 3
+bantime = 3600
+FAIL2BAN
+
+# Configure SSH hardening
+sed -i 's/#PermitRootLogin yes/PermitRootLogin no/' /etc/ssh/sshd_config
+sed -i 's/#PasswordAuthentication yes/PasswordAuthentication no/' /etc/ssh/sshd_config
+sed -i 's/#PubkeyAuthentication yes/PubkeyAuthentication yes/' /etc/ssh/sshd_config
+systemctl restart sshd
+
+echo -e "${GREEN}🗄️ Configuring databases...${NC}"
+
+# Configure PostgreSQL
+sudo -u postgres initdb -D /var/lib/postgres/data
+systemctl enable postgresql
+systemctl start postgresql
+
+# Create database user
+sudo -u postgres createuser -s "$REAL_USER"
+sudo -u postgres createdb "$REAL_USER"
+
+# Configure Redis
+systemctl enable redis
+systemctl start redis
+
+# Configure logrotate
+cat > /etc/logrotate.d/gnar << 'LOGROTATE'
+/var/log/gnar/*.log {
+    daily
+    missingok
+    rotate 7
+    compress
+    delaycompress
+    notifempty
+    create 644 root root
+}
+
+# Code-server logs
+/var/log/code-server/*.log {
+    daily
+    missingok
+    rotate 7
+    compress
+    delaycompress
+    notifempty
+    create 644 root root
+}
+LOGROTATE
+
+echo -e "${GREEN}💻 Configuring VS Code Server...${NC}"
+
+# Create code-server config directory
+sudo -u $REAL_USER mkdir -p /home/$REAL_USER/.config/code-server
+
+# Configure code-server with better security
+cat > /home/$REAL_USER/.config/code-server/config.yaml << 'CODESERVER'
+bind-addr: 127.0.0.1:8080
+auth: password
+password: $(openssl rand -base64 32 | tr -d "=+/" | cut -c1-25)
+cert: false
+disable-telemetry: true
+disable-update-check: true
+disable-workspace-trust: true
+CODESERVER
+
+# Generate secure password
+VSCODE_PASSWORD=$(openssl rand -base64 32 | tr -d "=+/" | cut -c1-25)
+sed -i "s/password: .*/password: $VSCODE_PASSWORD/" /home/$REAL_USER/.config/code-server/config.yaml
+
+# Create systemd service for code-server
+cat > /etc/systemd/system/code-server@$REAL_USER.service << 'CODESERVICESERVICE'
+[Unit]
+Description=code-server
+After=network.target
+
+[Service]
+Type=simple
+User=%i
+WorkingDirectory=/home/%i
+Environment=PATH=/usr/bin:/usr/local/bin
+ExecStart=/usr/bin/code-server --bind-addr 127.0.0.1:8080
+Restart=always
+
+[Install]
+WantedBy=multi-user.target
+CODESERVICESERVICE
+
+# Enable and start code-server
+systemctl daemon-reload
+systemctl enable code-server@$REAL_USER
+systemctl start code-server@$REAL_USER
+
+# Add code-server to Caddy
+add-site vscode 8080
+
+echo -e "${GREEN}🔧 Setting up runtime environments...${NC}"
+
+# Configure Node.js
+sudo -u $REAL_USER npm install -g yarn pnpm bun pm2 eslint prettier jest
+
+# Install code-server
+echo -e "${GREEN}💻 Installing VS Code Server...${NC}"
+curl -fsSL https://code-server.dev/install.sh | sh
+
+# Install yay (AUR helper) if not present
+if ! command -v yay &> /dev/null; then
+    echo -e "${GREEN}📦 Installing yay (AUR helper)...${NC}"
+    sudo -u $REAL_USER git clone https://aur.archlinux.org/yay.git /tmp/yay
+    cd /tmp/yay
+    sudo -u $REAL_USER makepkg -si --noconfirm
+    cd /
+    rm -rf /tmp/yay
+fi
+
+# Configure Python
+sudo -u $REAL_USER pip install --user pipenv poetry black pytest
+
+# Configure Ruby
+sudo -u $REAL_USER gem install bundler
+
+# Configure Rust
+sudo -u $REAL_USER rustup default stable
+
+# Configure Go
+sudo -u $REAL_USER go install github.com/go-delve/delve/cmd/dlv@latest
+
+echo -e "${GREEN}🛠️ Creating helper scripts...${NC}"
+
 # Create fastfetch configuration directory and config
-mkdir -p ~/.config/fastfetch
-cat > ~/.config/fastfetch/config.jsonc << 'FASTFETCH'
+sudo -u $REAL_USER mkdir -p /home/$REAL_USER/.config/fastfetch
+cat > /home/$REAL_USER/.config/fastfetch/config.jsonc << 'FASTFETCH'
 // GNAR TTY Machine Report - Inspired by TR-100
 {
     "$schema": "https://github.com/fastfetch-cli/fastfetch/raw/dev/doc/json_schema.json",
@@ -429,528 +1314,216 @@ cat > ~/.config/fastfetch/config.jsonc << 'FASTFETCH'
 }
 FASTFETCH
 
-# Create tmux configuration
-cat > ~/.tmux.conf << 'TMUX'
-# GNAR Tmux Configuration - Working Base
-
-# Universal terminal compatibility
-set -g default-terminal "screen-256color"
-set-option -ga terminal-overrides ",*256col*:Tc"
-
-# Ensure prefix key works (default Ctrl-b)
-set -g prefix C-b
-bind C-b send-prefix
-
-# Enable mouse support
-set -g mouse on
-
-# Vim-style pane navigation (in addition to defaults)
-bind h select-pane -L
-bind j select-pane -D
-bind k select-pane -U
-bind l select-pane -R
-
-# Vim-style splits (in addition to defaults)
-bind v split-window -h
-bind S split-window -v
-
-# Status bar
-set -g status-style bg=black,fg=white
-set -g status-left '#[fg=green]#S '
-set -g status-right '#[fg=yellow]#H #[fg=cyan]%H:%M'
-
-# Reload config
-bind r source-file ~/.tmux.conf \; display "Config reloaded!"
-
-# Tmux Plugin Manager (TPM) - Only if plugins directory exists
-if-shell "test -d ~/.tmux/plugins/tpm" {
-    # Core plugins for enhanced functionality
-    set -g @plugin 'tmux-plugins/tpm'
-    set -g @plugin 'tmux-plugins/tmux-sensible'       # Better tmux defaults
-    set -g @plugin 'tmux-plugins/tmux-resurrect'      # Restore sessions after reboot
-    set -g @plugin 'tmux-plugins/tmux-continuum'      # Auto-save sessions
-    set -g @plugin 'tmux-plugins/tmux-yank'           # Copy to system clipboard
-    set -g @plugin 'tmux-plugins/tmux-copycat'        # Enhanced search
-    set -g @plugin 'tmux-plugins/tmux-open'           # Open files/URLs
-    set -g @plugin 'tmux-plugins/tmux-sessionist'     # Session management
-    set -g @plugin 'pschmitt/tmux-ssh-split'          # SSH split plugin
-
-    # Plugin configurations
-    # Resurrect - restore pane contents
-    set -g @resurrect-capture-pane-contents 'on'
-    set -g @resurrect-strategy-vim 'session'
-    set -g @resurrect-strategy-nvim 'session'
-
-    # Continuum - automatic restore and save
-    set -g @continuum-restore 'on'
-    set -g @continuum-save-interval '15'
-
-    # SSH split keybindings
-    set -g @ssh-split-h-key 'C-h'
-    set -g @ssh-split-v-key 'C-v'
-    set -g @ssh-split-w-key 'C-w'
-
-    # Yank - use system clipboard
-    set -g @yank_selection_mouse 'clipboard'
-
-    # Initialize TPM (must be at bottom)
-    run '~/.tmux/plugins/tpm/tpm'
-}
-TMUX
-
-EOF
-
-# Install TPM (Tmux Plugin Manager)
-if [ ! -d "/home/$REAL_USER/.tmux/plugins/tpm" ]; then
-    echo "Installing Tmux Plugin Manager..."
-    sudo -u $REAL_USER git clone https://github.com/tmux-plugins/tpm /home/$REAL_USER/.tmux/plugins/tpm
-fi
-
-# Change shell to zsh (needs to be done as root for the actual user)
-echo -e "${GREEN}Setting zsh as default shell...${NC}"
-chsh -s /usr/bin/zsh "$REAL_USER"
-
-echo -e "${GREEN}Creating enhanced helper utilities...${NC}"
-
-# Create gnar-info that uses our custom fastfetch config
+# Create gnar-info script that uses fastfetch
 cat > /usr/local/bin/gnar-info << 'SCRIPT'
 #!/bin/bash
-# GNAR TTY system information
+# GNAR TTY system information using fastfetch
 
 # Use fastfetch with our custom config
 fastfetch
 SCRIPT
 
-# Create gnar-update
+# Create gnar-update script
 cat > /usr/local/bin/gnar-update << 'SCRIPT'
 #!/bin/bash
-# GNAR system update
-
-echo "Updating GNAR TTY system..."
+echo "🔄 Updating GNAR system..."
 sudo pacman -Syu
-echo
-echo "Cleaning package cache..."
+echo "🧹 Cleaning package cache..."
 sudo pacman -Sc --noconfirm
-echo
-echo "Update complete!"
+echo "✅ Update complete!"
 SCRIPT
 
-# Create theme switcher
-cat > /usr/local/bin/gnar-theme << 'SCRIPT'
+# Create gnar-help script
+cat > /usr/local/bin/gnar-help << 'SCRIPT'
 #!/bin/bash
-# GNAR Theme Switcher
-
-GREEN='\033[0;32m'
-CYAN='\033[0;36m'
-YELLOW='\033[0;33m'
-RED='\033[0;31m'
-NC='\033[0m'
-
-show_themes() {
-    echo "Available GNAR Themes:"
-    echo
-    echo "  1) darkmatter  - Sleek dark theme with starship prompt"
-    echo "  2) matrix      - Green-on-black hacker aesthetic"
-    echo "  3) minimal     - Clean, distraction-free"
-    echo "  4) retro       - 80s terminal vibes"
-    echo "  5) ocean       - Deep blue nautical theme"
-    echo
-    echo "Current theme: $(cat ~/.gnar_theme 2>/dev/null || echo "darkmatter")"
-}
-
-apply_theme() {
-    local theme=$1
-    echo "$theme" > ~/.gnar_theme
-    mkdir -p ~/.config
-    
-    case "$theme" in
-        darkmatter)
-            cat > ~/.config/starship.toml << 'STARSHIP'
-format = """
-[┌─](bold #5f8787)[$user](bold #fbcb97)[@](bold #5f8787)[$hostname](bold #c1c1c1)[ in ](bold #5f8787)[$path](bold #fbcb97)[$git_branch][$git_status][$cmd_duration]
-[└─](bold #5f8787)$character"""
-
-[username]
-show_always = true
-style_user = "bold #fbcb97"
-style_root = "bold #ff6b6b"
-format = "$user"
-
-[hostname]
-ssh_only = false
-style = "bold #c1c1c1"
-format = "$hostname"
-
-[directory]
-style = "bold #fbcb97"
-format = "$path"
-truncation_length = 3
-truncation_symbol = "…/"
-
-[git_branch]
-style = "bold #e78a53"
-format = " [$branch]($style)"
-
-[git_status]
-style = "bold #ff6b6b"
-format = "[$all_status$ahead_behind]($style)"
-
-[cmd_duration]
-style = "bold #888888"
-format = " [$duration]($style)"
-
-[character]
-success_symbol = "[❯](bold #e78a53)"
-error_symbol = "[❯](bold #ff6b6b)"
-STARSHIP
-            echo -e "${GREEN}DarkMatter theme applied!${NC}"
-            ;;
-            
-        matrix)
-            cat > ~/.config/starship.toml << 'STARSHIP'
-format = """
-[数](bold bright-green) [$user](bold bright-green)[@](bold green)[$hostname](bold green)[ in ](bold green)[$path](bold bright-green)[$git_branch][$git_status][$cmd_duration]
-$character"""
-
-[username]
-show_always = true
-style_user = "bold bright-green"
-style_root = "bold red"
-format = "$user"
-
-[hostname]
-ssh_only = false
-style = "bold green"
-format = "$hostname"
-
-[directory]
-style = "bold bright-green"
-format = "$path"
-truncation_length = 3
-truncation_symbol = "…/"
-
-[git_branch]
-style = "bold green"
-format = " [$branch]($style)"
-
-[git_status]
-style = "bold red"
-format = "[$all_status$ahead_behind]($style)"
-
-[cmd_duration]
-style = "bold green"
-format = " [$duration]($style)"
-
-[character]
-success_symbol = "[>](bold bright-green)"
-error_symbol = "[>](bold red)"
-STARSHIP
-            echo -e "${GREEN}Matrix theme applied!${NC}"
-            ;;
-            
-        minimal)
-            cat > ~/.config/starship.toml << 'STARSHIP'
-format = """
-[$user](bold white)[@](white)[$hostname](bold white)[ in ](white)[$path](bold white)[$git_branch][$git_status][$cmd_duration]
-$character"""
-
-[username]
-show_always = true
-style_user = "bold white"
-style_root = "bold red"
-format = "$user"
-
-[hostname]
-ssh_only = false
-style = "bold white"
-format = "$hostname"
-
-[directory]
-style = "bold white"
-format = "$path"
-truncation_length = 3
-truncation_symbol = "…/"
-
-[git_branch]
-style = "bold white"
-format = " [$branch]($style)"
-
-[git_status]
-style = "bold white"
-format = "[$all_status$ahead_behind]($style)"
-
-[cmd_duration]
-style = "bold white"
-format = " [$duration]($style)"
-
-[character]
-success_symbol = "[>](bold white)"
-error_symbol = "[>](bold red)"
-STARSHIP
-            echo -e "${GREEN}Minimal theme applied!${NC}"
-            ;;
-            
-        retro)
-            cat > ~/.config/starship.toml << 'STARSHIP'
-format = """
-[★](bold bright-magenta) [$user](bold bright-cyan)[@](bold magenta)[$hostname](bold magenta)[ in ](bold magenta)[$path](bold bright-magenta)[$git_branch][$git_status][$cmd_duration]
-$character"""
-
-[username]
-show_always = true
-style_user = "bold bright-cyan"
-style_root = "bold red"
-format = "$user"
-
-[hostname]
-ssh_only = false
-style = "bold magenta"
-format = "$hostname"
-
-[directory]
-style = "bold bright-magenta"
-format = "$path"
-truncation_length = 3
-truncation_symbol = "…/"
-
-[git_branch]
-style = "bold bright-cyan"
-format = " [$branch]($style)"
-
-[git_status]
-style = "bold red"
-format = "[$all_status$ahead_behind]($style)"
-
-[cmd_duration]
-style = "bold bright-yellow"
-format = " [$duration]($style)"
-
-[character]
-success_symbol = "[▶](bold bright-magenta)"
-error_symbol = "[▶](bold red)"
-STARSHIP
-            echo -e "${GREEN}Retro theme applied!${NC}"
-            ;;
-            
-        ocean)
-            cat > ~/.config/starship.toml << 'STARSHIP'
-format = """
-[🌊](bold bright-blue) [$user](bold bright-cyan)[@](bold blue)[$hostname](bold blue)[ in ](bold blue)[$path](bold bright-blue)[$git_branch][$git_status][$cmd_duration]
-$character"""
-
-[username]
-show_always = true
-style_user = "bold bright-cyan"
-style_root = "bold red"
-format = "$user"
-
-[hostname]
-ssh_only = false
-style = "bold blue"
-format = "$hostname"
-
-[directory]
-style = "bold bright-blue"
-format = "$path"
-truncation_length = 3
-truncation_symbol = "…/"
-
-[git_branch]
-style = "bold cyan"
-format = " [$branch]($style)"
-
-[git_status]
-style = "bold red"
-format = "[$all_status$ahead_behind]($style)"
-
-[cmd_duration]
-style = "bold blue"
-format = " [$duration]($style)"
-
-[character]
-success_symbol = "[◈](bold bright-blue)"
-error_symbol = "[◈](bold red)"
-STARSHIP
-            echo -e "${GREEN}Ocean theme applied!${NC}"
-            ;;
-            
-        *)
-            echo -e "${RED}Unknown theme: $theme${NC}"
-            show_themes
-            exit 1
-            ;;
-    esac
-    
-    echo "Run: exec zsh"
-}
-case "$1" in
-    list|ls)
-        show_themes
-        ;;
-    set|apply)
-        if [ -z "$2" ]; then
-            show_themes
-            echo
-            read -p "Select theme (1-5): " choice
-            case "$choice" in
-                1) apply_theme "darkmatter" ;;
-                2) apply_theme "matrix" ;;
-                3) apply_theme "minimal" ;;
-                4) apply_theme "retro" ;;
-                5) apply_theme "ocean" ;;
-                *) echo -e "${RED}Invalid choice${NC}" ;;
-            esac
-        else
-            apply_theme "$2"
-        fi
-        ;;
-    *)
-        echo "Usage: gnar-theme [command] [theme]"
-        echo
-        echo "Commands:"
-        echo "  list, ls       - Show available themes"
-        echo "  set, apply     - Apply a theme"
-        echo
-        show_themes
-        ;;
-esac
-SCRIPT
-
-# Create tmux diagnostic tool
-cat > /usr/local/bin/gnar-tmux-test << 'SCRIPT'
-#!/bin/bash
-# GNAR Tmux Diagnostic Tool
-
-echo "=== GNAR Tmux Diagnostic ==="
-echo "Terminal: $TERM"
-echo "Tmux version: $(tmux -V 2>/dev/null || echo 'Not installed')"
-echo "Inside tmux: ${TMUX:-No}"
-echo "SSH connection: ${SSH_CONNECTION:-Local}"
-echo ""
-
-if [ -n "$TMUX" ]; then
-    echo "✓ You are inside tmux"
-    echo ""
-    echo "Testing prefix key (Ctrl-b)..."
-    echo "Try these commands:"
-    echo "  Ctrl-b ?    - Show all keybindings"
-    echo "  Ctrl-b d    - Detach from session"
-    echo "  Ctrl-b c    - Create new window"
-    echo "  Ctrl-b v    - Split vertically"
-    echo ""
-    echo "If Ctrl-b doesn't work:"
-    echo "  1. Check if your Mac terminal is intercepting it"
-    echo "  2. Try using iTerm2 instead of Terminal.app"
-    echo "  3. Run: export TERM=xterm-256color"
-else
-    echo "✗ You are NOT in tmux"
-    echo ""
-    echo "Start tmux with: tmux"
-    echo "Or attach to existing: tmux attach"
-fi
-
-if [ -n "$SSH_CONNECTION" ]; then
-    echo ""
-    echo "=== SSH Info ==="
-    echo "Connected from: $(echo $SSH_CONNECTION | awk '{print $1}')"
-    echo ""
-    echo "For better tmux over SSH:"
-    echo "  1. Use iTerm2 on your Mac"
-    echo "  2. Set TERM=xterm-256color"
-    echo "  3. Use 'ssh -t' for proper TTY allocation"
-fi
-SCRIPT
-
-# Create help command
-cat > /usr/local/bin/help-gnar << 'SCRIPT'
-#!/bin/bash
-# GNAR command reference
-
-clear
-echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-echo "  GNAR TTY Command Reference"
-echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo "=== GNAR Help ==="
 echo
-echo "System Commands:"
-echo "  gnar-info        - System information"
-echo "  gnar-update      - Update system"
-echo "  gnar-theme       - Switch terminal themes"
-echo "  htop            - Process monitor"
-echo "  fastfetch       - Quick system info"
+echo "Core Commands:"
+echo "  gnar-info     - System information (fastfetch)"
+echo "  gnar-update   - Update system"
+echo "  gnar-help     - This help"
 echo
-echo "Tmux (Tiling Terminal):"
-echo "  tmux            - Start new session"
-echo "  tn <name>       - New named session"
-echo "  ta <name>       - Attach to session"
-echo "  tl              - List sessions"
-echo "  Ctrl-b v        - Split vertical (vim-style)"
-echo "  Ctrl-b S        - Split horizontal (vim-style)"
-echo "  Ctrl-b h/j/k/l  - Navigate panes (vim-style)"
-echo "  Ctrl-b x        - Close pane"
-echo "  Ctrl-b d        - Detach session"
-echo "  Ctrl-b I        - Install plugins (capital i)"
-echo "  exit            - Exit pane/tmux"
+echo "System Info:"
+echo "  ff            - fastfetch system info"
+echo "  nf            - fastfetch (alternative)"
+echo "  myip          - Public IP address"
+echo "  localip       - Local IP addresses"
+echo "  ports         - Show open ports"
+echo "  now           - Current date/time"
+echo "  week          - Current week number"
 echo
-echo "File Operations:"
-echo "  ls              - List with icons (eza)"
-echo "  ll              - Long listing with details"
-echo "  la              - Show all including hidden"
-echo "  l               - One file per line"
-echo "  tree            - Full directory tree"
-echo "  lt              - Tree limited to 2 levels"
-echo "  mkcd <dir>      - Create and enter directory"
-echo "  backup <file>   - Backup file with timestamp"
-echo "  extract <file>  - Extract any archive"
+echo "Tmux:"
+echo "  t             - Start tmux"
+echo "  tn <name>     - New named session"
+echo "  ta <name>     - Attach to session"
+echo "  tl            - List sessions"
+echo "  tk <name>     - Kill session"
+echo "  Ctrl-a v      - Split vertical"
+echo "  Ctrl-a s      - Split horizontal"
+echo "  Ctrl-a h/j/k/l - Navigate panes"
 echo
-
-echo "Quick Aliases:"
-echo "  ff              - Fastfetch system info"
-echo "  c               - Clear screen"
-echo "  h               - History"
-echo "  j               - Jobs list"
-echo "  path            - Show PATH clearly"
-echo "  now             - Current date/time"
-echo "  myip            - Public IP address"
-echo "  localip         - Local IP addresses"
-echo "  ports           - Open ports"
+echo "Docker:"
+echo "  d             - docker"
+echo "  dc            - docker-compose"
+echo "  dps           - docker ps"
+echo "  dpa           - docker ps -a"
+echo "  di            - docker images"
+echo "  dex <container> - docker exec -it"
+echo
+echo "Caddy:"
+echo "  add-site <name> [port|dir] - Add site (port=reverse proxy, dir=static files)"
+echo "  remove-site <name> - Remove site from Caddy"
+echo "  list-sites    - List configured sites"
+echo "  caddy-edit    - Edit Caddyfile"
+echo "  caddy-reload  - Reload Caddy"
+echo "  caddy-restart - Restart Caddy service"
+echo "  caddy-test    - Test Caddy configuration"
+echo "  caddy-status  - Check Caddy status and logs"
+echo "  caddy-logs    - View live Caddy logs"
+echo
+echo "PM2:"
+echo "  pm2-start <ecosystem-file> - Start PM2 app from ecosystem file"
+echo "  pm2-add-site <name> <port> <ecosystem-file> - Start PM2 app and add to Caddy"
+echo "  pm2-remove <name> - Stop and remove PM2 app"
+echo "  pm2-restart <name> - Restart PM2 app"
+echo "  pm2-logs <name> - View PM2 app logs"
+echo "  pm2-status - Show PM2 apps and Caddy sites"
+echo
+echo "System Monitoring:"
+echo "  system-status - System overview and top processes"
+echo "  db-status - Database status (PostgreSQL, Redis)"
+echo "  security-status - Security status (firewall, fail2ban, SSH)"
+echo "  port-check <port> - Check if port is available"
+echo "  top - Enhanced process monitor (btop)"
+echo "  iotop - I/O monitoring"
+echo "  nethogs - Network monitoring"
+echo "  disk - Disk usage analyzer"
+echo
+echo "Development:"
+echo "  create-react-hono <name> - Create React + Hono project"
+echo "  backup-system - Create system backup"
+echo "  port-check <port> - Check port availability"
+echo
+echo "Security:"
+echo "  ufw-status - Firewall status"
+echo "  fail2ban-status - Fail2ban status"
+echo "  ssh-keys - List SSH keys"
+echo
+echo "Network:"
+echo "  nmap-local - Scan local network"
+echo "  nmap-scan - Network scan"
+echo "  tcpdump - Packet capture"
+echo "  lsof-port - List processes on port"
+echo
+echo "Database:"
+echo "  psql - PostgreSQL client"
+echo "  redis-cli - Redis client"
+echo "  sqlite - SQLite client"
+echo
+echo "VS Code Server:"
+echo "  vscode - VS Code Server status"
+echo "  vscode-restart - Restart VS Code Server"
+echo "  vscode-logs - View VS Code Server logs"
+echo "  vscode-password - Show current password"
+echo "  vscode-change-password <new-password> - Change password"
+echo "  🌐 Access at: http://vscode.local"
+echo
+echo "AUR (yay):"
+echo "  yay-update - Update all packages (AUR + official)"
+echo "  yay-install <package> - Install AUR package"
+echo "  yay-remove <package> - Remove AUR package"
+echo "  yay-search <package> - Search AUR packages"
+echo "  yay-info <package> - Show package info"
 echo
 echo "Navigation:"
-echo "  ..              - Go up one directory"
-echo "  ...             - Go up two directories"
-echo "  -               - Go to previous directory"
+echo "  ..            - Go up one directory"
+echo "  ...           - Go up two directories"
+echo "  ....          - Go up three directories"
+echo "  -             - Previous directory"
+echo "  ~             - Home directory"
 echo
-echo "Git Shortcuts:"
-echo "  gs              - git status"
-echo "  ga              - git add"
-echo "  gc              - git commit"
-echo "  glog            - git log graph"
+echo "File Operations:"
+echo "  ls            - List with icons (eza)"
+echo "  ll            - Long format with details"
+echo "  la            - Show all including hidden"
+echo "  tree           - Directory tree"
+echo "  cat            - Syntax highlighted (bat)"
+echo "  find           - Modern find (fd)"
+echo "  grep           - Colorized grep"
+echo
+echo "Git:"
+echo "  gs            - git status"
+echo "  ga            - git add"
+echo "  gc            - git commit"
+echo "  gp            - git push"
+echo "  gl            - git pull"
+echo "  gd            - git diff"
+echo "  gb            - git branch"
+echo "  gco           - git checkout"
+echo "  glog          - git log --oneline --graph"
 echo
 echo "Utilities:"
-echo "  weather [city]  - Weather report"
-echo "  calc <expr>     - Calculator"
-echo "  find_large_files - Find large files"
+echo "  weather [city] - Weather report"
+echo "  calc <expr>   - Calculator"
+echo "  backup <file> - Backup file with timestamp"
+echo "  extract <file> - Extract any archive"
+echo "  mkcd <dir>    - Create and enter directory"
+echo "  find_large_files [dir] - Find large files"
 echo "  pid_port <port> - Find process on port"
 echo
-echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo "Help Commands:"
+echo "  ?             - Search aliases with fzf"
+echo "  ??            - Search functions with fzf"
+echo "  ???           - List all aliases with syntax highlighting"
+echo
+echo "Quick Shortcuts:"
+echo "  c             - Clear screen"
+echo "  h             - History"
+echo "  reload        - Reload zsh config"
 SCRIPT
 
 # Make scripts executable
 chmod +x /usr/local/bin/gnar-*
-chmod +x /usr/local/bin/help-gnar
+
+# Change shell to zsh
+echo -e "${GREEN}🐚 Setting zsh as default shell...${NC}"
+chsh -s /usr/bin/zsh "$REAL_USER"
 
 echo
-echo -e "${GREEN}Done!${NC}"
-echo "Installed: Enhanced Zsh, Tmux, Neovim, Git, System tools"
+echo -e "${GREEN}✅ GNAR Home Server Setup Complete!${NC}"
 echo
-echo "Helper commands:"
-echo "  • gnar-info - Pretty TTY system information"
-echo "  • gnar-update - Update system and clean cache"
-echo "  • help-gnar - Complete command reference"
+echo "What's installed:"
+echo "  • Zsh with Spaceship prompt + essential plugins"
+echo "  • Tmux with vim keybindings"
+echo "  • VS Code Server (browser-based IDE)"
+echo "  • Caddy web server with reverse proxy"
+echo "  • Docker + Docker Compose"
+echo "  • PM2 process management"
+echo "  • PostgreSQL + Redis databases"
+echo "  • Security: UFW firewall + Fail2ban + SSH hardening"
+echo "  • Monitoring: btop, iotop, nethogs, smartmontools"
+echo "  • Development: Node.js, Python, Ruby, Rust, Go, Java"
+echo "  • Tools: eza, bat, fd, fzf, zoxide, ripgrep, httpie"
+echo "  • Network: nmap, tcpdump, wireshark-cli"
+echo "  • File ops: rsync, rclone, p7zip, imagemagick"
 echo
-echo "Tmux Setup:"
-echo "  1. Start tmux: tmux"
-echo "  2. Basic keybindings work immediately (Ctrl-b v, Ctrl-b h/j/k/l, etc.)"
-echo "  3. Install plugins: Press Ctrl-b I (capital i) for enhanced features"
-echo "  4. Plugin features activate after installation"
+echo "Quick start:"
+echo "  1. Reboot: sudo reboot"
+echo "  2. SSH in: ssh user@server"
+echo "  3. Start tmux: tmux"
+echo "  4. Create project: create-react-hono myapp"
+echo "  5. Add to Caddy: add-site myapp 3000"
+echo "  6. Open VS Code: http://vscode.local (password: gnar-vscode-2024)"
+echo "  7. Get help: gnar-help"
 echo
-echo "Reboot and enjoy your enhanced TTY!"
+echo "System management:"
+echo "  • system-status - System overview"
+echo "  • security-status - Security status"
+echo "  • db-status - Database status"
+echo "  • backup-system - Create backup"
+echo
+echo "Two ways to work:"
+echo "  🌐 VS Code in browser: http://vscode.local"
+echo "  💻 SSH + Tmux: ssh user@server && tmux"
+echo
+echo -e "${GREEN}Your home server is ready! 🏠🚀${NC}"

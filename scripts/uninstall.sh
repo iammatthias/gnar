@@ -1,170 +1,81 @@
 #!/bin/bash
 #
-# GNAR Comprehensive Uninstall
-# Reverses ALL changes made by setup.sh
+# GNAR - Uninstall Script
+# Removes GNAR configuration and reverts to clean state
 #
 
 set -euo pipefail
 
 RED='\033[0;31m'
-YELLOW='\033[0;33m'
 GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
 NC='\033[0m'
 
+echo -e "${YELLOW}🗑️  GNAR Uninstall${NC}"
+echo "This will remove GNAR configurations and revert to clean state."
+echo
+
+# Check if root
 if [[ $EUID -ne 0 ]]; then
    echo -e "${RED}Run as root: sudo ./uninstall.sh${NC}"
    exit 1
 fi
 
-echo -e "${RED}╔════════════════════════════════════════════════╗${NC}"
-echo -e "${RED}║     GNAR Complete Uninstall                   ║${NC}"
-echo -e "${RED}╚════════════════════════════════════════════════╝${NC}"
-echo
-echo -e "${YELLOW}This will:${NC}"
-echo "  • Remove all GNAR packages (tmux, zsh, neovim, etc.)"
-echo "  • Delete configuration files (.zshrc, .tmux.conf)"
-echo "  • Remove all helper scripts"
-echo "  • Reset shell to bash"
-echo "  • Restore system to pre-GNAR state"
-echo
-read -p "Are you sure you want to completely remove GNAR? (y/N) " -n 1 -r
-echo
-if [[ ! $REPLY =~ ^[Yy]$ ]]; then
-    echo "Uninstall cancelled."
-    exit 0
-fi
-
 # Get actual user
 REAL_USER=$(logname)
-USER_HOME="/home/$REAL_USER"
 
-echo
-echo -e "${YELLOW}Starting comprehensive uninstall...${NC}"
+echo -e "${YELLOW}Removing GNAR configurations...${NC}"
 
-# Step 1: Backup current configs (just in case)
-echo "Creating backup of current configs..."
-BACKUP_DIR="$USER_HOME/gnar-backup-$(date +%Y%m%d-%H%M%S)"
-mkdir -p "$BACKUP_DIR"
+# Remove GNAR scripts
+rm -f /usr/local/bin/gnar-*
 
-# Backup existing files if they exist
-[[ -f "$USER_HOME/.zshrc" ]] && cp "$USER_HOME/.zshrc" "$BACKUP_DIR/" 2>/dev/null || true
-[[ -f "$USER_HOME/.tmux.conf" ]] && cp "$USER_HOME/.tmux.conf" "$BACKUP_DIR/" 2>/dev/null || true
-[[ -d "$USER_HOME/.config/fastfetch" ]] && cp -r "$USER_HOME/.config/fastfetch" "$BACKUP_DIR/" 2>/dev/null || true
-[[ -f "$USER_HOME/.zsh_history" ]] && cp "$USER_HOME/.zsh_history" "$BACKUP_DIR/" 2>/dev/null || true
+# Stop and disable services
+systemctl stop caddy 2>/dev/null || true
+systemctl disable caddy 2>/dev/null || true
 
-echo "  Backup saved to: $BACKUP_DIR"
+# Remove Caddy configuration
+rm -f /etc/caddy/Caddyfile
 
-# Step 2: Kill any running tmux sessions
-echo "Stopping tmux sessions..."
-sudo -u "$REAL_USER" tmux kill-server 2>/dev/null || true
-
-# Step 3: Reset shell to bash BEFORE removing zsh
-echo "Resetting default shell to bash..."
-if grep -q "$REAL_USER.*zsh" /etc/passwd; then
-    chsh -s /bin/bash "$REAL_USER"
-    echo "  Shell reset to /bin/bash"
+# Remove user configurations (with backup)
+if [[ -f "/home/$REAL_USER/.zshrc" ]]; then
+    cp "/home/$REAL_USER/.zshrc" "/home/$REAL_USER/.zshrc.gnar-backup.$(date +%Y%m%d_%H%M%S)" 2>/dev/null || true
+    echo "Backed up .zshrc to .zshrc.gnar-backup.$(date +%Y%m%d_%H%M%S)"
 fi
 
-# Step 4: Remove GNAR configuration files and restore originals
-echo "Removing GNAR configuration files..."
-
-# Check for pre-GNAR backups and restore them
-if [[ -f "$USER_HOME/.zshrc.pre-gnar" ]]; then
-    echo "  Restoring original .zshrc..."
-    mv "$USER_HOME/.zshrc.pre-gnar" "$USER_HOME/.zshrc"
-else
-    rm -f "$USER_HOME/.zshrc" 2>/dev/null || true
+if [[ -f "/home/$REAL_USER/.tmux.conf" ]]; then
+    cp "/home/$REAL_USER/.tmux.conf" "/home/$REAL_USER/.tmux.conf.gnar-backup.$(date +%Y%m%d_%H%M%S)" 2>/dev/null || true
+    echo "Backed up .tmux.conf to .tmux.conf.gnar-backup.$(date +%Y%m%d_%H%M%S)"
 fi
 
-if [[ -f "$USER_HOME/.tmux.conf.pre-gnar" ]]; then
-    echo "  Restoring original .tmux.conf..."
-    mv "$USER_HOME/.tmux.conf.pre-gnar" "$USER_HOME/.tmux.conf"
-else
-    rm -f "$USER_HOME/.tmux.conf" 2>/dev/null || true
-fi
+# Remove Oh My Zsh and spaceship
+sudo -u $REAL_USER rm -rf /home/$REAL_USER/.oh-my-zsh 2>/dev/null || true
+sudo -u $REAL_USER rm -rf /home/$REAL_USER/.spaceship-prompt 2>/dev/null || true
 
-# Remove fastfetch config and theme file
-rm -rf "$USER_HOME/.config/fastfetch" 2>/dev/null || true
-rm -f "$USER_HOME/.gnar_theme" 2>/dev/null || true
+# Remove zsh configuration
+rm -f /home/$REAL_USER/.zshrc
+rm -f /home/$REAL_USER/.tmux.conf
 
-rm -f "$USER_HOME/.zsh_history" 2>/dev/null || true
-echo "  Configuration files handled"
+# Remove zsh history
+rm -f /home/$REAL_USER/.zsh_history
 
-# Step 5: Remove helper scripts
-echo "Removing helper scripts..."
-rm -f /usr/local/bin/gnar-info 2>/dev/null || true
-rm -f /usr/local/bin/gnar-update 2>/dev/null || true
-rm -f /usr/local/bin/help-gnar 2>/dev/null || true
-echo "  Helper scripts removed"
+# Remove config directories
+sudo -u $REAL_USER rm -rf /home/$REAL_USER/.config/zsh 2>/dev/null || true
+sudo -u $REAL_USER rm -rf /home/$REAL_USER/.config/spaceship 2>/dev/null || true
 
-# Step 6: Remove packages (optional - ask user)
+echo -e "${GREEN}✅ GNAR uninstalled successfully!${NC}"
 echo
-echo -e "${YELLOW}Package removal options:${NC}"
-echo "  1) Remove all GNAR packages (tmux, zsh, neovim, etc.)"
-echo "  2) Keep essential tools (git, curl, which, man-db)"
-echo "  3) Keep all packages"
+echo "What was removed:"
+echo "  • GNAR helper scripts"
+echo "  • Zsh configuration with Spaceship"
+echo "  • Tmux configuration"
+echo "  • Caddy web server"
+echo "  • Oh My Zsh and plugins"
 echo
-read -p "Choose option (1-3) [3]: " -n 1 -r
+echo "Backups created:"
+echo "  • .zshrc.gnar-backup.*"
+echo "  • .tmux.conf.gnar-backup.*"
 echo
-
-case "$REPLY" in
-    1)
-        echo "Removing ALL GNAR packages..."
-        PACKAGES="zsh tmux neovim fastfetch htop tree starship eza bat fd fzf zoxide git curl which man-db man-pages bc net-tools"
-        for pkg in $PACKAGES; do
-            if pacman -Qi "$pkg" &>/dev/null; then
-                echo "  Removing $pkg..."
-                pacman -Rns --noconfirm "$pkg" 2>/dev/null || true
-            fi
-        done
-        echo "  All packages removed"
-        ;;
-    2)
-        echo "Removing non-essential GNAR packages..."
-        PACKAGES="zsh tmux neovim fastfetch htop tree starship eza bat fd fzf zoxide bc net-tools"
-        for pkg in $PACKAGES; do
-            if pacman -Qi "$pkg" &>/dev/null; then
-                echo "  Removing $pkg..."
-                pacman -Rns --noconfirm "$pkg" 2>/dev/null || true
-            fi
-        done
-        echo "  Non-essential packages removed (kept git, curl, which, man-db)"
-        ;;
-    *)
-        echo "  Keeping all installed packages"
-        ;;
-esac
-
-# Step 7: Clean up any remaining GNAR references
-echo "Cleaning up..."
-# Remove any GNAR environment variables from other shell configs
-for file in "$USER_HOME/.bashrc" "$USER_HOME/.bash_profile" "$USER_HOME/.profile"; do
-    if [[ -f "$file" ]]; then
-        sed -i '/GNAR/d' "$file" 2>/dev/null || true
-        sed -i '/gnar/d' "$file" 2>/dev/null || true
-    fi
-done
-
-# Step 8: Final report
+echo "System packages remain installed. To remove them:"
+echo "  sudo pacman -Rns zsh tmux neovim caddy docker nodejs python ruby rust go"
 echo
-echo -e "${GREEN}╔════════════════════════════════════════════════╗${NC}"
-echo -e "${GREEN}║     GNAR Uninstall Complete!                  ║${NC}"
-echo -e "${GREEN}╚════════════════════════════════════════════════╝${NC}"
-echo
-echo "Summary:"
-echo "  ✓ Shell reset to bash"
-if [[ -f "$USER_HOME/.zshrc.pre-gnar" ]] || [[ -f "$USER_HOME/.tmux.conf.pre-gnar" ]]; then
-    echo "  ✓ Original configuration files restored"
-else
-    echo "  ✓ Configuration files removed"
-fi
-echo "  ✓ Helper scripts removed"
-case "$REPLY" in
-    1) echo "  ✓ All packages removed" ;;
-    2) echo "  ✓ Non-essential packages removed" ;;
-    *) echo "  ✓ Packages kept" ;;
-esac
-echo "  ✓ Backup saved to: $BACKUP_DIR"
-echo
-echo -e "${YELLOW}Note: Log out and back in for shell changes to take effect.${NC}"
-echo -e "${YELLOW}To restore configs: cp $BACKUP_DIR/* ~/  ${NC}"
+echo -e "${GREEN}System reverted to clean state! 🧹${NC}"
