@@ -411,6 +411,9 @@ export PATH="$HOME/.local/share/gem/ruby/3.4.0/bin:$PATH"
 
 # Add Rust cargo to PATH
 export PATH="$HOME/.cargo/bin:$PATH"
+
+# Add pipx packages to PATH
+export PATH="$HOME/.local/bin:$PATH"
 export FZF_DEFAULT_OPTS='
   --color=fg:#c1c1c1,fg+:#ffffff,bg:#121113,bg+:#222222
   --color=hl:#5f8787,hl+:#fbcb97,info:#e78a53,marker:#fbcb97
@@ -1652,7 +1655,11 @@ export HOME=/home/$REAL_USER
 # Use pipx for Python applications (avoids externally-managed-environment error)
 pipx install black
 pipx install pytest
+pipx ensurepath
 # pipenv and poetry are installed via pacman above
+# Add pipx bin to PATH
+echo 'export PATH="\$HOME/.local/bin:\$PATH"' >> \$HOME/.bashrc
+echo 'export PATH="\$HOME/.local/bin:\$PATH"' >> \$HOME/.zshrc
 echo "✅ Python packages configured (pipenv, poetry, black, pytest)"
 EOF
 chmod +x /tmp/setup_python.sh
@@ -1674,21 +1681,24 @@ chmod +x /tmp/setup_ruby.sh
 sudo -u "$REAL_USER" /tmp/setup_ruby.sh || echo "⚠️  Ruby bundler installation failed"
 rm -f /tmp/setup_ruby.sh
 
-# Configure Rust
+# Configure Rust (check for system rust conflict first)
 echo "Setting up Rust toolchain..."
+if pacman -Q rust &>/dev/null; then
+    echo "⚠️  System Rust detected. Removing to install rustup properly..."
+    pacman -R --noconfirm rust
+fi
+
 cat > /tmp/setup_rust.sh << EOF
 #!/bin/bash
 export HOME=/home/$REAL_USER
-# Install rustup if not already available
-if ! command -v rustup &> /dev/null; then
-    curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
-    source \$HOME/.cargo/env
-fi
+# Install rustup (the proper way)
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+source \$HOME/.cargo/env
 rustup default stable
 # Add cargo bin to PATH
 echo 'export PATH="\$HOME/.cargo/bin:\$PATH"' >> \$HOME/.bashrc
 echo 'export PATH="\$HOME/.cargo/bin:\$PATH"' >> \$HOME/.zshrc
-echo "✅ Rust toolchain configured"
+echo "✅ Rust toolchain configured with rustup"
 EOF
 chmod +x /tmp/setup_rust.sh
 sudo -u "$REAL_USER" /tmp/setup_rust.sh || echo "⚠️  Rust setup failed"
@@ -2131,7 +2141,11 @@ chmod +x /usr/local/bin/gnar-*
 
 # Change shell to zsh
 echo -e "${GREEN}🐚 Setting zsh as default shell...${NC}"
-chsh -s /usr/bin/zsh "$REAL_USER"
+if chsh -s /usr/bin/zsh "$REAL_USER"; then
+    echo "✅ Shell changed to zsh successfully"
+else
+    echo "⚠️  Shell change failed - user may need to run 'chsh -s /usr/bin/zsh' manually"
+fi
 
 # Final service status check
 echo
@@ -2161,10 +2175,14 @@ echo
 echo "=== Additional Checks ==="
 echo "🌐 VS Code Server: http://localhost:8080 $(curl -s -o /dev/null -w "%{http_code}" http://localhost:8080 2>/dev/null | grep -q "200\|302\|401" && echo "✅ responding" || echo "❌ not responding")"
 echo "🌐 Caddy: http://localhost:80 $(curl -s -o /dev/null -w "%{http_code}" http://localhost:80 2>/dev/null | grep -q "200" && echo "✅ responding" || echo "❌ not responding")"
-echo "📦 npm global packages: $(which yarn pnpm pm2 2>/dev/null | wc -l)/3 installed"
-echo "💎 Ruby bundler: $(which bundle 2>/dev/null && echo "✅ available" || echo "❌ not in PATH")"
-echo "🦀 Rust toolchain: $(which rustc cargo 2>/dev/null | wc -l)/2 installed"
-echo "🐹 Go tools: $(which dlv 2>/dev/null && echo "✅ available" || echo "❌ not available")"
+# Source user's shell config to get updated PATH for checks
+export PATH="/home/$REAL_USER/.local/bin:/home/$REAL_USER/.local/share/gem/ruby/3.4.0/bin:/home/$REAL_USER/.npm-global/bin:/home/$REAL_USER/.bun/bin:/home/$REAL_USER/.cargo/bin:$PATH"
+
+echo "📦 npm global packages: $(sudo -u "$REAL_USER" bash -c "export PATH=\"/home/$REAL_USER/.npm-global/bin:\$PATH\" && which yarn pnpm pm2 2>/dev/null | wc -l")/3 installed"
+echo "💎 Ruby bundler: $(sudo -u "$REAL_USER" bash -c "export PATH=\"/home/$REAL_USER/.local/share/gem/ruby/3.4.0/bin:\$PATH\" && which bundle 2>/dev/null && echo \"✅ available\" || echo \"❌ not in PATH\"")"
+echo "🦀 Rust toolchain: $(sudo -u "$REAL_USER" bash -c "export PATH=\"/home/$REAL_USER/.cargo/bin:\$PATH\" && which rustc cargo 2>/dev/null | wc -l")/2 installed"
+echo "🐹 Go tools: $(sudo -u "$REAL_USER" bash -c "which dlv 2>/dev/null && echo \"✅ available\" || echo \"❌ not available\"")"
+echo "🐍 Python tools: $(sudo -u "$REAL_USER" bash -c "export PATH=\"/home/$REAL_USER/.local/bin:\$PATH\" && which black pytest 2>/dev/null | wc -l")/2 installed"
 
 echo
 echo -e "${GREEN}✅ GNAR Home Server Setup Complete!${NC}"
@@ -2192,7 +2210,8 @@ echo "  4. Create project: create-react-hono myapp"
 echo "  5. Add to Caddy: add-site myapp 3000"
 echo "  6. Open VS Code: http://vscode.local (password: gnar-vscode-2024)"
 echo "     Note: Add 'vscode.local' to your hosts file pointing to this server's IP"
-echo "  7. Get help: gnar-help"
+echo "  7. Reload shell: source ~/.zshrc"
+echo "  8. Get help: gnar-help"
 echo
 echo "System management:"
 echo "  • system-status - System overview"
