@@ -529,16 +529,16 @@ cd() {
     fi
 }
 
-# Quick directory jumping
-1() { cd -1 }
-2() { cd -2 }
-3() { cd -3 }
-4() { cd -4 }
-5() { cd -5 }
-6() { cd -6 }
-7() { cd -7 }
-8() { cd -8 }
-9() { cd -9 }
+# Quick directory jumping (using functions to avoid conflicts)
+function 1() { cd -1 }
+function 2() { cd -2 }
+function 3() { cd -3 }
+function 4() { cd -4 }
+function 5() { cd -5 }
+function 6() { cd -6 }
+function 7() { cd -7 }
+function 8() { cd -8 }
+function 9() { cd -9 }
 
 # Enhanced file operations
 cp() {
@@ -2267,3 +2267,11 @@ echo "    add-site vscode 8080"
 echo
 echo "  To check all services:"
 echo "    system-status"
+echo
+echo "🌐 VS Code Server Access:"
+echo "  If vscode.local doesn't work from your Mac:"
+echo "  1. Add to your Mac's /etc/hosts file:"
+echo "     echo \"\$(ip route get 1 | awk '{print \$7}') vscode.local\" | sudo tee -a /etc/hosts"
+echo "  2. Or access directly: http://\$(ip route get 1 | awk '{print \$7}'):80"
+echo "  3. Check Caddy status: sudo systemctl status caddy"
+echo "  4. Test Caddy config: sudo caddy validate --config /etc/caddy/Caddyfile"
