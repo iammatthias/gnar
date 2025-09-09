@@ -396,6 +396,12 @@ export EDITOR="nvim"
 export PAGER="bat"
 export BAT_THEME="ansi"
 export FZF_DEFAULT_COMMAND='fd --type f --hidden --exclude ".git"'
+
+# Add npm global packages to PATH
+export PATH="$HOME/.npm-global/bin:$PATH"
+
+# Add bun to PATH
+export PATH="$HOME/.bun/bin:$PATH"
 export FZF_DEFAULT_OPTS='
   --color=fg:#c1c1c1,fg+:#ffffff,bg:#121113,bg+:#222222
   --color=hl:#5f8787,hl+:#fbcb97,info:#e78a53,marker:#fbcb97
@@ -1348,14 +1354,18 @@ EOF
 
 echo -e "${GREEN}🔧 Configuring Caddy...${NC}"
 
-# Create basic Caddyfile first
+# Configure Caddy with VS Code Server pre-configured
 cat > /etc/caddy/Caddyfile << 'CADDYFILE'
 # GNAR - Caddy Configuration
-# Add your sites here using: add-site <name> <port>
 
 # Default site
 :80 {
     respond "GNAR Server - Add sites with: add-site <name> <port>"
+}
+
+# VS Code Server (pre-configured)
+vscode.local:80 {
+    reverse_proxy localhost:8080
 }
 CADDYFILE
 
@@ -1364,8 +1374,12 @@ if caddy validate --config /etc/caddy/Caddyfile 2>/dev/null; then
     echo "✅ Caddy configuration is valid"
     # Enable and start Caddy
     systemctl enable caddy
-    systemctl start caddy
-    echo "✅ Caddy service started"
+    if systemctl start caddy; then
+        echo "✅ Caddy service started successfully"
+    else
+        echo "⚠️  Caddy failed to start, checking logs..."
+        journalctl -xeu caddy.service --no-pager -n 10
+    fi
 else
     echo "❌ Caddy configuration has errors:"
     caddy validate --config /etc/caddy/Caddyfile
@@ -1422,25 +1436,33 @@ systemctl restart sshd
 echo -e "${GREEN}🗄️ Configuring databases...${NC}"
 
 # Configure PostgreSQL
-if [ ! -d "/var/lib/postgres/data" ]; then
+echo "Setting up PostgreSQL database..."
+if [ ! -d "/var/lib/postgres/data" ] || [ -z "$(ls -A /var/lib/postgres/data 2>/dev/null)" ]; then
+    echo "Initializing PostgreSQL database cluster..."
     sudo -u postgres initdb -D /var/lib/postgres/data --locale=en_US.UTF-8 --encoding=UTF8
-fi
-systemctl enable postgresql
-if ! systemctl start postgresql; then
-    echo "⚠️  PostgreSQL failed to start. Checking logs..."
-    journalctl -xeu postgresql.service --no-pager -n 20
-    echo "Attempting to fix PostgreSQL..."
-    sudo -u postgres initdb -D /var/lib/postgres/data --locale=en_US.UTF-8 --encoding=UTF8
-    systemctl start postgresql || echo "❌ PostgreSQL still failing - check manually"
 fi
 
-# Create database user (only if it doesn't exist)
-if ! sudo -u postgres psql -tAc "SELECT 1 FROM pg_roles WHERE rolname='$REAL_USER'" | grep -q 1; then
-    sudo -u postgres createuser -s "$REAL_USER"
-    sudo -u postgres createdb "$REAL_USER"
-    echo "✅ PostgreSQL user and database created for $REAL_USER"
+# Enable and start PostgreSQL
+systemctl enable postgresql
+if systemctl start postgresql; then
+    echo "✅ PostgreSQL started successfully"
 else
-    echo "✅ PostgreSQL user $REAL_USER already exists"
+    echo "⚠️  PostgreSQL failed to start. Checking logs..."
+    journalctl -xeu postgresql.service --no-pager -n 10
+    echo "❌ PostgreSQL startup failed - will continue with other services"
+fi
+
+# Create database user (only if PostgreSQL is running and user doesn't exist)
+if systemctl is-active --quiet postgresql; then
+    if ! sudo -u postgres psql -tAc "SELECT 1 FROM pg_roles WHERE rolname='$REAL_USER'" | grep -q 1 2>/dev/null; then
+        sudo -u postgres createuser -s "$REAL_USER" 2>/dev/null || echo "⚠️  Could not create PostgreSQL user"
+        sudo -u postgres createdb "$REAL_USER" 2>/dev/null || echo "⚠️  Could not create PostgreSQL database"
+        echo "✅ PostgreSQL user and database created for $REAL_USER"
+    else
+        echo "✅ PostgreSQL user $REAL_USER already exists"
+    fi
+else
+    echo "⚠️  PostgreSQL not running, skipping user creation"
 fi
 
 # Configure Valkey (Redis replacement)
@@ -1519,22 +1541,26 @@ systemctl daemon-reload
 systemctl enable code-server@$REAL_USER
 systemctl start code-server@$REAL_USER
 
-# Add code-server to Caddy (function not available yet, add manually to Caddyfile)
-echo -e "\n# VS Code Server\nvscode.local:80 {\n    reverse_proxy localhost:8080\n}" >> /etc/caddy/Caddyfile
-
-# Test and reload Caddy
-if caddy validate --config /etc/caddy/Caddyfile 2>/dev/null; then
-    systemctl reload caddy 2>/dev/null || echo "⚠️  Caddy not running, will be configured on next start"
-    echo "✅ VS Code Server added to Caddy: http://vscode.local"
-else
-    echo "❌ Caddy configuration error, removing VS Code Server entry"
-    sed -i '/# VS Code Server/,/^}/d' /etc/caddy/Caddyfile
-fi
+# VS Code Server is already configured in Caddyfile above
+echo "✅ VS Code Server pre-configured in Caddy: http://vscode.local"
 
 echo -e "${GREEN}🔧 Setting up runtime environments...${NC}"
 
-# Configure Node.js
-sudo -u $REAL_USER npm install -g yarn pnpm bun pm2 eslint prettier jest
+# Configure Node.js global packages with proper permissions
+echo "Setting up Node.js global packages..."
+# Create npm global directory for user
+sudo -u $REAL_USER mkdir -p /home/$REAL_USER/.npm-global
+sudo -u $REAL_USER npm config set prefix '/home/$REAL_USER/.npm-global'
+
+# Add to PATH in .bashrc and .zshrc
+echo 'export PATH=~/.npm-global/bin:$PATH' >> /home/$REAL_USER/.bashrc 2>/dev/null || true
+
+# Install global packages as user
+sudo -u $REAL_USER bash -c 'export PATH=~/.npm-global/bin:$PATH && npm install -g yarn pnpm pm2 eslint prettier jest' || echo "⚠️  Some npm packages failed to install"
+
+# Install bun separately (has its own installer)
+echo "Installing Bun..."
+sudo -u $REAL_USER bash -c 'curl -fsSL https://bun.sh/install | bash' || echo "⚠️  Bun installation failed"
 
 # Install code-server
 echo -e "${GREEN}💻 Installing VS Code Server...${NC}"
@@ -1990,6 +2016,18 @@ chmod +x /usr/local/bin/gnar-*
 echo -e "${GREEN}🐚 Setting zsh as default shell...${NC}"
 chsh -s /usr/bin/zsh "$REAL_USER"
 
+# Final service status check
+echo
+echo -e "${GREEN}🔍 Checking service status...${NC}"
+echo "=== Service Status ==="
+for service in caddy docker postgresql valkey fail2ban ufw "code-server@$REAL_USER"; do
+    if systemctl is-active --quiet "$service" 2>/dev/null; then
+        echo "✅ $service: running"
+    else
+        echo "❌ $service: not running"
+    fi
+done
+
 echo
 echo -e "${GREEN}✅ GNAR Home Server Setup Complete!${NC}"
 echo
@@ -2000,7 +2038,7 @@ echo "  • VS Code Server (browser-based IDE)"
 echo "  • Caddy web server with reverse proxy"
 echo "  • Docker + Docker Compose"
 echo "  • PM2 process management"
-echo "  • PostgreSQL + Redis databases"
+echo "  • PostgreSQL + Valkey/Redis databases"
 echo "  • Security: UFW firewall + Fail2ban + SSH hardening"
 echo "  • Monitoring: btop, iotop, nethogs, smartmontools"
 echo "  • Development: Node.js, Python, Ruby, Rust, Go, Java"
@@ -2015,6 +2053,7 @@ echo "  3. Start tmux: tmux"
 echo "  4. Create project: create-react-hono myapp"
 echo "  5. Add to Caddy: add-site myapp 3000"
 echo "  6. Open VS Code: http://vscode.local (password: gnar-vscode-2024)"
+echo "     Note: Add 'vscode.local' to your hosts file pointing to this server's IP"
 echo "  7. Get help: gnar-help"
 echo
 echo "System management:"
