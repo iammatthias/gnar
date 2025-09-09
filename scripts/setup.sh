@@ -319,6 +319,15 @@ alias tl="tmux list-sessions"
 alias tk="tmux kill-session -t"
 
 # Docker shortcuts (using functions to avoid alias conflicts)
+# Unset any existing aliases first
+unalias d 2>/dev/null || true
+unalias dc 2>/dev/null || true
+unalias dps 2>/dev/null || true
+unalias dpa 2>/dev/null || true
+unalias di 2>/dev/null || true
+unalias dex 2>/dev/null || true
+
+# Define Docker functions
 d() { docker "$@"; }
 dc() { docker-compose "$@"; }
 dps() { docker ps "$@"; }
@@ -330,6 +339,7 @@ dex() { docker exec -it "$@"; }
 alias c="clear"
 alias h="history"
 alias reload="source ~/.zshrc"
+alias r="source ~/.zshrc"
 alias myip="curl -s ifconfig.me"
 alias localip="ip addr show | grep inet"
 alias ff="fastfetch"
