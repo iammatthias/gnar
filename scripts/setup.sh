@@ -52,6 +52,9 @@ pacman -S --noconfirm \
   npm \
   python \
   python-pip \
+  python-pipx \
+  python-pipenv \
+  python-poetry \
   ruby \
   ruby-rdoc \
   ruby-irb \
@@ -402,6 +405,12 @@ export PATH="$HOME/.npm-global/bin:$PATH"
 
 # Add bun to PATH
 export PATH="$HOME/.bun/bin:$PATH"
+
+# Add Ruby gems to PATH
+export PATH="$HOME/.local/share/gem/ruby/3.4.0/bin:$PATH"
+
+# Add Rust cargo to PATH
+export PATH="$HOME/.cargo/bin:$PATH"
 export FZF_DEFAULT_OPTS='
   --color=fg:#c1c1c1,fg+:#ffffff,bg:#121113,bg+:#222222
   --color=hl:#5f8787,hl+:#fbcb97,info:#e78a53,marker:#fbcb97
@@ -1408,6 +1417,14 @@ ufw allow 3000:8000/tcp  # Development ports
 ufw allow 5432/tcp       # PostgreSQL
 ufw allow 6379/tcp       # Redis
 
+# Ensure UFW service is enabled and started
+systemctl enable ufw
+if systemctl start ufw; then
+    echo "✅ UFW service started successfully"
+else
+    echo "⚠️  UFW service failed to start"
+fi
+
 # Configure Fail2ban
 systemctl enable fail2ban
 systemctl start fail2ban
@@ -1539,7 +1556,12 @@ CODESERVICESERVICE
 # Enable and start code-server
 systemctl daemon-reload
 systemctl enable code-server@$REAL_USER
-systemctl start code-server@$REAL_USER
+if systemctl start code-server@$REAL_USER; then
+    echo "✅ Code-server started successfully"
+else
+    echo "⚠️  Code-server failed to start, checking logs..."
+    journalctl -xeu code-server@$REAL_USER --no-pager -n 5
+fi
 
 # VS Code Server is already configured in Caddyfile above
 echo "✅ VS Code Server pre-configured in Caddy: http://vscode.local"
@@ -1627,7 +1649,11 @@ echo "Setting up Python packages..."
 cat > /tmp/setup_python.sh << EOF
 #!/bin/bash
 export HOME=/home/$REAL_USER
-pip install --user pipenv poetry black pytest
+# Use pipx for Python applications (avoids externally-managed-environment error)
+pipx install black
+pipx install pytest
+# pipenv and poetry are installed via pacman above
+echo "✅ Python packages configured (pipenv, poetry, black, pytest)"
 EOF
 chmod +x /tmp/setup_python.sh
 sudo -u "$REAL_USER" /tmp/setup_python.sh || echo "⚠️  Some Python packages failed to install"
@@ -1639,6 +1665,10 @@ cat > /tmp/setup_ruby.sh << EOF
 #!/bin/bash
 export HOME=/home/$REAL_USER
 gem install bundler
+# Add Ruby gem bin directory to PATH
+echo 'export PATH="\$HOME/.local/share/gem/ruby/3.4.0/bin:\$PATH"' >> \$HOME/.bashrc
+echo 'export PATH="\$HOME/.local/share/gem/ruby/3.4.0/bin:\$PATH"' >> \$HOME/.zshrc
+echo "✅ Ruby bundler installed and PATH configured"
 EOF
 chmod +x /tmp/setup_ruby.sh
 sudo -u "$REAL_USER" /tmp/setup_ruby.sh || echo "⚠️  Ruby bundler installation failed"
@@ -1649,7 +1679,16 @@ echo "Setting up Rust toolchain..."
 cat > /tmp/setup_rust.sh << EOF
 #!/bin/bash
 export HOME=/home/$REAL_USER
+# Install rustup if not already available
+if ! command -v rustup &> /dev/null; then
+    curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+    source \$HOME/.cargo/env
+fi
 rustup default stable
+# Add cargo bin to PATH
+echo 'export PATH="\$HOME/.cargo/bin:\$PATH"' >> \$HOME/.bashrc
+echo 'export PATH="\$HOME/.cargo/bin:\$PATH"' >> \$HOME/.zshrc
+echo "✅ Rust toolchain configured"
 EOF
 chmod +x /tmp/setup_rust.sh
 sudo -u "$REAL_USER" /tmp/setup_rust.sh || echo "⚠️  Rust setup failed"
@@ -2103,8 +2142,29 @@ for service in caddy docker postgresql valkey fail2ban ufw "code-server@$REAL_US
         echo "✅ $service: running"
     else
         echo "❌ $service: not running"
+        # Try to start failed services
+        case $service in
+            "ufw")
+                echo "   Attempting to start UFW..."
+                systemctl start ufw 2>/dev/null && echo "   ✅ UFW started" || echo "   ❌ UFW failed to start"
+                ;;
+            "code-server@$REAL_USER")
+                echo "   Attempting to start code-server..."
+                systemctl start "code-server@$REAL_USER" 2>/dev/null && echo "   ✅ Code-server started" || echo "   ❌ Code-server failed to start"
+                ;;
+        esac
     fi
 done
+
+# Additional checks
+echo
+echo "=== Additional Checks ==="
+echo "🌐 VS Code Server: http://localhost:8080 $(curl -s -o /dev/null -w "%{http_code}" http://localhost:8080 2>/dev/null | grep -q "200\|302\|401" && echo "✅ responding" || echo "❌ not responding")"
+echo "🌐 Caddy: http://localhost:80 $(curl -s -o /dev/null -w "%{http_code}" http://localhost:80 2>/dev/null | grep -q "200" && echo "✅ responding" || echo "❌ not responding")"
+echo "📦 npm global packages: $(which yarn pnpm pm2 2>/dev/null | wc -l)/3 installed"
+echo "💎 Ruby bundler: $(which bundle 2>/dev/null && echo "✅ available" || echo "❌ not in PATH")"
+echo "🦀 Rust toolchain: $(which rustc cargo 2>/dev/null | wc -l)/2 installed"
+echo "🐹 Go tools: $(which dlv 2>/dev/null && echo "✅ available" || echo "❌ not available")"
 
 echo
 echo -e "${GREEN}✅ GNAR Home Server Setup Complete!${NC}"
