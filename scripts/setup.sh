@@ -121,6 +121,9 @@ echo "Installing zsh plugins..."
 git clone https://github.com/zsh-users/zsh-autosuggestions ${ZSH_CUSTOM:-~/.oh-my-zsh/custom}/plugins/zsh-autosuggestions
 git clone https://github.com/zsh-users/zsh-syntax-highlighting.git ${ZSH_CUSTOM:-~/.oh-my-zsh/custom}/plugins/zsh-syntax-highlighting
 git clone https://github.com/zsh-users/zsh-completions ${ZSH_CUSTOM:-~/.oh-my-zsh/custom}/plugins/zsh-completions
+git clone https://github.com/zsh-users/zsh-history-substring-search ${ZSH_CUSTOM:-~/.oh-my-zsh/custom}/plugins/zsh-history-substring-search
+git clone https://github.com/agkozak/zsh-z ${ZSH_CUSTOM:-~/.oh-my-zsh/custom}/plugins/zsh-z
+git clone https://github.com/zsh-users/zsh-autosuggestions ${ZSH_CUSTOM:-~/.oh-my-zsh/custom}/plugins/zsh-autosuggestions
 
 # Install spaceship prompt
 git clone https://github.com/spaceship-prompt/spaceship-prompt.git "$ZSH_CUSTOM/themes/spaceship-prompt" --depth=1
@@ -134,7 +137,7 @@ cat > ~/.zshrc << 'ZSHRC'
 export ZSH="$HOME/.oh-my-zsh"
 ZSH_THEME="spaceship"
 
-# Plugins
+# Enhanced plugins
 plugins=(
   git
   docker
@@ -151,8 +154,16 @@ plugins=(
   zsh-autosuggestions
   zsh-syntax-highlighting
   zsh-completions
+  zsh-history-substring-search
+  zsh-z
   zoxide
   fzf
+  colored-man-pages
+  command-not-found
+  extract
+  history
+  sudo
+  web-search
 )
 
 source $ZSH/oh-my-zsh.sh
@@ -192,39 +203,95 @@ SPACESHIP_GIT_BRANCH_PREFIX=""
 SPACESHIP_GIT_STATUS_PREFIX=" ["
 SPACESHIP_GIT_STATUS_SUFFIX="]"
 
-# History configuration
+# Enhanced History configuration
 HISTFILE=$HOME/.zsh_history
-HISTSIZE=10000
-SAVEHIST=10000
+HISTSIZE=50000
+SAVEHIST=50000
 setopt share_history
 setopt hist_expire_dups_first
 setopt hist_ignore_dups
+setopt hist_ignore_space
 setopt hist_verify
+setopt hist_reduce_blanks
+setopt hist_save_no_dups
+setopt hist_find_no_dups
+setopt append_history
+setopt inc_append_history
 
-# Key bindings
+# Enhanced Key bindings
 bindkey '^[[A' history-search-backward
 bindkey '^[[B' history-search-forward
+bindkey '^R' history-incremental-search-backward
+bindkey '^S' history-incremental-search-forward
+bindkey '^[[Z' reverse-menu-complete
+bindkey '^[[3~' delete-char
+bindkey '^H' backward-delete-char
+bindkey '^W' backward-kill-word
+bindkey '^U' backward-kill-line
+bindkey '^K' kill-line
 
-# Essential aliases
-alias ls="eza --icons --group-directories-first"
-alias ll="eza --icons --long --group-directories-first"
-alias la="eza --icons --all --group-directories-first"
+# History substring search bindings
+bindkey '^[[A' history-substring-search-up
+bindkey '^[[B' history-substring-search-down
+bindkey -M vicmd 'k' history-substring-search-up
+bindkey -M vicmd 'j' history-substring-search-down
+
+# Vi mode key bindings
+bindkey -v
+bindkey '^?' backward-delete-char
+bindkey '^h' backward-delete-char
+bindkey '^w' backward-kill-word
+bindkey '^u' backward-kill-line
+bindkey '^k' kill-line
+bindkey '^r' history-incremental-search-backward
+bindkey '^s' history-incremental-search-forward
+bindkey '^[[Z' reverse-menu-complete
+
+# Enhanced aliases with better defaults
+alias ls="eza --icons --group-directories-first --color=auto"
+alias ll="eza --icons --long --group-directories-first --color=auto"
+alias la="eza --icons --all --group-directories-first --color=auto"
+alias lt="eza --icons --tree --level=3 --group-directories-first"
+alias lf="eza --icons --long --group-directories-first --color=auto --git"
 alias tree="eza --icons --tree"
-alias cat="bat --style=plain"
-alias grep="grep --color=auto"
-alias find="fd"
+alias cat="bat --style=plain --paging=never"
+alias less="bat --paging=always"
+alias more="bat --paging=always"
+alias grep="grep --color=auto --exclude-dir=.git"
+alias rg="ripgrep --color=auto"
+alias find="fd --hidden --exclude=.git"
 alias ps="ps aux"
-alias top="htop"
+alias top="btop"
+alias htop="btop"
 alias df="df -h"
 alias du="du -h"
 alias free="free -h"
+alias which="type -a"
+alias where="type -a"
 
-# Navigation
+# Enhanced Navigation with Quick .. Shortcuts
 alias ..="cd .."
 alias ...="cd ../.."
 alias ....="cd ../../.."
+alias .....="cd ../../../.."
+alias ......="cd ../../../../.."
+alias .......="cd ../../../../../.."
+alias ........="cd ../../../../../../.."
 alias ~="cd ~"
 alias -- -="cd -"
+alias cd..="cd .."
+alias cd...="cd ../.."
+alias cd....="cd ../../.."
+alias cd.....="cd ../../../.."
+alias cd......="cd ../../../../.."
+alias cdp="cd ~/projects"
+alias cdd="cd ~/Downloads"
+alias cdt="cd /tmp"
+alias cdl="cd /var/log"
+alias cde="cd /etc"
+alias cdr="cd /"
+alias cdu="cd /usr"
+alias cdv="cd /var"
 
 # Git shortcuts
 alias g="git"
@@ -253,7 +320,7 @@ alias dpa="docker ps -a"
 alias di="docker images"
 alias dex="docker exec -it"
 
-# System shortcuts
+# Enhanced system shortcuts
 alias c="clear"
 alias h="history"
 alias reload="source ~/.zshrc"
@@ -264,6 +331,12 @@ alias nf="fastfetch"
 alias ports="netstat -tulpn"
 alias now="date +\"%Y-%m-%d %H:%M:%S\""
 alias week="date +%V"
+alias today="date +%Y-%m-%d"
+alias time="date +%H:%M:%S"
+alias date="date +%Y-%m-%d"
+alias timestamp="date +%s"
+alias epoch="date +%s"
+alias unix="date +%s"
 
 # Enhanced system monitoring
 alias top="btop"
@@ -329,9 +402,270 @@ export FZF_DEFAULT_OPTS='
 # Initialize tools
 eval "$(zoxide init zsh)"
 
-# Useful functions
+# Enhanced completion system
+autoload -U compinit && compinit
+zstyle ':completion:*' matcher-list 'm:{a-zA-Z}={A-Za-z}' 'r:|=*' 'l:|=* r:|=*'
+zstyle ':completion:*' list-colors "${(s.:.)LS_COLORS}"
+zstyle ':completion:*' menu select
+zstyle ':completion:*' special-dirs true
+zstyle ':completion:*' use-cache on
+zstyle ':completion:*' cache-path ~/.zsh/cache
+
+# Case insensitive completion
+zstyle ':completion:*' matcher-list 'm:{a-zA-Z}={A-Za-z}'
+
+# History completion
+zstyle ':completion:*:history-words' stop yes
+zstyle ':completion:*:history-words' remove-all-dups yes
+zstyle ':completion:*:history-words' list false
+zstyle ':completion:*:history-words' menu yes
+
+# Enhanced directory navigation
+setopt auto_cd
+setopt auto_pushd
+setopt pushd_ignore_dups
+setopt pushd_silent
+setopt pushd_to_home
+setopt cdable_vars
+
+# Enhanced globbing
+setopt extended_glob
+setopt glob_dots
+setopt numeric_glob_sort
+setopt mark_dirs
+
+# Enhanced job control
+setopt auto_resume
+setopt long_list_jobs
+setopt notify
+
+# Enhanced useful functions
 mkcd() {
     mkdir -p "$1" && cd "$1"
+}
+
+# Enhanced directory navigation
+d() {
+    if [ -z "$1" ]; then
+        dirs -v
+    else
+        cd "$1"
+    fi
+}
+
+# Quick directory up function
+up() {
+    local levels=${1:-1}
+    local path=""
+    for ((i=1; i<=levels; i++)); do
+        path="../$path"
+    done
+    cd "$path"
+}
+
+# Quick directory navigation with numbers
+up1() { cd .. }
+up2() { cd ../.. }
+up3() { cd ../../.. }
+up4() { cd ../../../.. }
+up5() { cd ../../../../.. }
+up6() { cd ../../../../../.. }
+up7() { cd ../../../../../../.. }
+up8() { cd ../../../../../../../.. }
+up9() { cd ../../../../../../../../.. }
+
+# Smart directory navigation
+cd() {
+    if [ -z "$1" ]; then
+        builtin cd ~
+    elif [ "$1" = "-" ]; then
+        builtin cd -
+    elif [ -d "$1" ]; then
+        builtin cd "$1"
+    else
+        # Try to find directory with pattern matching
+        local found=$(find . -maxdepth 3 -type d -name "*$1*" 2>/dev/null | head -1)
+        if [ -n "$found" ]; then
+            builtin cd "$found"
+        else
+            echo "Directory not found: $1"
+            return 1
+        fi
+    fi
+}
+
+# Quick directory jumping
+1() { cd -1 }
+2() { cd -2 }
+3() { cd -3 }
+4() { cd -4 }
+5() { cd -5 }
+6() { cd -6 }
+7() { cd -7 }
+8() { cd -8 }
+9() { cd -9 }
+
+# Enhanced file operations
+cp() {
+    if [ -d "$1" ]; then
+        command cp -r "$@"
+    else
+        command cp "$@"
+    fi
+}
+
+# Enhanced history search
+h() {
+    if [ -z "$1" ]; then
+        history | tail -20
+    else
+        history | grep -i "$1"
+    fi
+}
+
+# Quick file editing
+e() {
+    if [ -z "$1" ]; then
+        nvim .
+    else
+        nvim "$1"
+    fi
+}
+
+# Enhanced process management
+p() {
+    if [ -z "$1" ]; then
+        ps aux | head -20
+    else
+        ps aux | grep -i "$1"
+    fi
+}
+
+# Quick directory listing with details
+l() {
+    if [ -z "$1" ]; then
+        eza --icons --long --group-directories-first --color=auto
+    else
+        eza --icons --long --group-directories-first --color=auto "$1"
+    fi
+}
+
+# Enhanced grep with context
+g() {
+    if [ -z "$1" ]; then
+        echo "Usage: g <pattern> [file]"
+        return 1
+    fi
+    if [ -z "$2" ]; then
+        grep -rn --color=auto --exclude-dir=.git "$1" .
+    else
+        grep -rn --color=auto --exclude-dir=.git "$1" "$2"
+    fi
+}
+
+# Enhanced file operations
+m() {
+    if [ -z "$1" ]; then
+        echo "Usage: m <file1> <file2> ... <destination>"
+        return 1
+    fi
+    command mv "$@"
+}
+
+# Enhanced copy with progress
+cp() {
+    if command -v rsync >/dev/null 2>&1; then
+        rsync -avz --progress "$@"
+    else
+        command cp "$@"
+    fi
+}
+
+# Enhanced remove with confirmation
+rm() {
+    if [ -z "$1" ]; then
+        echo "Usage: rm <file1> <file2> ..."
+        return 1
+    fi
+    command rm -i "$@"
+}
+
+# Enhanced directory creation
+mkdir() {
+    if [ -z "$1" ]; then
+        echo "Usage: mkdir <directory>"
+        return 1
+    fi
+    command mkdir -p "$@"
+}
+
+# Enhanced file viewing
+view() {
+    if [ -z "$1" ]; then
+        echo "Usage: view <file>"
+        return 1
+    fi
+    if command -v bat >/dev/null 2>&1; then
+        bat "$1"
+    else
+        less "$1"
+    fi
+}
+
+# Enhanced file editing
+edit() {
+    if [ -z "$1" ]; then
+        nvim .
+    else
+        nvim "$1"
+    fi
+}
+
+# Enhanced file searching
+find() {
+    if [ -z "$1" ]; then
+        echo "Usage: find <pattern> [directory]"
+        return 1
+    fi
+    if command -v fd >/dev/null 2>&1; then
+        fd --hidden --exclude=.git "$1" "${2:-.}"
+    else
+        command find "${2:-.}" -name "*$1*" 2>/dev/null
+    fi
+}
+
+# Enhanced directory listing
+list() {
+    if [ -z "$1" ]; then
+        eza --icons --long --group-directories-first --color=auto
+    else
+        eza --icons --long --group-directories-first --color=auto "$1"
+    fi
+}
+
+# Enhanced process management
+process() {
+    if [ -z "$1" ]; then
+        ps aux | head -20
+    else
+        ps aux | grep -i "$1"
+    fi
+}
+
+# Enhanced system information
+info() {
+    if [ -z "$1" ]; then
+        fastfetch
+    else
+        case "$1" in
+            "cpu") lscpu ;;
+            "mem") free -h ;;
+            "disk") df -h ;;
+            "net") ip addr show ;;
+            "proc") ps aux | head -20 ;;
+            *) echo "Available: cpu, mem, disk, net, proc" ;;
+        esac
+    fi
 }
 
 extract() {
@@ -893,10 +1227,66 @@ backup-system() {
     ls -la "$backup_dir"
 }
 
-# Help commands using fzf
+# Enhanced help commands using fzf
 alias ?='alias | fzf --height=80% --prompt="Search aliases: "'
 alias ??='print -l ${(ok)functions} | grep -v "^_" | fzf --preview "which {}" --height=80% --prompt="Search functions: "'
 alias ???='alias | bat --style=plain --language=bash'
+alias ????='print -l ${(ok)functions} | grep -v "^_" | bat --style=plain --language=bash'
+
+# Quick access to common directories
+alias projects="cd ~/projects"
+alias downloads="cd ~/Downloads"
+alias tmp="cd /tmp"
+alias logs="cd /var/log"
+alias etc="cd /etc"
+alias home="cd ~"
+alias root="cd /"
+alias usr="cd /usr"
+alias var="cd /var"
+alias opt="cd /opt"
+alias srv="cd /srv"
+alias mnt="cd /mnt"
+alias media="cd /media"
+alias dev="cd /dev"
+alias proc="cd /proc"
+alias sys="cd /sys"
+
+# Enhanced file operations
+alias cp="cp -i"
+alias mv="mv -i"
+alias rm="rm -i"
+alias mkdir="mkdir -p"
+alias rmdir="rmdir -p"
+
+# Enhanced text processing
+alias wc="wc -l"
+alias head="head -20"
+alias tail="tail -20"
+alias less="less -R"
+alias more="more -R"
+
+# Enhanced system monitoring
+alias mem="free -h"
+alias disk="df -h"
+alias cpu="lscpu"
+alias uptime="uptime -p"
+alias load="uptime"
+
+# Enhanced network tools
+alias ping="ping -c 4"
+alias traceroute="traceroute -n"
+alias netstat="netstat -tulpn"
+alias ss="ss -tulpn"
+
+# Enhanced development tools
+alias node="node --version"
+alias npm="npm --version"
+alias python="python3"
+alias pip="pip3"
+alias ruby="ruby --version"
+alias rust="rustc --version"
+alias go="go version"
+alias java="java -version"
 
 ZSHRC
 
@@ -1346,11 +1736,17 @@ echo
 echo "System Info:"
 echo "  ff            - fastfetch system info"
 echo "  nf            - fastfetch (alternative)"
+echo "  info          - System information (or info cpu/mem/disk/net/proc)"
 echo "  myip          - Public IP address"
 echo "  localip       - Local IP addresses"
 echo "  ports         - Show open ports"
 echo "  now           - Current date/time"
+echo "  today         - Current date"
+echo "  time          - Current time"
+echo "  timestamp     - Unix timestamp"
 echo "  week          - Current week number"
+echo "  p             - Process list (or p <pattern>)"
+echo "  process       - Enhanced process management"
 echo
 echo "Tmux:"
 echo "  t             - Start tmux"
@@ -1439,17 +1835,47 @@ echo "Navigation:"
 echo "  ..            - Go up one directory"
 echo "  ...           - Go up two directories"
 echo "  ....          - Go up three directories"
+echo "  .....         - Go up four directories"
+echo "  ......        - Go up five directories"
+echo "  .......       - Go up six directories"
+echo "  ........      - Go up seven directories"
 echo "  -             - Previous directory"
 echo "  ~             - Home directory"
+echo "  up <n>        - Go up n directories (e.g., up 3)"
+echo "  up1-up9       - Go up 1-9 directories quickly"
+echo "  cdp           - Go to ~/projects"
+echo "  cdd           - Go to ~/Downloads"
+echo "  cdt           - Go to /tmp"
+echo "  cdl           - Go to /var/log"
+echo "  cde           - Go to /etc"
+echo "  cdr           - Go to / (root)"
+echo "  cdu           - Go to /usr"
+echo "  cdv           - Go to /var"
+echo "  1-9           - Jump to directory history (1-9)"
+echo "  d             - Show directory stack"
+echo "  cd <pattern>  - Smart directory search (finds matching dirs)"
 echo
 echo "File Operations:"
 echo "  ls            - List with icons (eza)"
 echo "  ll            - Long format with details"
 echo "  la            - Show all including hidden"
-echo "  tree           - Directory tree"
-echo "  cat            - Syntax highlighted (bat)"
-echo "  find           - Modern find (fd)"
-echo "  grep           - Colorized grep"
+echo "  lt            - Tree view (3 levels)"
+echo "  lf            - Long format with git info"
+echo "  l             - Quick long listing"
+echo "  list          - Enhanced directory listing"
+echo "  tree          - Directory tree"
+echo "  cat           - Syntax highlighted (bat)"
+echo "  view          - Enhanced file viewing"
+echo "  edit          - Quick file editing"
+echo "  find          - Modern find (fd)"
+echo "  grep          - Colorized grep"
+echo "  g             - Enhanced grep with context"
+echo "  rg            - Ripgrep search"
+echo "  cp            - Copy with progress (rsync)"
+echo "  m             - Move files"
+echo "  rm            - Remove with confirmation"
+echo "  mkdir         - Create directories (with -p)"
+echo "  mkcd          - Create and enter directory"
 echo
 echo "Git:"
 echo "  gs            - git status"
@@ -1475,11 +1901,48 @@ echo "Help Commands:"
 echo "  ?             - Search aliases with fzf"
 echo "  ??            - Search functions with fzf"
 echo "  ???           - List all aliases with syntax highlighting"
+echo "  ????          - List all functions with syntax highlighting"
 echo
 echo "Quick Shortcuts:"
 echo "  c             - Clear screen"
-echo "  h             - History"
+echo "  h             - History (or h <pattern>)"
 echo "  reload        - Reload zsh config"
+echo "  projects      - Go to ~/projects"
+echo "  downloads     - Go to ~/Downloads"
+echo "  tmp           - Go to /tmp"
+echo "  logs          - Go to /var/log"
+echo "  etc           - Go to /etc"
+echo "  home          - Go to ~"
+echo "  root          - Go to / (root directory)"
+echo "  usr           - Go to /usr"
+echo "  var           - Go to /var"
+echo "  opt           - Go to /opt"
+echo "  srv           - Go to /srv"
+echo "  mnt           - Go to /mnt"
+echo "  media         - Go to /media"
+echo "  dev           - Go to /dev"
+echo "  proc          - Go to /proc"
+echo "  sys           - Go to /sys"
+echo
+echo "Enhanced Commands:"
+echo "  e             - Quick file editing"
+echo "  view          - Enhanced file viewing"
+echo "  edit          - Quick file editing"
+echo "  find          - Modern file search"
+echo "  g             - Enhanced grep"
+echo "  rg            - Ripgrep search"
+echo "  p             - Process list"
+echo "  process       - Enhanced process management"
+echo "  info          - System information"
+echo "  mem           - Memory usage"
+echo "  disk          - Disk usage"
+echo "  cpu           - CPU information"
+echo "  uptime        - System uptime"
+echo "  load          - System load"
+echo "  ping          - Ping with 4 packets"
+echo "  traceroute    - Traceroute without DNS"
+echo "  netstat       - Network connections"
+echo "  ss            - Socket statistics"
 SCRIPT
 
 # Make scripts executable
