@@ -380,10 +380,10 @@ alias caddy-logs="sudo journalctl -u caddy -f"
 alias caddy-test="test-caddy"
 alias caddy-restart="sudo systemctl restart caddy"
 
-# VS Code Server shortcuts
-alias vscode="vscode-status"
-alias vscode-restart="vscode-restart"
-alias vscode-logs="vscode-logs"
+# VS Code Server shortcuts - using unique names to avoid conflicts
+alias vs="vscode-status"
+alias vsr="vscode-restart"
+alias vsl="vscode-logs"
 
 # AUR shortcuts
 alias yay-update="yay -Syu"
