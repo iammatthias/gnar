@@ -1548,45 +1548,123 @@ echo -e "${GREEN}🔧 Setting up runtime environments...${NC}"
 
 # Configure Node.js global packages with proper permissions
 echo "Setting up Node.js global packages..."
-# Create npm global directory for user
-sudo -u $REAL_USER mkdir -p /home/$REAL_USER/.npm-global
-sudo -u $REAL_USER npm config set prefix '/home/$REAL_USER/.npm-global'
+
+# Create a temporary script to avoid variable expansion issues
+cat > /tmp/setup_npm.sh << EOF
+#!/bin/bash
+export HOME=/home/$REAL_USER
+mkdir -p "\$HOME/.npm-global"
+npm config set prefix "\$HOME/.npm-global"
+export PATH="\$HOME/.npm-global/bin:\$PATH"
+npm install -g yarn pnpm pm2 eslint prettier jest
+EOF
+
+chmod +x /tmp/setup_npm.sh
+sudo -u "$REAL_USER" /tmp/setup_npm.sh || echo "⚠️  Some npm packages failed to install"
+rm -f /tmp/setup_npm.sh
 
 # Add to PATH in .bashrc and .zshrc
-echo 'export PATH=~/.npm-global/bin:$PATH' >> /home/$REAL_USER/.bashrc 2>/dev/null || true
-
-# Install global packages as user
-sudo -u $REAL_USER bash -c 'export PATH=~/.npm-global/bin:$PATH && npm install -g yarn pnpm pm2 eslint prettier jest' || echo "⚠️  Some npm packages failed to install"
-
-# Install bun separately (has its own installer)
-echo "Installing Bun..."
-sudo -u $REAL_USER bash -c 'curl -fsSL https://bun.sh/install | bash' || echo "⚠️  Bun installation failed"
-
-# Install code-server
-echo -e "${GREEN}💻 Installing VS Code Server...${NC}"
-curl -fsSL https://code-server.dev/install.sh | sh
+echo 'export PATH="$HOME/.npm-global/bin:$PATH"' >> "/home/$REAL_USER/.bashrc" 2>/dev/null || true
 
 # Install yay (AUR helper) if not present
 if ! command -v yay &> /dev/null; then
     echo -e "${GREEN}📦 Installing yay (AUR helper)...${NC}"
-    sudo -u $REAL_USER git clone https://aur.archlinux.org/yay.git /tmp/yay
-    cd /tmp/yay
-    sudo -u $REAL_USER makepkg -si --noconfirm
-    cd /
+    
+    # Create script for yay installation
+    cat > /tmp/install_yay.sh << EOF
+#!/bin/bash
+export HOME=/home/$REAL_USER
+cd /tmp
+git clone https://aur.archlinux.org/yay.git
+cd yay
+makepkg -si --noconfirm
+EOF
+    
+    chmod +x /tmp/install_yay.sh
+    sudo -u "$REAL_USER" /tmp/install_yay.sh || echo "⚠️  Yay installation failed"
+    rm -f /tmp/install_yay.sh
     rm -rf /tmp/yay
 fi
 
+# Install bun separately (has its own installer)
+echo "Installing Bun..."
+cat > /tmp/install_bun.sh << EOF
+#!/bin/bash
+export HOME=/home/$REAL_USER
+curl -fsSL https://bun.sh/install | bash
+EOF
+
+chmod +x /tmp/install_bun.sh
+sudo -u "$REAL_USER" /tmp/install_bun.sh || echo "⚠️  Bun installation failed"
+rm -f /tmp/install_bun.sh
+
+# Install code-server using proper method for Arch Linux
+echo -e "${GREEN}💻 Installing VS Code Server...${NC}"
+if command -v yay &> /dev/null; then
+    echo "Installing code-server via yay (AUR)..."
+    cat > /tmp/install_codeserver.sh << EOF
+#!/bin/bash
+export HOME=/home/$REAL_USER
+yay -S --noconfirm code-server
+EOF
+    chmod +x /tmp/install_codeserver.sh
+    sudo -u "$REAL_USER" /tmp/install_codeserver.sh || echo "⚠️  Code-server AUR installation failed"
+    rm -f /tmp/install_codeserver.sh
+else
+    echo "Installing code-server via official installer..."
+    cat > /tmp/install_codeserver_official.sh << EOF
+#!/bin/bash
+export HOME=/home/$REAL_USER
+curl -fsSL https://code-server.dev/install.sh | sh
+EOF
+    chmod +x /tmp/install_codeserver_official.sh
+    sudo -u "$REAL_USER" /tmp/install_codeserver_official.sh || echo "⚠️  Code-server installation failed"
+    rm -f /tmp/install_codeserver_official.sh
+fi
+
 # Configure Python
-sudo -u $REAL_USER pip install --user pipenv poetry black pytest
+echo "Setting up Python packages..."
+cat > /tmp/setup_python.sh << EOF
+#!/bin/bash
+export HOME=/home/$REAL_USER
+pip install --user pipenv poetry black pytest
+EOF
+chmod +x /tmp/setup_python.sh
+sudo -u "$REAL_USER" /tmp/setup_python.sh || echo "⚠️  Some Python packages failed to install"
+rm -f /tmp/setup_python.sh
 
 # Configure Ruby
-sudo -u $REAL_USER gem install bundler
+echo "Setting up Ruby gems..."
+cat > /tmp/setup_ruby.sh << EOF
+#!/bin/bash
+export HOME=/home/$REAL_USER
+gem install bundler
+EOF
+chmod +x /tmp/setup_ruby.sh
+sudo -u "$REAL_USER" /tmp/setup_ruby.sh || echo "⚠️  Ruby bundler installation failed"
+rm -f /tmp/setup_ruby.sh
 
 # Configure Rust
-sudo -u $REAL_USER rustup default stable
+echo "Setting up Rust toolchain..."
+cat > /tmp/setup_rust.sh << EOF
+#!/bin/bash
+export HOME=/home/$REAL_USER
+rustup default stable
+EOF
+chmod +x /tmp/setup_rust.sh
+sudo -u "$REAL_USER" /tmp/setup_rust.sh || echo "⚠️  Rust setup failed"
+rm -f /tmp/setup_rust.sh
 
 # Configure Go
-sudo -u $REAL_USER go install github.com/go-delve/delve/cmd/dlv@latest
+echo "Installing Go tools..."
+cat > /tmp/setup_go.sh << EOF
+#!/bin/bash
+export HOME=/home/$REAL_USER
+go install github.com/go-delve/delve/cmd/dlv@latest
+EOF
+chmod +x /tmp/setup_go.sh
+sudo -u "$REAL_USER" /tmp/setup_go.sh || echo "⚠️  Go tools installation failed"
+rm -f /tmp/setup_go.sh
 
 echo -e "${GREEN}🛠️ Creating helper scripts...${NC}"
 
