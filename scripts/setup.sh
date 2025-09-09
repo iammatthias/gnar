@@ -118,16 +118,19 @@ fi
 
 # Install essential zsh plugins
 echo "Installing zsh plugins..."
-git clone https://github.com/zsh-users/zsh-autosuggestions ${ZSH_CUSTOM:-~/.oh-my-zsh/custom}/plugins/zsh-autosuggestions
-git clone https://github.com/zsh-users/zsh-syntax-highlighting.git ${ZSH_CUSTOM:-~/.oh-my-zsh/custom}/plugins/zsh-syntax-highlighting
-git clone https://github.com/zsh-users/zsh-completions ${ZSH_CUSTOM:-~/.oh-my-zsh/custom}/plugins/zsh-completions
-git clone https://github.com/zsh-users/zsh-history-substring-search ${ZSH_CUSTOM:-~/.oh-my-zsh/custom}/plugins/zsh-history-substring-search
-git clone https://github.com/agkozak/zsh-z ${ZSH_CUSTOM:-~/.oh-my-zsh/custom}/plugins/zsh-z
-git clone https://github.com/zsh-users/zsh-autosuggestions ${ZSH_CUSTOM:-~/.oh-my-zsh/custom}/plugins/zsh-autosuggestions
+[ ! -d "${ZSH_CUSTOM:-~/.oh-my-zsh/custom}/plugins/zsh-autosuggestions" ] && git clone https://github.com/zsh-users/zsh-autosuggestions ${ZSH_CUSTOM:-~/.oh-my-zsh/custom}/plugins/zsh-autosuggestions
+[ ! -d "${ZSH_CUSTOM:-~/.oh-my-zsh/custom}/plugins/zsh-syntax-highlighting" ] && git clone https://github.com/zsh-users/zsh-syntax-highlighting.git ${ZSH_CUSTOM:-~/.oh-my-zsh/custom}/plugins/zsh-syntax-highlighting
+[ ! -d "${ZSH_CUSTOM:-~/.oh-my-zsh/custom}/plugins/zsh-completions" ] && git clone https://github.com/zsh-users/zsh-completions ${ZSH_CUSTOM:-~/.oh-my-zsh/custom}/plugins/zsh-completions
+[ ! -d "${ZSH_CUSTOM:-~/.oh-my-zsh/custom}/plugins/zsh-history-substring-search" ] && git clone https://github.com/zsh-users/zsh-history-substring-search ${ZSH_CUSTOM:-~/.oh-my-zsh/custom}/plugins/zsh-history-substring-search
+[ ! -d "${ZSH_CUSTOM:-~/.oh-my-zsh/custom}/plugins/zsh-z" ] && git clone https://github.com/agkozak/zsh-z ${ZSH_CUSTOM:-~/.oh-my-zsh/custom}/plugins/zsh-z
 
 # Install spaceship prompt
-git clone https://github.com/spaceship-prompt/spaceship-prompt.git "$ZSH_CUSTOM/themes/spaceship-prompt" --depth=1
-ln -s "$ZSH_CUSTOM/themes/spaceship-prompt/spaceship.zsh-theme" "$ZSH_CUSTOM/themes/spaceship.zsh-theme"
+if [ ! -d "$ZSH_CUSTOM/themes/spaceship-prompt" ]; then
+    git clone https://github.com/spaceship-prompt/spaceship-prompt.git "$ZSH_CUSTOM/themes/spaceship-prompt" --depth=1
+fi
+if [ ! -L "$ZSH_CUSTOM/themes/spaceship.zsh-theme" ]; then
+    ln -s "$ZSH_CUSTOM/themes/spaceship-prompt/spaceship.zsh-theme" "$ZSH_CUSTOM/themes/spaceship.zsh-theme"
+fi
 
 # Create streamlined .zshrc
 cat > ~/.zshrc << 'ZSHRC'
@@ -1343,11 +1346,7 @@ EOF
 
 echo -e "${GREEN}🔧 Configuring Caddy...${NC}"
 
-# Enable and start Caddy
-systemctl enable caddy
-systemctl start caddy
-
-# Create basic Caddyfile
+# Create basic Caddyfile first
 cat > /etc/caddy/Caddyfile << 'CADDYFILE'
 # GNAR - Caddy Configuration
 # Add your sites here using: add-site <name> <port>
@@ -1358,8 +1357,18 @@ cat > /etc/caddy/Caddyfile << 'CADDYFILE'
 }
 CADDYFILE
 
-# Reload Caddy
-systemctl reload caddy
+# Test Caddy configuration
+if caddy validate --config /etc/caddy/Caddyfile 2>/dev/null; then
+    echo "✅ Caddy configuration is valid"
+    # Enable and start Caddy
+    systemctl enable caddy
+    systemctl start caddy
+    echo "✅ Caddy service started"
+else
+    echo "❌ Caddy configuration has errors:"
+    caddy validate --config /etc/caddy/Caddyfile
+    echo "⚠️  Caddy service not started due to configuration errors"
+fi
 
 echo -e "${GREEN}🐳 Configuring Docker...${NC}"
 
@@ -1411,13 +1420,20 @@ systemctl restart sshd
 echo -e "${GREEN}🗄️ Configuring databases...${NC}"
 
 # Configure PostgreSQL
-sudo -u postgres initdb -D /var/lib/postgres/data
+if [ ! -d "/var/lib/postgres/data" ]; then
+    sudo -u postgres initdb -D /var/lib/postgres/data
+fi
 systemctl enable postgresql
 systemctl start postgresql
 
-# Create database user
-sudo -u postgres createuser -s "$REAL_USER"
-sudo -u postgres createdb "$REAL_USER"
+# Create database user (only if it doesn't exist)
+if ! sudo -u postgres psql -tAc "SELECT 1 FROM pg_roles WHERE rolname='$REAL_USER'" | grep -q 1; then
+    sudo -u postgres createuser -s "$REAL_USER"
+    sudo -u postgres createdb "$REAL_USER"
+    echo "✅ PostgreSQL user and database created for $REAL_USER"
+else
+    echo "✅ PostgreSQL user $REAL_USER already exists"
+fi
 
 # Configure Redis
 systemctl enable redis
@@ -1490,8 +1506,13 @@ systemctl daemon-reload
 systemctl enable code-server@$REAL_USER
 systemctl start code-server@$REAL_USER
 
-# Add code-server to Caddy
-add-site vscode 8080
+# Add code-server to Caddy (only if Caddy is running)
+if systemctl is-active --quiet caddy; then
+    add-site vscode 8080
+else
+    echo "⚠️  Caddy not running, VS Code Server not added to Caddy"
+    echo "   Run 'add-site vscode 8080' after fixing Caddy"
+fi
 
 echo -e "${GREEN}🔧 Setting up runtime environments...${NC}"
 
@@ -1990,3 +2011,23 @@ echo "  🌐 VS Code in browser: http://vscode.local"
 echo "  💻 SSH + Tmux: ssh user@server && tmux"
 echo
 echo -e "${GREEN}Your home server is ready! 🏠🚀${NC}"
+echo
+echo "🔧 Troubleshooting:"
+echo "  If Caddy failed to start:"
+echo "    sudo systemctl status caddy"
+echo "    sudo journalctl -xeu caddy.service"
+echo "    sudo caddy validate --config /etc/caddy/Caddyfile"
+echo
+echo "  If VS Code Server failed to start:"
+echo "    sudo systemctl status code-server@$REAL_USER"
+echo "    sudo journalctl -xeu code-server@$REAL_USER"
+echo
+echo "  If PostgreSQL failed to start:"
+echo "    sudo systemctl status postgresql"
+echo "    sudo journalctl -xeu postgresql"
+echo
+echo "  To fix Caddy and add VS Code Server:"
+echo "    add-site vscode 8080"
+echo
+echo "  To check all services:"
+echo "    system-status"
