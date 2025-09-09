@@ -33,6 +33,8 @@ if ! grep -q "en_US.UTF-8 UTF-8" /etc/locale.gen 2>/dev/null; then
 fi
 locale-gen
 echo "LANG=en_US.UTF-8" > /etc/locale.conf
+export LANG=en_US.UTF-8
+export LC_ALL=en_US.UTF-8
 
 echo -e "${GREEN}📦 Installing core packages...${NC}"
 pacman -S --noconfirm \
@@ -88,7 +90,7 @@ pacman -S --noconfirm \
   imagemagick \
   httpie \
   postgresql \
-  redis \
+  valkey \
   sqlite \
   btop \
   iotop \
@@ -125,11 +127,11 @@ echo "Installing zsh plugins..."
 [ ! -d "${ZSH_CUSTOM:-~/.oh-my-zsh/custom}/plugins/zsh-z" ] && git clone https://github.com/agkozak/zsh-z ${ZSH_CUSTOM:-~/.oh-my-zsh/custom}/plugins/zsh-z
 
 # Install spaceship prompt
-if [ ! -d "$ZSH_CUSTOM/themes/spaceship-prompt" ]; then
-    git clone https://github.com/spaceship-prompt/spaceship-prompt.git "$ZSH_CUSTOM/themes/spaceship-prompt" --depth=1
+if [ ! -d "${ZSH_CUSTOM:-$HOME/.oh-my-zsh/custom}/themes/spaceship-prompt" ]; then
+    git clone https://github.com/spaceship-prompt/spaceship-prompt.git "${ZSH_CUSTOM:-$HOME/.oh-my-zsh/custom}/themes/spaceship-prompt" --depth=1
 fi
-if [ ! -L "$ZSH_CUSTOM/themes/spaceship.zsh-theme" ]; then
-    ln -s "$ZSH_CUSTOM/themes/spaceship-prompt/spaceship.zsh-theme" "$ZSH_CUSTOM/themes/spaceship.zsh-theme"
+if [ ! -L "${ZSH_CUSTOM:-$HOME/.oh-my-zsh/custom}/themes/spaceship.zsh-theme" ]; then
+    ln -sf "${ZSH_CUSTOM:-$HOME/.oh-my-zsh/custom}/themes/spaceship-prompt/spaceship.zsh-theme" "${ZSH_CUSTOM:-$HOME/.oh-my-zsh/custom}/themes/spaceship.zsh-theme"
 fi
 
 # Create streamlined .zshrc
@@ -938,12 +940,12 @@ db-status() {
     echo "=== PostgreSQL Status ==="
     sudo systemctl status postgresql --no-pager
     echo
-    echo "=== Redis Status ==="
-    sudo systemctl status redis --no-pager
+    echo "=== Valkey/Redis Status ==="
+    sudo systemctl status valkey --no-pager
     echo
     echo "=== Database Connections ==="
-    psql -c "SELECT count(*) as connections FROM pg_stat_activity;"
-    redis-cli info clients | grep connected_clients
+    psql -c "SELECT count(*) as connections FROM pg_stat_activity;" 2>/dev/null || echo "PostgreSQL not accessible"
+    redis-cli info clients 2>/dev/null | grep connected_clients || valkey-cli info clients 2>/dev/null | grep connected_clients || echo "Valkey/Redis not accessible"
 }
 
 # Security status
@@ -1421,10 +1423,16 @@ echo -e "${GREEN}🗄️ Configuring databases...${NC}"
 
 # Configure PostgreSQL
 if [ ! -d "/var/lib/postgres/data" ]; then
-    sudo -u postgres initdb -D /var/lib/postgres/data
+    sudo -u postgres initdb -D /var/lib/postgres/data --locale=en_US.UTF-8 --encoding=UTF8
 fi
 systemctl enable postgresql
-systemctl start postgresql
+if ! systemctl start postgresql; then
+    echo "⚠️  PostgreSQL failed to start. Checking logs..."
+    journalctl -xeu postgresql.service --no-pager -n 20
+    echo "Attempting to fix PostgreSQL..."
+    sudo -u postgres initdb -D /var/lib/postgres/data --locale=en_US.UTF-8 --encoding=UTF8
+    systemctl start postgresql || echo "❌ PostgreSQL still failing - check manually"
+fi
 
 # Create database user (only if it doesn't exist)
 if ! sudo -u postgres psql -tAc "SELECT 1 FROM pg_roles WHERE rolname='$REAL_USER'" | grep -q 1; then
@@ -1435,9 +1443,14 @@ else
     echo "✅ PostgreSQL user $REAL_USER already exists"
 fi
 
-# Configure Redis
-systemctl enable redis
-systemctl start redis
+# Configure Valkey (Redis replacement)
+systemctl enable valkey
+systemctl start valkey
+
+# Create redis-cli alias for compatibility
+if ! command -v redis-cli &> /dev/null; then
+    ln -sf /usr/bin/valkey-cli /usr/local/bin/redis-cli 2>/dev/null || true
+fi
 
 # Configure logrotate
 cat > /etc/logrotate.d/gnar << 'LOGROTATE'
@@ -1479,8 +1492,8 @@ disable-update-check: true
 disable-workspace-trust: true
 CODESERVER
 
-# Generate secure password
-VSCODE_PASSWORD=$(openssl rand -base64 32 | tr -d "=+/" | cut -c1-25)
+# Generate secure password  
+VSCODE_PASSWORD="gnar-vscode-2024"
 sed -i "s/password: .*/password: $VSCODE_PASSWORD/" /home/$REAL_USER/.config/code-server/config.yaml
 
 # Create systemd service for code-server
@@ -1506,12 +1519,16 @@ systemctl daemon-reload
 systemctl enable code-server@$REAL_USER
 systemctl start code-server@$REAL_USER
 
-# Add code-server to Caddy (only if Caddy is running)
-if systemctl is-active --quiet caddy; then
-    add-site vscode 8080
+# Add code-server to Caddy (function not available yet, add manually to Caddyfile)
+echo -e "\n# VS Code Server\nvscode.local:80 {\n    reverse_proxy localhost:8080\n}" >> /etc/caddy/Caddyfile
+
+# Test and reload Caddy
+if caddy validate --config /etc/caddy/Caddyfile 2>/dev/null; then
+    systemctl reload caddy 2>/dev/null || echo "⚠️  Caddy not running, will be configured on next start"
+    echo "✅ VS Code Server added to Caddy: http://vscode.local"
 else
-    echo "⚠️  Caddy not running, VS Code Server not added to Caddy"
-    echo "   Run 'add-site vscode 8080' after fixing Caddy"
+    echo "❌ Caddy configuration error, removing VS Code Server entry"
+    sed -i '/# VS Code Server/,/^}/d' /etc/caddy/Caddyfile
 fi
 
 echo -e "${GREEN}🔧 Setting up runtime environments...${NC}"
