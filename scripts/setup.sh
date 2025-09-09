@@ -414,6 +414,10 @@ export PATH="$HOME/.cargo/bin:$PATH"
 
 # Add pipx packages to PATH
 export PATH="$HOME/.local/bin:$PATH"
+
+# Add Go tools to PATH
+export GOPATH="$HOME/go"
+export PATH="$GOPATH/bin:$PATH"
 export FZF_DEFAULT_OPTS='
   --color=fg:#c1c1c1,fg+:#ffffff,bg:#121113,bg+:#222222
   --color=hl:#5f8787,hl+:#fbcb97,info:#e78a53,marker:#fbcb97
@@ -1709,7 +1713,18 @@ echo "Installing Go tools..."
 cat > /tmp/setup_go.sh << EOF
 #!/bin/bash
 export HOME=/home/$REAL_USER
+export PATH="/usr/bin:\$PATH"
+export GOPATH="\$HOME/go"
+export GOBIN="\$GOPATH/bin"
+mkdir -p "\$GOPATH/bin"
+echo "Installing Go Delve debugger..."
 go install github.com/go-delve/delve/cmd/dlv@latest
+# Add Go bin to PATH
+echo 'export GOPATH="\$HOME/go"' >> \$HOME/.bashrc
+echo 'export PATH="\$GOPATH/bin:\$PATH"' >> \$HOME/.bashrc
+echo 'export GOPATH="\$HOME/go"' >> \$HOME/.zshrc
+echo 'export PATH="\$GOPATH/bin:\$PATH"' >> \$HOME/.zshrc
+echo "✅ Go tools installed (dlv debugger)"
 EOF
 chmod +x /tmp/setup_go.sh
 sudo -u "$REAL_USER" /tmp/setup_go.sh || echo "⚠️  Go tools installation failed"
@@ -2181,7 +2196,7 @@ export PATH="/home/$REAL_USER/.local/bin:/home/$REAL_USER/.local/share/gem/ruby/
 echo "📦 npm global packages: $(sudo -u "$REAL_USER" bash -c "export PATH=\"/home/$REAL_USER/.npm-global/bin:\$PATH\" && which yarn pnpm pm2 2>/dev/null | wc -l")/3 installed"
 echo "💎 Ruby bundler: $(sudo -u "$REAL_USER" bash -c "export PATH=\"/home/$REAL_USER/.local/share/gem/ruby/3.4.0/bin:\$PATH\" && which bundle 2>/dev/null && echo \"✅ available\" || echo \"❌ not in PATH\"")"
 echo "🦀 Rust toolchain: $(sudo -u "$REAL_USER" bash -c "export PATH=\"/home/$REAL_USER/.cargo/bin:\$PATH\" && which rustc cargo 2>/dev/null | wc -l")/2 installed"
-echo "🐹 Go tools: $(sudo -u "$REAL_USER" bash -c "which dlv 2>/dev/null && echo \"✅ available\" || echo \"❌ not available\"")"
+echo "🐹 Go tools: $(sudo -u "$REAL_USER" bash -c "export GOPATH=\"/home/$REAL_USER/go\" && export PATH=\"\$GOPATH/bin:\$PATH\" && which dlv 2>/dev/null && echo \"✅ available\" || echo \"❌ not available\"")"
 echo "🐍 Python tools: $(sudo -u "$REAL_USER" bash -c "export PATH=\"/home/$REAL_USER/.local/bin:\$PATH\" && which black pytest 2>/dev/null | wc -l")/2 installed"
 
 echo
