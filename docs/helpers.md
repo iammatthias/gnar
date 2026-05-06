@@ -2,7 +2,7 @@
 
 ## Tmux - Tiling Terminal
 
-Tmux provides tiling terminal functionality in pure TTY. The answer was always tmux.
+Tmux provides tiling terminal functionality over SSH.
 
 ### Starting & Managing Sessions
 ```bash
@@ -292,65 +292,16 @@ gnar-update
 - Single command for full system maintenance
 - No need to remember pacman flags
 
-### gnar-theme
-Terminal theme switcher with multiple aesthetic options.
+### gnar-help
+Printed command reference for the GNAR shell environment.
 
 ```bash
-gnar-theme           # Show usage and current theme
-gnar-theme list      # List all available themes
-gnar-theme set       # Interactive theme selection
-gnar-theme set matrix  # Apply specific theme directly
+gnar-help
 ```
 
-**Available Themes:**
-- **darkmatter** - Sleek dark theme with warm accents (default)
-- **matrix** - Classic green-on-black hacker aesthetic
-- **minimal** - Clean monochrome, distraction-free
-- **retro** - 80s terminal with vibrant neon colors
-- **ocean** - Deep blue nautical theme
-
-**What it changes:**
-- FZF color scheme
-- Terminal color palette for fuzzy finding
-- Border styles and prompt characters
-
-**Usage example:**
-```bash
-# View available themes
-gnar-theme list
-
-# Apply the matrix theme
-gnar-theme set matrix
-
-# Interactive selection
-gnar-theme set
-```
-
-### help-gnar
-Interactive command reference for the entire GNAR system.
-
-```bash
-help-gnar
-```
-
-**Sections included:**
-- **System Commands** - GNAR utilities and system monitors
-- **Tmux Commands** - Full tiling terminal reference
-- **File Operations** - Enhanced navigation and manipulation
-- **Git Shortcuts** - All git aliases configured
-- **Utilities** - Weather, calculator, and helper functions
-
-**Features:**
-- Clean formatted output with section dividers
-- Complete tmux keybinding reference
-- All custom aliases and functions
-- Examples for each command type
-
-**Use as your cheat sheet for:**
-- Remembering tmux keybindings
-- Finding that git alias
-- Discovering helper functions
-- Learning the custom setup
+Covers the installed aliases and functions: Caddy site management,
+PM2, code-server, tmux, docker, file ops, git, navigation, and the
+fzf-driven help search (`gnar-aliases`, `gnar-functions`).
 
 ## System Monitoring
 
