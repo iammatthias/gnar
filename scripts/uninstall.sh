@@ -1,7 +1,8 @@
 #!/bin/bash
 #
-# GNAR - Uninstall Script
-# Removes GNAR configuration and reverts to clean state
+# GNAR - Uninstall
+# Reverts the configuration installed by setup.sh.
+# Does NOT remove pacman packages — keep or remove those manually.
 #
 
 set -euo pipefail
@@ -11,71 +12,89 @@ GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 NC='\033[0m'
 
-echo -e "${YELLOW}🗑️  GNAR Uninstall${NC}"
-echo "This will remove GNAR configurations and revert to clean state."
-echo
-
-# Check if root
 if [[ $EUID -ne 0 ]]; then
    echo -e "${RED}Run as root: sudo ./uninstall.sh${NC}"
    exit 1
 fi
 
-# Get actual user
 REAL_USER=$(logname)
+REAL_HOME="/home/$REAL_USER"
+TS=$(date +%Y%m%d_%H%M%S)
 
-echo -e "${YELLOW}Removing GNAR configurations...${NC}"
+echo -e "${YELLOW}Reverting GNAR configuration for $REAL_USER...${NC}"
+echo
 
-# Remove GNAR scripts
-rm -f /usr/local/bin/gnar-*
+# -----------------------------------------------------------------------------
+# Stop / disable services
+# -----------------------------------------------------------------------------
+for svc in "code-server@$REAL_USER" caddy fail2ban valkey postgresql ufw; do
+    systemctl is-active --quiet "$svc" && systemctl stop "$svc" || true
+    systemctl is-enabled --quiet "$svc" 2>/dev/null && systemctl disable "$svc" || true
+done
 
-# Stop and disable services
-systemctl stop caddy 2>/dev/null || true
-systemctl disable caddy 2>/dev/null || true
-
-# Remove Caddy configuration
-rm -f /etc/caddy/Caddyfile
-
-# Remove user configurations (with backup)
-if [[ -f "/home/$REAL_USER/.zshrc" ]]; then
-    cp "/home/$REAL_USER/.zshrc" "/home/$REAL_USER/.zshrc.gnar-backup.$(date +%Y%m%d_%H%M%S)" 2>/dev/null || true
-    echo "Backed up .zshrc to .zshrc.gnar-backup.$(date +%Y%m%d_%H%M%S)"
+# Reset UFW to default deny-all-allow-all (before disabling) so reinstall is clean
+if command -v ufw &>/dev/null; then
+    ufw --force reset >/dev/null || true
 fi
 
-if [[ -f "/home/$REAL_USER/.tmux.conf" ]]; then
-    cp "/home/$REAL_USER/.tmux.conf" "/home/$REAL_USER/.tmux.conf.gnar-backup.$(date +%Y%m%d_%H%M%S)" 2>/dev/null || true
-    echo "Backed up .tmux.conf to .tmux.conf.gnar-backup.$(date +%Y%m%d_%H%M%S)"
+# -----------------------------------------------------------------------------
+# System config files
+# -----------------------------------------------------------------------------
+echo -e "${YELLOW}Removing system config...${NC}"
+
+[ -f /etc/caddy/Caddyfile ] && \
+    mv /etc/caddy/Caddyfile "/etc/caddy/Caddyfile.gnar-backup.$TS"
+
+[ -f /etc/fail2ban/jail.local ] && \
+    mv /etc/fail2ban/jail.local "/etc/fail2ban/jail.local.gnar-backup.$TS"
+
+[ -f /etc/logrotate.d/gnar ] && rm -f /etc/logrotate.d/gnar
+
+[ -f /etc/systemd/system/code-server@.service ] && \
+    rm -f /etc/systemd/system/code-server@.service
+
+# Restore stock sshd_config flags (best-effort: only revert what setup.sh forced)
+if [ -f /etc/ssh/sshd_config ]; then
+    sed -i 's/^PermitRootLogin no$/#PermitRootLogin prohibit-password/' /etc/ssh/sshd_config
+    sed -i 's/^PasswordAuthentication no$/#PasswordAuthentication yes/' /etc/ssh/sshd_config
 fi
+systemctl reload sshd 2>/dev/null || true
 
-# Remove Oh My Zsh and spaceship
-sudo -u $REAL_USER rm -rf /home/$REAL_USER/.oh-my-zsh 2>/dev/null || true
-sudo -u $REAL_USER rm -rf /home/$REAL_USER/.spaceship-prompt 2>/dev/null || true
+systemctl daemon-reload
 
-# Remove zsh configuration
-rm -f /home/$REAL_USER/.zshrc
-rm -f /home/$REAL_USER/.tmux.conf
+# -----------------------------------------------------------------------------
+# User-level config (with backups)
+# -----------------------------------------------------------------------------
+echo -e "${YELLOW}Removing user config from $REAL_HOME...${NC}"
 
-# Remove zsh history
-rm -f /home/$REAL_USER/.zsh_history
+backup_and_remove() {
+    local f=$1
+    if [ -e "$f" ]; then
+        mv "$f" "${f}.gnar-backup.$TS"
+    fi
+}
 
-# Remove config directories
-sudo -u $REAL_USER rm -rf /home/$REAL_USER/.config/zsh 2>/dev/null || true
-sudo -u $REAL_USER rm -rf /home/$REAL_USER/.config/spaceship 2>/dev/null || true
+backup_and_remove "$REAL_HOME/.zshrc"
+backup_and_remove "$REAL_HOME/.tmux.conf"
+backup_and_remove "$REAL_HOME/.config/fastfetch/config.jsonc"
+backup_and_remove "$REAL_HOME/.config/code-server/config.yaml"
+backup_and_remove "$REAL_HOME/.local/share/code-server/User/settings.json"
 
-echo -e "${GREEN}✅ GNAR uninstalled successfully!${NC}"
+# Oh My Zsh + Spaceship + plugins
+sudo -u "$REAL_USER" rm -rf "$REAL_HOME/.oh-my-zsh" || true
+
+# Helper scripts
+rm -f /usr/local/bin/gnar-info /usr/local/bin/gnar-update /usr/local/bin/gnar-help
+
 echo
-echo "What was removed:"
-echo "  • GNAR helper scripts"
-echo "  • Zsh configuration with Spaceship"
-echo "  • Tmux configuration"
-echo "  • Caddy web server"
-echo "  • Oh My Zsh and plugins"
+echo -e "${GREEN}GNAR configuration removed.${NC}"
 echo
-echo "Backups created:"
-echo "  • .zshrc.gnar-backup.*"
-echo "  • .tmux.conf.gnar-backup.*"
+echo "Backups: *.gnar-backup.$TS"
 echo
-echo "System packages remain installed. To remove them:"
-echo "  sudo pacman -Rns zsh tmux neovim caddy docker nodejs python ruby rust go"
-echo
-echo -e "${GREEN}System reverted to clean state! 🧹${NC}"
+echo "Packages remain installed. To remove the GNAR package set:"
+echo "  sudo pacman -Rns zsh tmux neovim caddy docker docker-compose \\"
+echo "    nodejs npm python ruby go jdk-openjdk maven gradle \\"
+echo "    eza bat fd fzf zoxide ripgrep jq yq fastfetch htop btop \\"
+echo "    iotop nethogs ncdu rsync rclone p7zip imagemagick httpie \\"
+echo "    ufw fail2ban nmap tcpdump wireshark-cli postgresql valkey \\"
+echo "    sqlite smartmontools"
