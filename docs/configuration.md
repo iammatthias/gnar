@@ -2,7 +2,7 @@
 
 ## TTY Console
 
-GNAR uses pure TTY with no GUI. Configure TTY appearance:
+GNAR runs headless. If you sit at the physical console, configure TTY appearance:
 
 ```bash
 # Set console font (requires root)

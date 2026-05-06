@@ -4,120 +4,118 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Overview
 
-GNAR is a pure TTY setup with enhanced Zsh for Arch Linux. It provides a minimal, powerful terminal computing experience with no GUI, no desktop environment - just enhanced shell capabilities.
+GNAR is an opinionated home-server bootstrap for Arch Linux. One script provisions
+a headless Arch box for remote development over SSH: enhanced zsh, tmux, Caddy
+reverse proxy, code-server (browser VS Code), Docker, PostgreSQL + Valkey, and a
+broad set of language runtimes (Node, Python, Ruby, Rust, Go, Java).
+
+It is intentionally heavy — this is a personal home-server bootstrap, not a
+"minimal TTY" distribution.
 
 ## Repository Structure
 
 ```
 gnar/
-├── README.md           # Main documentation with comprehensive guide
-├── LICENSE             # MIT license
-├── CLAUDE.md           # This file - AI assistant guidance
-├── .gitignore          # Git ignore file
+├── README.md
+├── LICENSE
+├── CLAUDE.md
+├── .gitignore
 ├── scripts/
-│   ├── setup.sh        # Main installation script (Pure TTY + Enhanced Zsh)
-│   └── uninstall.sh    # Safe removal script
+│   ├── setup.sh          # Bootstrap (run as root)
+│   └── uninstall.sh      # Revert configuration
+├── configs/              # Files installed verbatim by setup.sh
+│   ├── zshrc
+│   ├── tmux.conf
+│   ├── Caddyfile
+│   ├── fastfetch.jsonc
+│   ├── fail2ban-jail.local
+│   ├── logrotate-gnar.conf
+│   ├── code-server-config.yaml      # __PASSWORD__ placeholder
+│   ├── code-server-settings.json
+│   └── code-server.service          # systemd template unit
+├── bin/                  # Helper scripts installed to /usr/local/bin
+│   ├── gnar-info
+│   ├── gnar-update
+│   └── gnar-help
 └── docs/
-    ├── configuration.md   # Zsh customization guide
-    ├── helpers.md         # GNAR utilities reference
-    └── troubleshooting.md # Comprehensive troubleshooting guide
+    ├── configuration.md
+    ├── helpers.md
+    └── troubleshooting.md
 ```
 
 ## Key Commands
 
-### Installation
+### Install / Update / Uninstall
+
 ```bash
-# Run the setup script (Linux users may need: chmod +x scripts/setup.sh)
-./scripts/setup.sh
+sudo ./scripts/setup.sh        # Bootstrap a fresh Arch system
+gnar-update                    # Pacman -Syu + cache clean
+sudo ./scripts/uninstall.sh    # Revert configuration (with backups)
 ```
 
-### Post-Installation
+### Post-install reference
+
 ```bash
-# System information
-gnar-info
-
-# Update system
-gnar-update
-
-# Command reference
-help-gnar
+gnar-info     # fastfetch report (TR-100 style)
+gnar-help     # Full command reference
 ```
 
-### Uninstall
-```bash
-# Safe removal with backup
-./scripts/uninstall.sh
-```
+## Architecture
 
-## Architecture & Structure
+### setup.sh — three phases
 
-### 1. Main Setup Script (`setup.sh`)
-**Pure TTY Installation** with essential components:
+1. **System packages** via `pacman -S`: shells/editors, Caddy, Docker, runtimes,
+   databases, security tooling, modern CLI replacements.
+2. **System configuration**: install configs from `configs/` to their canonical
+   locations, configure UFW + fail2ban + SSH hardening, init Postgres cluster,
+   enable systemd units (Caddy, Docker, Postgres, Valkey, code-server).
+3. **Per-user tooling** (run as `$REAL_USER` via `sudo -u`): Oh My Zsh, plugins,
+   Spaceship prompt, npm globals (yarn/pnpm/pm2/eslint/prettier/jest), Bun,
+   pipx (black/pytest), Ruby bundler, rustup, Go delve.
 
-**Core Components Installed:**
-- `zsh` - Enhanced shell with DarkMatter-inspired configuration
-- `starship` - Cross-shell prompt with modern styling
-- `tmux` - Terminal multiplexer for tiling window management in TTY
-- `neovim` - Modern text editor
-- `git` - Version control with integrated shortcuts
-- `fastfetch` - System information display
-- `eza` - Modern replacement for ls with icons
-- `bat` - Cat replacement with syntax highlighting
-- `fd` - Modern find replacement
-- `fzf` - Fuzzy finder with custom DarkMatter colors
-- `zoxide` - Smart directory jumping
-- `htop` - Process monitor
-- `curl` - HTTP client
-- `tree` - Directory tree viewer
-- `which` - Command location finder
-- `man-db`, `man-pages` - Documentation
+Setup is run as root. The script derives the target user via `logname`, and
+all per-user work runs through `sudo -u "$REAL_USER"`.
 
-### 2. Helper Scripts
-**GNAR Management Tools** (created in `/usr/local/bin/`):
-- `gnar-info` - Pretty TTY system information display
-- `gnar-update` - Update system and clean cache
-- `gnar-theme` - Switch between 5 terminal themes (darkmatter, matrix, minimal, retro, ocean)
-- `help-gnar` - Complete command reference
+### Helper scripts (`/usr/local/bin/`)
 
-**Configuration Files Generated:**
-- `~/.zshrc` - Enhanced shell with 50+ aliases, smart functions, git integration, beautiful 2-line prompt
-- `~/.tmux.conf` - Tmux configuration with vim-style navigation, mouse support, and custom keybindings
-- `~/.config/fastfetch/config.jsonc` - Custom GNAR Machine Report display inspired by TR-100
-- Shell changed to zsh with comprehensive history and productivity features
+- `gnar-info`  — wraps `fastfetch` with the GNAR config
+- `gnar-update`— `pacman -Syu` + cache clean
+- `gnar-help`  — printed reference of installed aliases / functions
 
-## Key Design Principles
+### Generated user files
 
-- **Security-focused**: Uses only official Arch repositories for maximum security
-- **Minimal**: Pure TTY, no GUI applications, no desktop environment
-- **Performance**: Ultra-lightweight, minimal resource usage
-- **Productivity**: Enhanced shell with smart aliases, functions, and git integration
-- **Terminal computing**: Pure command-line experience with powerful enhancements
-- **Comprehensive**: One script creates complete terminal-based development environment
+- `~/.zshrc`                          — copied from `configs/zshrc`
+- `~/.tmux.conf`                      — copied from `configs/tmux.conf`
+- `~/.config/fastfetch/config.jsonc`  — copied from `configs/fastfetch.jsonc`
+- `~/.config/code-server/config.yaml` — generated from template with random password (chmod 600)
 
-## Documentation Files
+## Design principles
 
-- **README.md**: Comprehensive guide with installation, usage, and features
-- **docs/configuration.md**: Zsh customization and configuration guide
-- **docs/helpers.md**: GNAR utilities and command reference
-- **docs/troubleshooting.md**: Comprehensive troubleshooting guide
+- **Opinionated, not minimal** — assumes a single-tenant home server, not a
+  general-purpose distribution.
+- **Idempotent-ish** — re-running setup.sh re-applies configs, backing up
+  existing `~/.zshrc` first. Most steps tolerate already-configured state.
+- **No secrets in repo** — the code-server password is generated at install
+  time and printed once; the config file is chmod 600.
+- **Configs are tracked** — every file the bootstrap installs lives under
+  `configs/` so changes are reviewable in diff form rather than buried in
+  heredocs.
 
-## Enhanced Zsh Features
+## Editing tips
 
-### Key Aliases and Functions
-- `ll` - Detailed file listing
-- `..` / `...` - Directory navigation shortcuts
-- `gs` - git status
-- `glog` - git log with graph
-- `mkcd <dir>` - Create and enter directory
-- `backup <file>` - Backup file with timestamp
-- `extract <archive>` - Universal archive extraction
-- `weather [city]` - Weather report
-- `calc <expr>` - Calculator
+- To change shell behavior, edit `configs/zshrc` and re-run setup, or just
+  copy it onto `~/.zshrc` (it overrides existing).
+- To add a Caddy site at runtime, use the `add-site` shell function from
+  `configs/zshrc`; don't hand-edit `/etc/caddy/Caddyfile`.
+- To change the package set, edit the two `pacman -S` blocks at the top of
+  `scripts/setup.sh`.
 
-### Helper Commands
-- `gnar-info` - System information display
-- `gnar-update` - System update and cleanup
-- `help-gnar` - Complete command reference
+## Documentation
+
+- **README.md** — user-facing install + usage guide
+- **docs/configuration.md** — customization recipes
+- **docs/helpers.md** — full alias / keybinding reference
+- **docs/troubleshooting.md** — common issues
 
 # important-instruction-reminders
 Do what has been asked; nothing more, nothing less.

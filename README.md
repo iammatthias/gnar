@@ -1,8 +1,14 @@
 # GNAR
 
-**Streamlined TTY for Arch Linux**
+**Opinionated home-server bootstrap for Arch Linux**
 
-A focused, opinionated setup for remote development via SSH from macOS to Arch Linux. Built around Spaceship prompt, Zsh, Tmux, and Caddy for web development.
+A single setup script that turns a fresh Arch install into a headless
+home server for remote development over SSH. Spaceship + Zsh + Tmux,
+Caddy reverse proxy, code-server in the browser, Docker, PostgreSQL +
+Valkey, and a full set of language runtimes.
+
+This is intentionally opinionated and intentionally heavy — it's a
+personal home-server bootstrap, not a minimal TTY distribution.
 
 ## What You Get
 
@@ -100,7 +106,9 @@ tmux
 ### VS Code Server
 
 - **Browser-based IDE**: Full VS Code experience in your browser
-- **Access**: `http://vscode.local` (password: `gnar-vscode-2024`)
+- **Access**: `http://vscode.local` — password is generated at install time
+  and printed once; it's also stored in `~/.config/code-server/config.yaml`
+  (mode 600). Use `vscode-password` (or alias `vs`) to print it later.
 - **Extensions**: All VS Code extensions work
 - **Terminal**: Integrated terminal with full shell access
 - **Git Integration**: Full git support and source control
@@ -160,11 +168,12 @@ dex <container> # docker exec -it
 ### VS Code Server
 
 ```bash
-vscode                      # VS Code Server status
-vscode-restart              # Restart VS Code Server
-vscode-logs                 # View VS Code Server logs
-vscode-change-password <pw> # Change VS Code password
-# Access at: http://vscode.local (password: gnar-vscode-2024)
+vs                          # Status (alias for vscode-status)
+vsr                         # Restart (alias for vscode-restart)
+vsl                         # Tail logs (alias for vscode-logs)
+vscode-password             # Print current password
+vscode-change-password <pw> # Change password
+# Access at: http://vscode.local
 ```
 
 ### Caddy
@@ -265,11 +274,13 @@ This removes GNAR configurations but keeps system packages installed.
 
 GNAR is designed for:
 
-- **Remote Development**: SSH from macOS to Arch Linux
+- **Remote Development**: SSH from macOS to an Arch home server
 - **Web Development**: Caddy for reverse proxy and HTTPS
 - **Terminal-First**: Tmux as the primary interface
-- **Runtime Agnostic**: Support for all major languages
-- **Minimal Complexity**: Focused on essentials, not features
+- **Runtime Agnostic**: Support for the major language runtimes
+- **Versioned Configs**: Every file the bootstrap installs lives under
+  `configs/`, so changes are reviewable in diff form rather than buried
+  in heredocs
 
 ## License
 
