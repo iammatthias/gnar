@@ -1,0 +1,7 @@
+#!/bin/bash
+set -euo pipefail
+echo "Updating system..."
+sudo pacman -Syu
+echo "Cleaning package cache..."
+sudo pacman -Sc --noconfirm
+echo "Done."
