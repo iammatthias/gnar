@@ -44,7 +44,7 @@ pacman -S --noconfirm \
   zsh tmux neovim git curl wget unzip \
   caddy docker docker-compose \
   nodejs npm \
-  python python-pip python-pipx python-pipenv python-poetry \
+  python uv \
   ruby \
   go jdk-openjdk maven gradle \
   base-devel man-db man-pages
@@ -104,6 +104,13 @@ install -m 644 -o "$REAL_USER" -g "$REAL_USER" "$CONFIGS/tmux.conf" "$REAL_HOME/
 install -d -o "$REAL_USER" -g "$REAL_USER" "$REAL_HOME/.config/fastfetch"
 install -m 644 -o "$REAL_USER" -g "$REAL_USER" \
     "$CONFIGS/fastfetch.jsonc" "$REAL_HOME/.config/fastfetch/config.jsonc"
+
+# Drop a CLAUDE.md at $HOME so Claude Code (and the user) sees what's
+# installed. Don't clobber an existing one.
+if [ ! -e "$REAL_HOME/CLAUDE.md" ]; then
+    install -m 644 -o "$REAL_USER" -g "$REAL_USER" \
+        "$CONFIGS/server-CLAUDE.md" "$REAL_HOME/CLAUDE.md"
+fi
 
 # -----------------------------------------------------------------------------
 # Caddy
@@ -237,15 +244,16 @@ set -e
 mkdir -p "$HOME/.npm-global"
 npm config set prefix "$HOME/.npm-global"
 export PATH="$HOME/.npm-global/bin:$PATH"
-npm install -g yarn pnpm pm2 eslint prettier jest || true
+npm install -g yarn pnpm pm2 eslint prettier jest @anthropic-ai/claude-code || true
 
 # Bun
 curl -fsSL https://bun.sh/install | bash || true
 
-# Python (pipx)
-pipx install black || true
-pipx install pytest || true
-pipx ensurepath || true
+# Python (uv)
+# uv replaces pip / pipx / pipenv / poetry. uv tool installs land in ~/.local/bin.
+uv tool install ruff || true
+uv tool install pytest || true
+uv tool install black || true
 
 # Ruby
 gem install bundler || true
