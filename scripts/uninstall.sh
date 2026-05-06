@@ -80,6 +80,12 @@ backup_and_remove "$REAL_HOME/.config/fastfetch/config.jsonc"
 backup_and_remove "$REAL_HOME/.config/code-server/config.yaml"
 backup_and_remove "$REAL_HOME/.local/share/code-server/User/settings.json"
 
+# Only back up CLAUDE.md if it's the one GNAR installed (sentinel: first
+# line is "# GNAR Server"). Hand-written ones are left alone.
+if [ -f "$REAL_HOME/CLAUDE.md" ] && head -n1 "$REAL_HOME/CLAUDE.md" | grep -q "^# GNAR Server$"; then
+    mv "$REAL_HOME/CLAUDE.md" "$REAL_HOME/CLAUDE.md.gnar-backup.$TS"
+fi
+
 # Oh My Zsh + Spaceship + plugins
 sudo -u "$REAL_USER" rm -rf "$REAL_HOME/.oh-my-zsh" || true
 

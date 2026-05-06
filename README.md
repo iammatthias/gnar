@@ -125,13 +125,16 @@ tmux
 
 ### Runtime Environments
 
-- **Node.js**: npm, yarn, pnpm, bun
-- **Python**: pip, pipenv, poetry
+- **Node.js**: npm, yarn, pnpm, bun, pm2
+- **Python**: [`uv`](https://docs.astral.sh/uv/) (replaces pip / pipx /
+  pipenv / poetry); preinstalled `uv tool`s: ruff, pytest, black
 - **Ruby**: gem, bundler
 - **Rust**: cargo, rustup
 - **Go**: go, delve debugger
 - **Java**: OpenJDK, Maven, Gradle
 - **Docker**: docker, docker-compose
+- **Claude Code**: `claude` (Anthropic's CLI; reads `~/CLAUDE.md` for
+  system context)
 
 ## Essential Commands
 
@@ -258,7 +261,7 @@ api.local:80 {
 
 1. **Start tmux**: `tmux`
 2. **Create project**: `mkdir myproject && cd myproject`
-3. **Initialize runtime**: `npm init`, `pipenv install`, `cargo init`, etc.
+3. **Initialize runtime**: `npm init`, `uv init`, `cargo init`, etc.
 4. **Add to Caddy**: `add-site myproject 3000`
 5. **Access**: `http://myproject.local` (or your domain)
 

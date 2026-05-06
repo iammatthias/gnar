@@ -44,6 +44,16 @@ VS Code Server
   vscode-password             Print current password
   vscode-change-password <pw>
 
+AI / LLM
+  claude                      Claude Code CLI (reads ~/CLAUDE.md)
+  claude --help               Claude Code usage
+
+Python (uv)
+  uv venv                     Create a virtualenv
+  uv pip install <pkg>        Install into active venv
+  uv tool install <pkg>       Install a Python CLI globally (~/.local/bin)
+  uv run <cmd>                Run command in project env
+
 Tmux (prefix: Ctrl-a)
   t                           Start tmux
   tn <name>                   New session

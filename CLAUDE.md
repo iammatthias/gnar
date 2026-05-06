@@ -6,8 +6,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 GNAR is an opinionated home-server bootstrap for Arch Linux. One script provisions
 a headless Arch box for remote development over SSH: enhanced zsh, tmux, Caddy
-reverse proxy, code-server (browser VS Code), Docker, PostgreSQL + Valkey, and a
-broad set of language runtimes (Node, Python, Ruby, Rust, Go, Java).
+reverse proxy, code-server (browser VS Code), Docker, PostgreSQL + Valkey, a
+broad set of language runtimes (Node, Python via uv, Ruby, Rust, Go, Java),
+and Claude Code (`claude`).
 
 It is intentionally heavy — this is a personal home-server bootstrap, not a
 "minimal TTY" distribution.
@@ -32,7 +33,8 @@ gnar/
 │   ├── logrotate-gnar.conf
 │   ├── code-server-config.yaml      # __PASSWORD__ placeholder
 │   ├── code-server-settings.json
-│   └── code-server.service          # systemd template unit
+│   ├── code-server.service          # systemd template unit
+│   └── server-CLAUDE.md             # installed to ~/CLAUDE.md (system context for Claude Code)
 ├── bin/                  # Helper scripts installed to /usr/local/bin
 │   ├── gnar-info
 │   ├── gnar-update
@@ -70,8 +72,9 @@ gnar-help     # Full command reference
    locations, configure UFW + fail2ban + SSH hardening, init Postgres cluster,
    enable systemd units (Caddy, Docker, Postgres, Valkey, code-server).
 3. **Per-user tooling** (run as `$REAL_USER` via `sudo -u`): Oh My Zsh, plugins,
-   Spaceship prompt, npm globals (yarn/pnpm/pm2/eslint/prettier/jest), Bun,
-   pipx (black/pytest), Ruby bundler, rustup, Go delve.
+   Spaceship prompt, npm globals (yarn/pnpm/pm2/eslint/prettier/jest +
+   `@anthropic-ai/claude-code`), Bun, `uv tool install` (ruff/pytest/black),
+   Ruby bundler, rustup, Go delve.
 
 Setup is run as root. The script derives the target user via `logname`, and
 all per-user work runs through `sudo -u "$REAL_USER"`.
@@ -88,6 +91,7 @@ all per-user work runs through `sudo -u "$REAL_USER"`.
 - `~/.tmux.conf`                      — copied from `configs/tmux.conf`
 - `~/.config/fastfetch/config.jsonc`  — copied from `configs/fastfetch.jsonc`
 - `~/.config/code-server/config.yaml` — generated from template with random password (chmod 600)
+- `~/CLAUDE.md`                       — copied from `configs/server-CLAUDE.md` (only if not already present); gives Claude Code system context
 
 ## Design principles
 
