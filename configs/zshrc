@@ -1,0 +1,574 @@
+# GNAR - Zsh Configuration
+
+# Oh My Zsh
+export ZSH="$HOME/.oh-my-zsh"
+ZSH_THEME="spaceship"
+
+plugins=(
+  git
+  docker
+  docker-compose
+  node
+  npm
+  python
+  pip
+  ruby
+  rust
+  golang
+  gradle
+  zsh-autosuggestions
+  zsh-syntax-highlighting
+  zsh-completions
+  zsh-history-substring-search
+  zsh-z
+  zoxide
+  fzf
+  colored-man-pages
+  command-not-found
+  extract
+  history
+  sudo
+  web-search
+)
+
+source $ZSH/oh-my-zsh.sh
+
+# Spaceship prompt
+SPACESHIP_PROMPT_ORDER=(
+  user
+  dir
+  host
+  git
+  node
+  python
+  ruby
+  docker
+  exec_time
+  line_sep
+  battery
+  jobs
+  exit_code
+  char
+)
+
+SPACESHIP_CHAR_SYMBOL="❯ "
+SPACESHIP_CHAR_SUFFIX=" "
+SPACESHIP_USER_SHOW="always"
+SPACESHIP_USER_PREFIX=""
+SPACESHIP_USER_SUFFIX=""
+SPACESHIP_HOST_SHOW="always"
+SPACESHIP_HOST_PREFIX="@"
+SPACESHIP_DIR_PREFIX=""
+SPACESHIP_DIR_TRUNC=3
+SPACESHIP_GIT_PREFIX=""
+SPACESHIP_GIT_SUFFIX=""
+SPACESHIP_GIT_BRANCH_PREFIX=""
+SPACESHIP_GIT_STATUS_PREFIX=" ["
+SPACESHIP_GIT_STATUS_SUFFIX="]"
+
+# History
+HISTFILE=$HOME/.zsh_history
+HISTSIZE=50000
+SAVEHIST=50000
+setopt share_history
+setopt hist_expire_dups_first
+setopt hist_ignore_dups
+setopt hist_ignore_space
+setopt hist_verify
+setopt hist_reduce_blanks
+setopt hist_save_no_dups
+setopt hist_find_no_dups
+setopt append_history
+setopt inc_append_history
+
+# Vi mode
+bindkey -v
+
+# Key bindings
+bindkey '^R' history-incremental-search-backward
+bindkey '^S' history-incremental-search-forward
+bindkey '^[[Z' reverse-menu-complete
+bindkey '^[[3~' delete-char
+bindkey '^?' backward-delete-char
+bindkey '^H' backward-delete-char
+bindkey '^W' backward-kill-word
+bindkey '^U' backward-kill-line
+bindkey '^K' kill-line
+
+# History substring search on up/down
+bindkey '^[[A' history-substring-search-up
+bindkey '^[[B' history-substring-search-down
+bindkey -M vicmd 'k' history-substring-search-up
+bindkey -M vicmd 'j' history-substring-search-down
+
+# eza file listing
+alias ls="eza --icons --group-directories-first --color=auto"
+alias ll="eza --icons --long --group-directories-first --color=auto"
+alias la="eza --icons --all --group-directories-first --color=auto"
+alias lt="eza --icons --tree --level=3 --group-directories-first"
+alias lf="eza --icons --long --group-directories-first --color=auto --git"
+alias tree="eza --icons --tree"
+
+# bat as a better cat / pager
+alias cat="bat --style=plain --paging=never"
+alias less="bat --paging=always"
+alias more="bat --paging=always"
+
+# Shell quality of life
+alias df="df -h"
+alias du="du -h"
+alias free="free -h"
+
+# Navigation
+alias ..="cd .."
+alias ...="cd ../.."
+alias ....="cd ../../.."
+alias .....="cd ../../../.."
+alias ......="cd ../../../../.."
+alias ~="cd ~"
+alias -- -="cd -"
+alias cdp="cd ~/projects"
+alias cdd="cd ~/Downloads"
+alias cdt="cd /tmp"
+alias cdl="cd /var/log"
+alias cde="cd /etc"
+
+# Git
+alias g="git"
+alias gs="git status"
+alias ga="git add"
+alias gc="git commit"
+alias gp="git push"
+alias gl="git pull"
+alias gd="git diff"
+alias gb="git branch"
+alias gco="git checkout"
+alias glog="git log --oneline --graph --decorate"
+
+# Tmux
+alias t="tmux"
+alias tn="tmux new -s"
+alias ta="tmux attach -t"
+alias tl="tmux list-sessions"
+alias tk="tmux kill-session -t"
+
+# Docker
+alias dkr="docker"
+alias dkc="docker-compose"
+alias dkps="docker ps"
+alias dkpa="docker ps -a"
+alias dki="docker images"
+alias dkex="docker exec -it"
+
+# System
+alias c="clear"
+alias reload="source ~/.zshrc"
+alias r="source ~/.zshrc"
+alias myip="curl -s ifconfig.me"
+alias localip="ip -4 addr show | awk '/inet / {print \$2}'"
+alias ff="fastfetch"
+alias nf="fastfetch"
+alias ports="ss -tulpn"
+
+# System monitoring
+alias smart="sudo smartctl -a"
+
+# Network
+alias nmap-local="nmap -sn 192.168.1.0/24"
+alias nmap-scan="nmap -sS -O -F"
+alias lsof-port="lsof -i"
+
+# Database
+alias sqlite="sqlite3"
+
+# Security
+alias ufw-status="sudo ufw status verbose"
+alias fail2ban-status="sudo fail2ban-client status"
+
+# Caddy
+alias caddy-edit="sudo \$EDITOR /etc/caddy/Caddyfile"
+alias caddy-reload="sudo systemctl reload caddy"
+alias caddy-logs="sudo journalctl -u caddy -f"
+alias caddy-restart="sudo systemctl restart caddy"
+
+# VS Code Server
+alias vs="vscode-status"
+alias vsr="vscode-restart"
+alias vsl="vscode-logs"
+
+# AUR (yay)
+alias yay-update="yay -Syu"
+alias yay-install="yay -S"
+alias yay-remove="yay -R"
+alias yay-search="yay -Ss"
+alias yay-info="yay -Si"
+
+# Environment
+export EDITOR="nvim"
+export PAGER="bat"
+export BAT_THEME="ansi"
+export FZF_DEFAULT_COMMAND='fd --type f --hidden --exclude ".git"'
+export FZF_DEFAULT_OPTS='
+  --color=fg:#c1c1c1,fg+:#ffffff,bg:#121113,bg+:#222222
+  --color=hl:#5f8787,hl+:#fbcb97,info:#e78a53,marker:#fbcb97
+  --color=prompt:#e78a53,spinner:#5f8787,pointer:#fbcb97,header:#aaaaaa
+  --color=border:#333333,label:#888888,query:#ffffff
+  --border="rounded" --border-label="" --preview-window="border-rounded" --prompt="> "
+  --marker=">" --pointer="◆" --separator="─" --scrollbar="│"'
+
+# PATH additions
+export PATH="$HOME/.npm-global/bin:$PATH"
+export PATH="$HOME/.bun/bin:$PATH"
+export PATH="$HOME/.local/share/gem/ruby/3.4.0/bin:$PATH"
+export PATH="$HOME/.cargo/bin:$PATH"
+export PATH="$HOME/.local/bin:$PATH"
+export GOPATH="$HOME/go"
+export PATH="$GOPATH/bin:$PATH"
+
+# Tools
+eval "$(zoxide init zsh)"
+
+# Completion
+autoload -U compinit && compinit
+zstyle ':completion:*' matcher-list 'm:{a-zA-Z}={A-Za-z}' 'r:|=*' 'l:|=* r:|=*'
+zstyle ':completion:*' list-colors "${(s.:.)LS_COLORS}"
+zstyle ':completion:*' menu select
+zstyle ':completion:*' special-dirs true
+zstyle ':completion:*' use-cache on
+zstyle ':completion:*' cache-path ~/.zsh/cache
+
+# Directory navigation behavior
+setopt auto_cd
+setopt auto_pushd
+setopt pushd_ignore_dups
+setopt pushd_silent
+setopt pushd_to_home
+setopt cdable_vars
+
+# Globbing
+setopt extended_glob
+setopt glob_dots
+setopt numeric_glob_sort
+setopt mark_dirs
+
+# Job control
+setopt auto_resume
+setopt long_list_jobs
+setopt notify
+
+# Functions
+mkcd() {
+    mkdir -p "$1" && cd "$1"
+}
+
+up() {
+    local levels=${1:-1}
+    local path=""
+    for ((i=1; i<=levels; i++)); do
+        path="../$path"
+    done
+    cd "$path"
+}
+
+alias e="nvim"
+alias edit="nvim"
+
+# ----- Caddy site management -----
+
+add-site() {
+    if [ -z "$1" ]; then
+        echo "Usage: add-site <name> [port|directory]"
+        echo "Examples:"
+        echo "  add-site myapp 3000           # reverse proxy to localhost:3000"
+        echo "  add-site static /var/www/site # serve static files"
+        return 1
+    fi
+
+    local name=$1
+    local target=${2:-3000}
+    local backup="/etc/caddy/Caddyfile.backup.$(date +%Y%m%d_%H%M%S)"
+
+    sudo cp /etc/caddy/Caddyfile "$backup"
+
+    if [[ "$target" =~ ^[0-9]+$ ]]; then
+        echo -e "\n# $name service (reverse proxy)\n$name.local:80 {\n    reverse_proxy localhost:$target\n}" | sudo tee -a /etc/caddy/Caddyfile > /dev/null
+        echo "Added $name.local:80 -> localhost:$target"
+    else
+        if [ ! -d "$target" ]; then
+            echo "Directory $target does not exist"
+            return 1
+        fi
+        echo -e "\n# $name service (static files)\n$name.local:80 {\n    root * $target\n    file_server\n}" | sudo tee -a /etc/caddy/Caddyfile > /dev/null
+        echo "Added $name.local:80 -> $target"
+    fi
+
+    if caddy validate --config /etc/caddy/Caddyfile 2>/dev/null; then
+        sudo systemctl reload caddy
+        echo "Site available at: http://$name.local"
+    else
+        echo "Configuration error - rolling back"
+        sudo mv "$backup" /etc/caddy/Caddyfile
+        return 1
+    fi
+}
+
+list-sites() {
+    if [ -f "/etc/caddy/Caddyfile" ]; then
+        sudo grep -E "^[a-zA-Z0-9.-]+(.local)?(:[0-9]+)? {" /etc/caddy/Caddyfile 2>/dev/null | sed 's/ {//' || echo "No sites configured"
+    else
+        echo "No Caddyfile found"
+    fi
+}
+
+remove-site() {
+    if [ -z "$1" ]; then
+        echo "Usage: remove-site <name>"
+        return 1
+    fi
+
+    local name=$1
+    local backup="/etc/caddy/Caddyfile.backup.$(date +%Y%m%d_%H%M%S)"
+
+    sudo cp /etc/caddy/Caddyfile "$backup"
+    sudo sed -i "/^$name\.local:80 {/,/^}/d" /etc/caddy/Caddyfile
+
+    if caddy validate --config /etc/caddy/Caddyfile 2>/dev/null; then
+        sudo systemctl reload caddy
+        echo "Removed $name.local from Caddy"
+    else
+        echo "Configuration error - rolling back"
+        sudo mv "$backup" /etc/caddy/Caddyfile
+        return 1
+    fi
+}
+
+test-caddy() {
+    caddy validate --config /etc/caddy/Caddyfile
+}
+
+caddy-status() {
+    sudo systemctl status caddy --no-pager
+    echo
+    sudo journalctl -u caddy --no-pager -n 10
+}
+
+# ----- PM2 management -----
+
+pm2-start() {
+    if [ -z "$1" ]; then
+        echo "Usage: pm2-start <ecosystem-file>"
+        return 1
+    fi
+    if [ ! -f "$1" ]; then
+        echo "Ecosystem file $1 not found"
+        return 1
+    fi
+    pm2 start "$1"
+    pm2 list
+}
+
+pm2-add-site() {
+    if [ -z "$1" ] || [ -z "$2" ] || [ -z "$3" ]; then
+        echo "Usage: pm2-add-site <name> <port> <ecosystem-file>"
+        return 1
+    fi
+    pm2-start "$3"
+    add-site "$1" "$2"
+}
+
+pm2-remove() {
+    if [ -z "$1" ]; then
+        echo "Usage: pm2-remove <name>"
+        return 1
+    fi
+    pm2 stop "$1" 2>/dev/null || true
+    pm2 delete "$1" 2>/dev/null || true
+}
+
+pm2-restart() {
+    if [ -z "$1" ]; then
+        echo "Usage: pm2-restart <name>"
+        return 1
+    fi
+    pm2 restart "$1"
+    pm2 list
+}
+
+pm2-logs() {
+    if [ -z "$1" ]; then
+        echo "Usage: pm2-logs <name>"
+        return 1
+    fi
+    pm2 logs "$1"
+}
+
+pm2-status() {
+    pm2 list
+    echo
+    list-sites
+}
+
+# ----- System status helpers -----
+
+system-status() {
+    echo "Uptime: $(uptime -p)"
+    echo "Load:   $(uptime | awk -F'load average:' '{print $2}')"
+    echo "Memory: $(free -h | awk '/^Mem:/ {print $3 "/" $2}')"
+    echo "Disk:   $(df -h / | awk 'NR==2 {print $3 "/" $2 " (" $5 " used)"}')"
+    echo
+    echo "=== Top processes ==="
+    ps aux --sort=-%cpu | head -10
+    echo
+    echo "=== Listening ==="
+    ss -tulpn | grep LISTEN | head -10
+}
+
+db-status() {
+    echo "=== PostgreSQL ==="
+    sudo systemctl status postgresql --no-pager
+    echo
+    echo "=== Valkey ==="
+    sudo systemctl status valkey --no-pager
+    echo
+    psql -c "SELECT count(*) AS connections FROM pg_stat_activity;" 2>/dev/null || echo "PostgreSQL not accessible"
+    valkey-cli info clients 2>/dev/null | grep connected_clients || echo "Valkey not accessible"
+}
+
+security-status() {
+    echo "=== UFW ==="
+    sudo ufw status verbose
+    echo
+    echo "=== Fail2ban ==="
+    sudo fail2ban-client status
+    echo
+    echo "=== SSH ==="
+    sudo systemctl status sshd --no-pager
+    echo
+    sudo journalctl -u sshd --no-pager -n 10
+}
+
+port-check() {
+    if [ -z "$1" ]; then
+        echo "Usage: port-check <port>"
+        return 1
+    fi
+    if lsof -i ":$1" >/dev/null 2>&1; then
+        echo "Port $1 in use:"
+        lsof -i ":$1"
+    else
+        echo "Port $1 is available"
+    fi
+}
+
+# ----- VS Code Server management -----
+
+vscode-status() {
+    sudo systemctl status code-server@$USER --no-pager
+    echo
+    sudo journalctl -u code-server@$USER --no-pager -n 10
+    echo
+    echo "Access at: http://vscode.local"
+    if [ -f "$HOME/.config/code-server/config.yaml" ]; then
+        echo "Password:  $(grep '^password:' "$HOME/.config/code-server/config.yaml" | awk '{print $2}')"
+    fi
+}
+
+vscode-restart() {
+    sudo systemctl restart code-server@$USER
+    vscode-status
+}
+
+vscode-logs() {
+    sudo journalctl -u code-server@$USER -f
+}
+
+vscode-password() {
+    if [ -f "$HOME/.config/code-server/config.yaml" ]; then
+        echo "Password: $(grep '^password:' "$HOME/.config/code-server/config.yaml" | awk '{print $2}')"
+        echo "URL:      http://vscode.local"
+    fi
+}
+
+vscode-change-password() {
+    if [ -z "$1" ]; then
+        echo "Usage: vscode-change-password <new-password>"
+        return 1
+    fi
+    sed -i "s/^password: .*/password: $1/" "$HOME/.config/code-server/config.yaml"
+    sudo systemctl restart code-server@$USER
+    echo "Password updated"
+}
+
+# ----- Backup -----
+
+backup-system() {
+    local dir="$HOME/backups/$(date +%Y%m%d_%H%M%S)"
+    mkdir -p "$dir"
+    sudo cp -r /etc/caddy /etc/ssh /etc/ufw /etc/fail2ban "$dir/" 2>/dev/null || true
+    cp -r ~/.zshrc ~/.tmux.conf ~/.config "$dir/" 2>/dev/null || true
+    sudo chown -R "$USER:$USER" "$dir"
+    echo "Backup: $dir"
+}
+
+# ----- Project scaffolding -----
+
+create-react-hono() {
+    if [ -z "$1" ]; then
+        echo "Usage: create-react-hono <project-name>"
+        return 1
+    fi
+
+    local name=$1
+    local dir="$HOME/projects/$name"
+
+    mkdir -p "$dir"
+    cd "$dir" || return 1
+
+    npm init -y
+    npm install hono @hono/node-server react react-dom
+    npm install -D @types/node @types/react @types/react-dom typescript tsx vite @vitejs/plugin-react concurrently
+
+    mkdir -p src/{client,server}
+
+    cat > src/server/index.ts << 'HONO'
+import { Hono } from 'hono'
+import { serve } from '@hono/node-server'
+
+const app = new Hono()
+
+app.get('/', (c) => c.json({ message: 'Hello Hono!' }))
+app.get('/api/health', (c) => c.json({ status: 'ok', timestamp: new Date().toISOString() }))
+
+serve({ fetch: app.fetch, port: 3000 })
+console.log('Server running on port 3000')
+HONO
+
+    cat > src/client/App.tsx << 'REACT'
+export default function App() {
+  return <div><h1>React + Hono</h1></div>
+}
+REACT
+
+    cat > vite.config.ts << 'VITE'
+import { defineConfig } from 'vite'
+import react from '@vitejs/plugin-react'
+
+export default defineConfig({
+  plugins: [react()],
+  server: { proxy: { '/api': 'http://localhost:3000' } }
+})
+VITE
+
+    echo "Created $dir"
+    echo "Next: cd $dir && npm run dev && add-site $name 3000"
+}
+
+# ----- Help search via fzf -----
+
+alias gnar-aliases='alias | fzf --height=80% --prompt="aliases > "'
+alias gnar-functions='print -l ${(ok)functions} | grep -v "^_" | fzf --preview "which {}" --height=80% --prompt="functions > "'
+
+# ----- Quick directory shortcuts -----
+
+alias projects="cd ~/projects"
+alias downloads="cd ~/Downloads"

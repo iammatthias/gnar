@@ -1,0 +1,11 @@
+# GNAR - Caddy Configuration
+
+# Default site
+:80 {
+    respond "GNAR Server - Add sites with: add-site <name> <port>"
+}
+
+# VS Code Server (pre-configured)
+vscode.local:80 {
+    reverse_proxy localhost:8080
+}

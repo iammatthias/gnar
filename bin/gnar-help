@@ -1,0 +1,89 @@
+#!/bin/bash
+# GNAR command reference
+cat << 'EOF'
+=== GNAR Help ===
+
+Core
+  gnar-info                   System information (fastfetch)
+  gnar-update                 Update system
+  gnar-help                   This reference
+
+System info / status
+  ff, nf                      fastfetch
+  myip                        Public IP
+  localip                     Local IPv4 addresses
+  ports                       Listening sockets (ss -tulpn)
+  system-status               System overview
+  db-status                   PostgreSQL + Valkey status
+  security-status             UFW + fail2ban + sshd
+  port-check <port>           Check if port is in use
+
+Caddy
+  add-site <name> [port|dir]  Add site (port = reverse proxy, dir = static files)
+  remove-site <name>          Remove site
+  list-sites                  List configured sites
+  test-caddy                  Validate Caddyfile
+  caddy-edit                  Edit Caddyfile
+  caddy-reload                Reload Caddy
+  caddy-restart               Restart Caddy
+  caddy-logs                  Tail Caddy logs
+  caddy-status                Caddy systemd + recent logs
+
+PM2
+  pm2-start <ecosystem>       Start PM2 app
+  pm2-add-site <name> <port> <ecosystem>
+  pm2-remove <name>
+  pm2-restart <name>
+  pm2-logs <name>
+  pm2-status                  PM2 + Caddy sites
+
+VS Code Server
+  vscode-status (vs)          Status + URL + password
+  vscode-restart (vsr)        Restart code-server
+  vscode-logs (vsl)           Tail code-server logs
+  vscode-password             Print current password
+  vscode-change-password <pw>
+
+Tmux (prefix: Ctrl-a)
+  t                           Start tmux
+  tn <name>                   New session
+  ta <name>                   Attach
+  tl                          List sessions
+  tk <name>                   Kill session
+  Ctrl-a v / s                Split vertical / horizontal
+  Ctrl-a h/j/k/l              Navigate panes
+
+Docker
+  dkr / dkc                   docker / docker-compose
+  dkps / dkpa                 docker ps / ps -a
+  dki                         docker images
+  dkex <container>            docker exec -it
+
+Files
+  ll / la / lt / lf           eza variants
+  tree                        eza --tree
+  cat                         bat
+  e / edit                    nvim
+  mkcd <dir>                  mkdir + cd
+
+Git
+  gs ga gc gp gl gd gb gco    git shortcuts
+  glog                        git log graph
+
+Navigation
+  .. ... .... ..... ......    cd up N levels
+  -                           Previous directory
+  cdp cdd cdt cdl cde         ~/projects, ~/Downloads, /tmp, /var/log, /etc
+  up <n>                      cd up n levels (function)
+
+Help search
+  gnar-aliases                fzf over aliases
+  gnar-functions              fzf over functions
+
+Backup / scaffolding
+  backup-system               Snapshot configs to ~/backups
+  create-react-hono <name>    Scaffold React + Hono project
+
+AUR (yay)
+  yay-update yay-install yay-remove yay-search yay-info
+EOF
