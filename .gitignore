@@ -24,7 +24,3 @@ Thumbs.db
 # Test files
 test/
 tmp/
-
-# User configs (if someone runs setup in the repo)
-.arckase-config/
-.arckase-config-override/

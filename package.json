@@ -1,7 +1,7 @@
 {
   "name": "gnar",
   "version": "2.0.0",
-  "description": "GNAR - Streamlined TTY for Arch Linux",
+  "description": "GNAR - Opinionated home-server bootstrap for Arch Linux",
   "main": "www/index.html",
   "scripts": {
     "build": "echo 'No build needed - static HTML'",
@@ -13,16 +13,14 @@
   },
   "keywords": [
     "arch-linux",
-    "tty",
+    "home-server",
     "tmux",
     "zsh",
-    "spaceship",
     "caddy",
+    "code-server",
     "docker",
     "remote-development"
   ],
   "author": "iammatthias",
-  "license": "MIT",
-  "devDependencies": {},
-  "dependencies": {}
+  "license": "MIT"
 }

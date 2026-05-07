@@ -1,459 +1,180 @@
 # GNAR Helpers
 
-## Tmux - Tiling Terminal
+Quick reference for the aliases, functions, and tools that GNAR sets up.
+Run `gnar-help` on the box for a printed cheat sheet, or `gnar-aliases` /
+`gnar-functions` for an fzf-driven search.
 
-Tmux provides tiling terminal functionality over SSH.
+## Tmux
 
-### Starting & Managing Sessions
-```bash
-tmux                    # Start new session
-tmux new -s work        # New named session
-tmux attach -t work     # Attach to session (or 'ta work' with our alias)
-tmux ls                 # List all sessions (or 'tl' with our alias)
-tmux kill-session -t work # Kill specific session
-tmux kill-server        # Kill all sessions
-```
+Prefix is **`Ctrl-a`** (not the default `Ctrl-b`).
 
-### Key Bindings (Prefix: Ctrl-b)
-
-#### Pane Management (Built-in)
-```bash
-Ctrl-b "        # Split window horizontally (default)
-Ctrl-b %        # Split window vertically (default)
-Ctrl-b v        # Split window vertically (vim-style)
-Ctrl-b S        # Split window horizontally (vim-style)
-Ctrl-b h/j/k/l  # Navigate panes (vim-style)
-Ctrl-b arrows   # Navigate panes (default arrows)
-Ctrl-b x        # Close current pane (with confirmation)
-Ctrl-b q        # Show pane numbers (press number to jump)
-Ctrl-b z        # Toggle pane zoom (fullscreen)
-Ctrl-b space    # Cycle through pane layouts
-Ctrl-b {        # Move pane left
-Ctrl-b }        # Move pane right
-```
-
-#### Window Management
-```bash
-Ctrl-b c        # Create new window
-Ctrl-b n        # Next window
-Ctrl-b p        # Previous window
-Ctrl-b 0-9      # Jump to window by number
-Ctrl-b ,        # Rename current window
-Ctrl-b &        # Close current window (with confirmation)
-Ctrl-b w        # List all windows
-```
-
-#### Session Control
-```bash
-Ctrl-b d        # Detach from session (keeps running)
-Ctrl-b D        # Choose client to detach
-Ctrl-b s        # List and switch sessions
-Ctrl-b $        # Rename current session
-```
-
-#### Other Commands
-```bash
-Ctrl-b r        # Reload tmux config
-Ctrl-b ?        # Show all key bindings
-Ctrl-b :        # Enter command mode
-Ctrl-b [        # Enter copy mode (scroll/select)
-```
-
-#### Plugin Features (Install with Ctrl-b I)
-
-Once you install plugins with `Ctrl-b I`, these enhanced features become available:
-
-**Session Management (resurrect/continuum)**
-```bash
-Ctrl-b Ctrl-s   # Save current session manually
-Ctrl-b Ctrl-r   # Restore saved session
-# Sessions auto-save every 15 minutes
-# Sessions auto-restore after reboot
-```
-
-**Enhanced Search (copycat)**
-```bash
-Ctrl-b /        # Search with regex support
-Ctrl-b Ctrl-f   # Search for files
-Ctrl-b Ctrl-u   # Search for URLs
-Ctrl-b Ctrl-d   # Search for digits
-Ctrl-b Ctrl-i   # Search for IP addresses
-```
-
-**Copy/Paste (yank)**
-```bash
-# In copy mode (Ctrl-b [):
-y               # Copy selection to system clipboard
-Y               # Copy current line to system clipboard
-# Normal mode:
-Ctrl-b y        # Copy current pane's command line to clipboard
-Ctrl-b Y        # Copy current pane's working directory
-```
-
-**File/URL Opening (open)**
-```bash
-# In copy mode, highlight a file/URL then:
-o               # Open file/URL
-Ctrl-o          # Open with $EDITOR
-S               # Search highlighted text in browser
-```
-
-**Session Utils (sessionist)**
-```bash
-Ctrl-b g        # Switch to session by name (with completion)
-Ctrl-b C        # Create new session by name
-Ctrl-b X        # Kill current session without detaching
-Ctrl-b @        # Promote current pane to new session
-```
-
-**SSH Remote Splits (ssh-split)**
-```bash
-Ctrl-b Ctrl-h   # Split horizontally and SSH to server
-Ctrl-b Ctrl-v   # Split vertically and SSH to server
-Ctrl-b Ctrl-w   # New window and SSH to server
-# After pressing these, you'll be prompted for the SSH destination
-```
-
-### Exiting Tmux
-
-There are several ways to exit tmux:
-
-1. **Exit a pane**: Type `exit` or press `Ctrl-d` in the shell
-2. **Close a pane**: `Ctrl-b x` (will ask for confirmation)
-3. **Detach from session**: `Ctrl-b d` (session continues running)
-4. **Kill entire session**: Exit all panes, or from outside tmux: `tmux kill-session -t session-name`
-
-### Copy Mode (Scrolling & Selection)
-```bash
-Ctrl-b [        # Enter copy mode
-# In copy mode:
-h/j/k/l         # Navigate (vim-style)
-g               # Go to top
-G               # Go to bottom
-/               # Search forward
-?               # Search backward
-Space           # Start selection
-Enter           # Copy selection
-q               # Exit copy mode
-```
-
-### Tips & Tricks
-- **Mouse support**: Click to select panes, scroll to navigate
-- **Persistent sessions**: Detached sessions survive logout/disconnect
-- **Config location**: `~/.tmux.conf`
-- **Windows vs Panes**: Windows are like tabs, panes split the current window
-- **Session naming**: Use descriptive names like 'work', 'personal', 'servers'
-
-### Plugin Installation (Optional)
-- **Basic tmux works immediately** - All core keybindings work out of the box
-- **Install plugins for enhanced features**: Press `Ctrl-b I` (capital i) after starting tmux
-- **Update plugins**: Press `Ctrl-b U` to update all plugins
-- **Plugin features include**: Session persistence, clipboard integration, enhanced search
-
-### Common Workflows
-
-#### Remote Development
-```bash
-# On remote server
-tmux new -s dev
-# Do work, split panes as needed
-Ctrl-b d        # Detach before disconnecting
-
-# Later, reconnect
-ssh server
-tmux attach -t dev  # Resume exactly where you left off
-```
-
-#### Multiple Projects
-```bash
-tmux new -s project1
-# Work on project1
-Ctrl-b d
-
-tmux new -s project2
-# Work on project2
-Ctrl-b s        # Switch between sessions
-```
-
-#### Multiple SSH Servers
-```bash
-tmux new -s servers
-# Start with local pane
-Ctrl-b Ctrl-v   # Split vertically and SSH to server1
-Ctrl-b Ctrl-h   # Split horizontally and SSH to server2
-# Now you have local + server1 + server2 in one session
-```
-
-## Quick Aliases
-
-GNAR includes many helpful aliases for common tasks:
-
-### System Information
-```bash
-ff              # Fastfetch - quick system info with GNAR theme
-nf              # Alternative alias for neofetch users
-gnar-info       # Full GNAR machine report
-```
-
-### File Operations
-```bash
-ls              # List files with icons (eza)
-ll              # Long format with details
-la              # Show all including hidden
-l               # One file per line
-tree            # Full directory tree
-lt              # Tree limited to 2 levels
-```
-
-### Navigation
-```bash
-..              # Go up one directory
-...             # Go up two directories
-....            # Go up three directories
--               # Previous directory
-cd              # Smart jumping with zoxide (aliased to z)
-```
-
-### Quick Shortcuts
-```bash
-c               # Clear screen
-h               # History
-j               # Jobs list
-path            # Display PATH on separate lines
-now             # Current date/time (YYYY-MM-DD HH:MM:SS)
-week            # Current week number
-reload          # Reload shell configuration (source ~/.zshrc)
-myip            # Public IP address
-localip         # Local IP addresses
-ports           # Show open ports
-```
-
-### Enhanced Commands
-```bash
-cat             # Uses bat with syntax highlighting
-find            # Uses fd for faster searching
-grep            # Auto-colored output
-diff            # Auto-colored output
-```
-
-## Built-in Commands
-
-### gnar-info
-Comprehensive system information display with custom GNAR Machine Report.
+### Sessions
 
 ```bash
-gnar-info
+t              # tmux
+tn <name>      # new named session
+ta <name>      # attach
+tl             # list sessions
+tk <name>      # kill session
 ```
 
-**What it shows:**
-- Professional box-drawing machine report inspired by TR-100
-- Complete system overview in structured format:
-  - **Header**: GNAR MACHINE REPORT with fastfetch version
-  - **System**: OS, Kernel
-  - **Network**: Hostname, IP, MAC address, DNS, User
-  - **Hardware**: Processor name, cores/threads, CPU frequency, load average
-  - **Memory**: Usage with visual progress bar
-  - **Storage**: Disk usage with visual progress bar
-  - **Session**: Last login info and system uptime
+### Inside tmux (prefix `Ctrl-a`)
 
-**Display Features:**
-- Clean box-drawing characters for professional appearance
-- Progress bars for memory and disk usage
-- Organized sections with clear separators
-- Optimized for TTY display
+```text
+Ctrl-a v         split window vertically (pane to the right)
+Ctrl-a s         split window horizontally (pane below)
+Ctrl-a h/j/k/l   navigate panes (vim-style)
+Ctrl-a c         new window
+Ctrl-a n / p     next / previous window
+Ctrl-a 0-9       jump to window N
+Ctrl-a x         close current pane
+Ctrl-a z         toggle pane zoom
+Ctrl-a d         detach (session keeps running)
+Ctrl-a r         reload ~/.tmux.conf
+Ctrl-a [         enter copy mode (vim keys)
+Ctrl-a ?         list all bindings
+```
 
-**Use cases:**
-- Quick system health check
-- Verifying system specs
-- Monitoring resource usage
-- Checking after reboot
+Sessions survive disconnects — `tmux attach` after re-`ssh` to pick up where
+you left off. No plugin manager is installed; if you want one, see
+[tpm](https://github.com/tmux-plugins/tpm).
 
-### gnar-update
-Complete system update and maintenance tool.
+## Caddy site management
+
+Defined as zsh functions; they edit `/etc/caddy/Caddyfile` (with a backup)
+and reload Caddy on success.
 
 ```bash
-gnar-update
+add-site <name> <port>         # reverse proxy: name.local:80 -> localhost:port
+add-site <name> /path/to/dir   # static files: name.local:80 serves dir
+list-sites                     # list configured virtual hosts
+remove-site <name>             # remove a site block
+test-caddy                     # validate the Caddyfile
+caddy-status                   # systemd status + recent journal
+caddy-edit                     # $EDITOR /etc/caddy/Caddyfile
+caddy-reload                   # systemctl reload caddy
+caddy-restart                  # systemctl restart caddy
+caddy-logs                     # journalctl -fu caddy
 ```
 
-**What it does:**
-1. **Updates system packages** (`pacman -Syu`)
-   - Syncs package databases
-   - Updates all installed packages
-   - Handles dependencies automatically
-   
-2. **Cleans package cache** (`pacman -Sc`)
-   - Removes old package versions from cache
-   - Keeps only current versions
-   - Frees up disk space
-
-**Why use it:**
-- Keep system secure with latest patches
-- Save disk space by removing old packages
-- Single command for full system maintenance
-- No need to remember pacman flags
-
-### gnar-help
-Printed command reference for the GNAR shell environment.
+## VS Code Server
 
 ```bash
-gnar-help
+vs                             # status, URL, current password
+vsr                            # restart
+vsl                            # tail logs
+vscode-password                # print the password
+vscode-change-password <pw>    # change it (restarts code-server)
 ```
 
-Covers the installed aliases and functions: Caddy site management,
-PM2, code-server, tmux, docker, file ops, git, navigation, and the
-fzf-driven help search (`gnar-aliases`, `gnar-functions`).
+Reach it at `http://vscode.local` once you've added `vscode.local` to your
+client's `/etc/hosts` pointing at the server.
 
-## System Monitoring
-
-### htop
-Interactive process viewer (installed by default).
+## PM2
 
 ```bash
-htop
+pm2-start <ecosystem.config.js>   # start an ecosystem file
+pm2-add-site <name> <port> <eco>  # pm2-start + add-site in one shot
+pm2-remove <name>
+pm2-restart <name>
+pm2-logs <name>
+pm2-status                        # pm2 list + Caddy site list
 ```
 
-Useful keys:
-- `F9` - Kill process
-- `F6` - Sort by column
-- `q` - Quit
-
-### System Information
-```bash
-# Detailed hardware info
-lscpu              # CPU information
-lsmem              # Memory information
-lsblk              # Block devices
-lspci              # PCI devices
-lsusb              # USB devices
-
-# System status
-uptime             # System uptime and load
-free -h            # Memory usage
-df -h              # Disk usage
-```
-
-## Network Tools
+## System status
 
 ```bash
-# Network status
-ip addr show       # Show IP addresses
-ping google.com    # Test connectivity
-curl ifconfig.me   # Show public IP
-
-# Download files
-curl -O <url>      # Download file
-wget <url>         # Alternative download tool
+system-status      # uptime, load, memory, disk, top procs, listening ports
+db-status          # postgresql + valkey systemd status + connection counts
+security-status    # ufw + fail2ban + sshd status
+port-check <port>  # is anything listening on this port?
+gnar-info          # fastfetch machine report (TR-100 style)
+gnar-update        # pacman -Syu + cache clean
+gnar-help          # full alias / function reference
 ```
 
-## File Operations
+## File operations
 
 ```bash
-# File management
-ls -la             # List files (detailed)
-find /path -name "file"  # Find files
-du -sh *           # Directory sizes
-
-# Text processing
-grep "pattern" file     # Search in files
-head -n 10 file        # First 10 lines
-tail -f file           # Follow file changes
+ls / ll / la / lf / lt / tree     # eza variants (icons, --git, --tree, …)
+cat                                # bat (paged, syntax-highlighted)
+less / more                        # bat with paging
+df / du / free                     # human-readable (-h)
+e / edit                           # nvim
+mkcd <dir>                         # mkdir + cd
 ```
 
-## Git Shortcuts
+## Navigation
 
 ```bash
-# Basic git (already installed)
-git status         # Repository status
-git add .          # Stage all changes
-git commit -m "msg" # Commit with message
-git push           # Push to remote
-git pull           # Pull from remote
-git log --oneline  # Compact log
+.. ... .... ..... ......           # cd up N levels
+~                                  # cd ~
+-                                  # cd -
+cdp / cdd / cdt / cdl / cde        # ~/projects, ~/Downloads, /tmp, /var/log, /etc
+projects / downloads               # cd ~/projects, ~/Downloads
+up <n>                             # cd ../../… n times (function)
 ```
 
-## Smart Functions Included
+`zoxide` is initialized — once you've `cd`'d into a directory, `z partial`
+will jump back without typing the full path.
 
-These functions are pre-configured in your `~/.zshrc`:
-
-### mkcd - Make and Enter Directory
-```bash
-mkcd new-project
-# Creates 'new-project' directory and changes into it
-# Equivalent to: mkdir -p new-project && cd new-project
-```
-
-### extract - Universal Archive Extractor
-```bash
-extract file.tar.gz
-extract archive.zip
-extract backup.tar.bz2
-# Automatically detects format and extracts:
-# tar.gz, tar.bz2, zip, rar, gz, tar, 7z, Z
-```
-
-### backup - Timestamped Backup
-```bash
-backup important.conf
-# Creates: important.conf.backup.20240118_143022
-# Preserves original, adds timestamp to copy
-```
-
-### weather - Live Weather Report
-```bash
-weather           # Your location (IP-based)
-weather Tokyo     # Specific city
-weather "New York" # Multi-word cities
-# ASCII art weather from wttr.in
-```
-
-### calc - Command-Line Calculator
-```bash
-calc 2+2          # Returns: 4
-calc "sqrt(16)"   # Returns: 4
-calc "2^8"        # Returns: 256
-# Uses bc with 3 decimal precision
-```
-
-### find_large_files - Disk Space Hunter
-```bash
-find_large_files          # Current directory
-find_large_files /var     # Specific directory
-# Shows top 20 largest files sorted by size
-```
-
-### pid_port - Find Process on Port
-```bash
-pid_port 8080
-# Shows what process is using port 8080
-# Useful for debugging "port already in use"
-```
-
-## Creating Custom Helpers
-
-Add your own functions to `~/.zshrc`:
+## Git
 
 ```bash
-# Example: Quick git commit and push
-function gcp() {
-    git add -A
-    git commit -m "$1"
-    git push
-}
-
-# Example: System backup
-function sysbackup() {
-    tar -czf ~/backup-$(date +%Y%m%d).tar.gz \
-        ~/.zshrc ~/.tmux.conf ~/.config/nvim
-    echo "Backup saved to ~/backup-$(date +%Y%m%d).tar.gz"
-}
-
-# Example: Quick server SSH
-function srv() {
-    ssh user@server-$1.example.com
-}
+g gs ga gc gp gl gd gb gco         # short forms
+glog                               # git log --oneline --graph --decorate
 ```
 
-After adding functions, reload your shell:
+## Docker
+
 ```bash
-source ~/.zshrc
+dkr      # docker
+dkc      # docker-compose
+dkps     # docker ps
+dkpa     # docker ps -a
+dki      # docker images
+dkex     # docker exec -it
 ```
+
+## AUR (yay)
+
+```bash
+yay-update / yay-install / yay-remove / yay-search / yay-info
+```
+
+## Misc
+
+```bash
+ff / nf                # fastfetch
+myip                   # public IP (curl ifconfig.me)
+localip                # local IPv4 addresses
+ports                  # ss -tulpn
+sqlite                 # sqlite3
+smart                  # sudo smartctl -a
+ufw-status / fail2ban-status
+nmap-local             # nmap -sn 192.168.1.0/24
+nmap-scan              # nmap -sS -O -F
+lsof-port <port>       # lsof -i :<port>
+c                      # clear
+reload / r             # source ~/.zshrc
+```
+
+## Backup
+
+```bash
+backup-system    # snapshot /etc/{caddy,ufw,fail2ban}, ~/.zshrc, ~/.tmux.conf,
+                 # ~/.config to ~/backups/<timestamp>
+```
+
+## Adding your own
+
+Drop functions/aliases into `~/.zshrc` and `source ~/.zshrc`. Or, for a
+cleaner override pattern, create `~/.zshrc.local` and add this near the top
+of `~/.zshrc`:
+
+```bash
+[ -f "$HOME/.zshrc.local" ] && source "$HOME/.zshrc.local"
+```
+
+Editing `~/.zshrc` in place works fine — re-running `setup.sh` will back up
+the existing file as `~/.zshrc.gnar-backup.<timestamp>` before reinstalling.

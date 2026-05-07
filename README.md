@@ -18,7 +18,7 @@ personal home-server bootstrap, not a minimal TTY distribution.
 - **Tmux as Default** - Tiling terminal multiplexer with vim keybindings
 - **Caddy Web Server** - Automatic HTTPS, reverse proxy, and site management
 - **PM2 Process Management** - Node.js app process management
-- **Database Support** - PostgreSQL and Redis databases
+- **Database Support** - PostgreSQL and Valkey (Redis-compatible) databases
 - **Security Features** - UFW firewall, Fail2ban, SSH hardening
 - **System Monitoring** - btop, iotop, nethogs, smartmontools
 - **Runtime Support** - Node.js, Bun, Python, Ruby, Rust, Go, Java, Docker
@@ -39,17 +39,9 @@ Ensure your Arch system has:
 - A non-root user with sudo access
 - SSH access configured
 - Basic packages: `git`, `curl`, `wget`, `base-devel`
-- AUR helper (yay) installed
 
-If you need to install yay:
-
-```bash
-git clone https://aur.archlinux.org/yay.git
-cd yay
-makepkg -si
-cd ..
-rm -rf yay
-```
+`setup.sh` installs `yay` (AUR helper) and the rest of the toolchain itself —
+you do not need to bootstrap an AUR helper first.
 
 ## Quick Start
 

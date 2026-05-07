@@ -218,7 +218,12 @@ export FZF_DEFAULT_OPTS='
 # PATH additions
 export PATH="$HOME/.npm-global/bin:$PATH"
 export PATH="$HOME/.bun/bin:$PATH"
-export PATH="$HOME/.local/share/gem/ruby/3.4.0/bin:$PATH"
+# Ruby user-gem bin (version-globbed so this survives ruby major bumps)
+for _gem_bin in $HOME/.local/share/gem/ruby/*/bin(N); do
+    PATH="$_gem_bin:$PATH"
+done
+unset _gem_bin
+export PATH
 export PATH="$HOME/.cargo/bin:$PATH"
 export PATH="$HOME/.local/bin:$PATH"
 export GOPATH="$HOME/go"
@@ -288,6 +293,11 @@ add-site() {
     local backup="/etc/caddy/Caddyfile.backup.$(date +%Y%m%d_%H%M%S)"
 
     sudo cp /etc/caddy/Caddyfile "$backup"
+
+    # Drop any existing block for this name so re-runs replace cleanly.
+    if sudo grep -q "^$name\.local:80 {" /etc/caddy/Caddyfile 2>/dev/null; then
+        sudo sed -i "/^$name\.local:80 {/,/^}/d" /etc/caddy/Caddyfile
+    fi
 
     if [[ "$target" =~ ^[0-9]+$ ]]; then
         echo -e "\n# $name service (reverse proxy)\n$name.local:80 {\n    reverse_proxy localhost:$target\n}" | sudo tee -a /etc/caddy/Caddyfile > /dev/null
@@ -493,7 +503,12 @@ vscode-change-password() {
         echo "Usage: vscode-change-password <new-password>"
         return 1
     fi
-    sed -i "s/^password: .*/password: $1/" "$HOME/.config/code-server/config.yaml"
+    local cfg="$HOME/.config/code-server/config.yaml"
+    [ -f "$cfg" ] || { echo "$cfg not found"; return 1; }
+    # Rewrite the password line via awk to avoid sed escaping issues with /, &, \, etc.
+    local new_pw=$1
+    awk -v pw="$new_pw" '/^password:/ { print "password: " pw; next } { print }' "$cfg" > "$cfg.tmp" \
+        && mv "$cfg.tmp" "$cfg" && chmod 600 "$cfg"
     sudo systemctl restart code-server@$USER
     echo "Password updated"
 }
@@ -503,7 +518,12 @@ vscode-change-password() {
 backup-system() {
     local dir="$HOME/backups/$(date +%Y%m%d_%H%M%S)"
     mkdir -p "$dir"
-    sudo cp -r /etc/caddy /etc/ssh /etc/ufw /etc/fail2ban "$dir/" 2>/dev/null || true
+    # Snapshot config dirs, but EXCLUDE /etc/ssh/ssh_host_*_key* — host
+    # private keys must not land in a user-owned backup directory.
+    sudo rsync -a \
+        --exclude='ssh_host_*_key' \
+        --exclude='ssh_host_*_key.pub' \
+        /etc/caddy /etc/ssh /etc/ufw /etc/fail2ban "$dir/" 2>/dev/null || true
     cp -r ~/.zshrc ~/.tmux.conf ~/.config "$dir/" 2>/dev/null || true
     sudo chown -R "$USER:$USER" "$dir"
     echo "Backup: $dir"
