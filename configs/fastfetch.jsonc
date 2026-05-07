@@ -20,7 +20,7 @@
             "width": 40
         },
         "constants": [
-            "[42C"
+            "\u001b[42C"
         ]
     },
     "modules": [

@@ -17,9 +17,24 @@ if [[ $EUID -ne 0 ]]; then
    exit 1
 fi
 
-REAL_USER=$(logname)
+REAL_USER="${SUDO_USER:-$(logname 2>/dev/null || echo "")}"
+if [ -z "$REAL_USER" ] || [ "$REAL_USER" = "root" ]; then
+    echo -e "${RED}Could not determine the target user. Run as: sudo ./uninstall.sh${NC}"
+    exit 1
+fi
 REAL_HOME="/home/$REAL_USER"
 TS=$(date +%Y%m%d_%H%M%S)
+
+# Restore a file from its setup-time .gnar-orig snapshot. The current state
+# is moved aside as .gnar-backup.<ts> so the user can audit the diff.
+restore_orig() {
+    local f=$1
+    if [ -f "$f.gnar-orig" ]; then
+        [ -f "$f" ] && mv "$f" "$f.gnar-backup.$TS"
+        mv "$f.gnar-orig" "$f"
+        echo "Restored $f from setup-time snapshot"
+    fi
+}
 
 echo -e "${YELLOW}Reverting GNAR configuration for $REAL_USER...${NC}"
 echo
@@ -53,12 +68,30 @@ echo -e "${YELLOW}Removing system config...${NC}"
 [ -f /etc/systemd/system/code-server@.service ] && \
     rm -f /etc/systemd/system/code-server@.service
 
-# Restore stock sshd_config flags (best-effort: only revert what setup.sh forced)
-if [ -f /etc/ssh/sshd_config ]; then
+# Restore /etc/ssh/sshd_config and locale files from the setup-time snapshots
+# if they exist; otherwise fall back to best-effort sed reverts.
+if [ -f /etc/ssh/sshd_config.gnar-orig ]; then
+    restore_orig /etc/ssh/sshd_config
+elif [ -f /etc/ssh/sshd_config ]; then
     sed -i 's/^PermitRootLogin no$/#PermitRootLogin prohibit-password/' /etc/ssh/sshd_config
     sed -i 's/^PasswordAuthentication no$/#PasswordAuthentication yes/' /etc/ssh/sshd_config
 fi
 systemctl reload sshd 2>/dev/null || true
+
+restore_orig /etc/locale.gen
+restore_orig /etc/locale.conf
+
+# Remove user from the docker group (added by setup.sh).
+if getent group docker >/dev/null 2>&1 && id -nG "$REAL_USER" 2>/dev/null | grep -qw docker; then
+    gpasswd -d "$REAL_USER" docker >/dev/null || true
+    echo "Removed $REAL_USER from docker group"
+fi
+
+# Restore login shell. We don't know the user's original shell, so we default
+# to bash if zsh is currently set. If they've since changed it, leave it alone.
+if [ "$(getent passwd "$REAL_USER" | cut -d: -f7)" = "/usr/bin/zsh" ] && [ -x /bin/bash ]; then
+    chsh -s /bin/bash "$REAL_USER" 2>/dev/null && echo "Login shell restored to /bin/bash"
+fi
 
 systemctl daemon-reload
 
@@ -99,7 +132,7 @@ echo "Backups: *.gnar-backup.$TS"
 echo
 echo "Packages remain installed. To remove the GNAR package set:"
 echo "  sudo pacman -Rns zsh tmux neovim caddy docker docker-compose \\"
-echo "    nodejs npm python ruby go jdk-openjdk maven gradle \\"
+echo "    nodejs npm python uv ruby go jdk-openjdk maven gradle \\"
 echo "    eza bat fd fzf zoxide ripgrep jq yq fastfetch htop btop \\"
 echo "    iotop nethogs ncdu rsync rclone p7zip imagemagick httpie \\"
 echo "    ufw fail2ban nmap tcpdump wireshark-cli postgresql valkey \\"

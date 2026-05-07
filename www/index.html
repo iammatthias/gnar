@@ -6,7 +6,7 @@
     <title>GNAR</title>
     <meta
       name="description"
-      content="GNAR is an opinionated Arch setup tailored to provide a minimal yet powerful baseline remote experience."
+      content="GNAR is an opinionated home-server bootstrap for Arch Linux. One script provisions Caddy, code-server, Docker, Postgres, Valkey, and a full set of language runtimes for headless remote development over SSH."
     />
     <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%2210 0 100 100%22><text y=%22.90em%22 font-size=%2290%22>💾</text></svg>"></link>
     
@@ -128,6 +128,15 @@
       strong {
         color: var(--color-secondary);
         font-weight: 700;
+      }
+
+      ul {
+        margin: 1rem 0;
+        padding-left: 1.2rem;
+      }
+
+      ul li {
+        margin: 0.4rem 0;
       }
 
       details {
@@ -252,12 +261,29 @@
  \____| |_| \_| /_/   \_\ |_| \_\
         </code>
     </pre>
-      <p>GNAR is an opionated Arch setup tailored to provide a powerful baseline remote experience.</p>
+      <p>GNAR is an opinionated home-server bootstrap for Arch Linux. One script turns a fresh install into a headless box for remote development over SSH.</p>
 
       <p>
-        Out of the box it comes with <strong>tmux</strong>, <strong>zsh</strong>, <strong>neovim</strong>, <strong>git</strong>,
-        <strong>fastfetch</strong>, <strong>htop</strong>, and other helpful utilities.
+        It is intentionally heavy &mdash; a personal home-server bootstrap, not a minimal TTY distribution.
       </p>
+
+      <h2>What you get</h2>
+
+      <ul>
+        <li><strong>Shell</strong> &mdash; zsh + Oh My Zsh + Spaceship prompt, tmux with vim-style splits</li>
+        <li><strong>Editor</strong> &mdash; <strong>code-server</strong> (VS Code in the browser) at <code>http://vscode.local</code>, plus neovim</li>
+        <li><strong>Web</strong> &mdash; <strong>Caddy</strong> reverse proxy with automatic HTTPS, <code>add-site &lt;name&gt; &lt;port&gt;</code></li>
+        <li><strong>Containers</strong> &mdash; Docker + docker-compose</li>
+        <li><strong>Databases</strong> &mdash; PostgreSQL, Valkey, sqlite</li>
+        <li><strong>Runtimes</strong> &mdash; Node (npm/yarn/pnpm/bun/pm2), Python (uv), Ruby, Rust, Go, Java</li>
+        <li><strong>AI</strong> &mdash; <strong>Claude Code</strong> (<code>claude</code>), reads <code>~/CLAUDE.md</code> for system context</li>
+        <li><strong>Modern CLI</strong> &mdash; eza, bat, fd, fzf, zoxide, ripgrep, jq, fastfetch, btop</li>
+        <li><strong>Security</strong> &mdash; UFW deny-incoming, fail2ban sshd jail, hardened SSH</li>
+      </ul>
+
+      <h2>Requirements</h2>
+
+      <p>A fresh Arch Linux install with a non-root user that has sudo access.</p>
 
       <h2>Installation</h2>
 
@@ -298,14 +324,19 @@ sudo ./scripts/setup.sh</code></pre>
         </div>
       </details>
 
-      <h2>Post-Installation</h2>
+      <h2>Post-installation</h2>
 
       <div class="code-wrapper">
         <button class="copy-btn" onclick="copyCode(this)">Copy</button>
-        <pre><code>tmux          # Start tiling terminal
-gnar-info     # System information
-help-gnar     # Command reference</code></pre>
+        <pre><code>sudo reboot                 # Reload group memberships, etc.
+ssh user@your-server        # Reconnect
+tmux                        # Tiling terminal
+gnar-info                   # System information
+gnar-help                   # Command reference
+add-site myapp 3000         # Reverse-proxy a service through Caddy</code></pre>
       </div>
+
+      <p>The code-server password is generated at install time and printed once. It is also saved (mode 600) at <code>~/.config/code-server/config.yaml</code>. Use <code>vscode-password</code> to print it later.</p>
 
       <h2>Uninstall</h2>
 

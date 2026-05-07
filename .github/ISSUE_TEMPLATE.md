@@ -18,10 +18,10 @@ assignees: ''
 
 ## System Information
 <!-- For bug reports, please provide: -->
-- Arch Linux version: 
-- Hyprland version:
-- Shell: 
-- Terminal:
+- Arch Linux version (`uname -a`):
+- GNAR version / commit:
+- Shell:
+- Terminal / SSH client:
 
 ## Steps to Reproduce
 <!-- For bugs, list the steps to reproduce -->

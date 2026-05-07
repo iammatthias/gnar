@@ -16,14 +16,38 @@ if [[ $EUID -ne 0 ]]; then
    exit 1
 fi
 
-REAL_USER=$(logname)
+REAL_USER="${SUDO_USER:-$(logname 2>/dev/null || echo "")}"
+if [ -z "$REAL_USER" ] || [ "$REAL_USER" = "root" ]; then
+    echo -e "${RED}Could not determine the target user. Run as: sudo ./setup.sh (not as root directly).${NC}"
+    exit 1
+fi
 REAL_HOME="/home/$REAL_USER"
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 CONFIGS="$REPO_ROOT/configs"
 BIN="$REPO_ROOT/bin"
 
+# Track services that fail to start so we can warn at the end.
+FAILED_SERVICES=()
+
+# Snapshot files we modify so uninstall.sh can restore the original.
+# Only created on first run — re-running setup mustn't clobber the original snapshot.
+snapshot() {
+    local f=$1
+    [ -f "$f" ] && [ ! -f "$f.gnar-orig" ] && cp -a "$f" "$f.gnar-orig" || true
+}
+snapshot /etc/locale.gen
+snapshot /etc/locale.conf
+snapshot /etc/ssh/sshd_config
+
 echo -e "${GREEN}GNAR - Home Server Bootstrap${NC}"
 echo
+
+# On cloud images, first-boot cloud-init may still be running pacman in the
+# background and hold /var/lib/pacman/db.lck. No-op on non-cloud Arch.
+if command -v cloud-init &>/dev/null; then
+    echo -e "${YELLOW}Waiting for cloud-init to settle...${NC}"
+    cloud-init status --wait &>/dev/null || true
+fi
 
 # -----------------------------------------------------------------------------
 # System packages
@@ -38,6 +62,12 @@ locale-gen
 echo "LANG=en_US.UTF-8" > /etc/locale.conf
 export LANG=en_US.UTF-8
 export LC_ALL=en_US.UTF-8
+
+# Persistent journal — without /var/log/journal, journald falls back to
+# RAM-only and logs vanish on reboot, which is hostile for a home server.
+mkdir -p /var/log/journal
+systemd-tmpfiles --create --prefix /var/log/journal &>/dev/null || true
+systemctl kill --kill-whom=main -s USR1 systemd-journald &>/dev/null || true
 
 echo -e "${GREEN}Installing core packages...${NC}"
 pacman -S --noconfirm \
@@ -56,6 +86,11 @@ pacman -S --noconfirm \
   tree bc rsync rclone p7zip imagemagick httpie \
   net-tools openssh ufw fail2ban nmap tcpdump wireshark-cli \
   postgresql valkey sqlite smartmontools
+
+# Re-run locale-gen post-install. pacman -Syu earlier may have replaced
+# glibc; locale-archive needs to be regenerated against the new libraries
+# or postgres rejects "en_US.UTF-8" at startup.
+locale-gen &>/dev/null || true
 
 # -----------------------------------------------------------------------------
 # Zsh + Spaceship + Oh My Zsh
@@ -129,26 +164,37 @@ fi
 # -----------------------------------------------------------------------------
 echo -e "${GREEN}Configuring Docker...${NC}"
 systemctl enable docker
-systemctl start docker
+# pacman -Syu earlier may have upgraded the kernel; iptables modules in the
+# running kernel won't match until reboot. Don't let that abort the bootstrap.
+if ! systemctl start docker; then
+    journalctl -xeu docker.service --no-pager -n 10 || true
+    FAILED_SERVICES+=("docker")
+fi
 usermod -aG docker "$REAL_USER"
 echo -e "${YELLOW}Note: log out and back in for docker group membership.${NC}"
 
 # -----------------------------------------------------------------------------
-# Firewall + fail2ban + SSH
+# Firewall rules + fail2ban + SSH
 # -----------------------------------------------------------------------------
-echo -e "${GREEN}Configuring firewall + fail2ban...${NC}"
-ufw --force enable
-ufw default deny incoming
-ufw default allow outgoing
-ufw allow ssh
-ufw allow 80/tcp
-ufw allow 443/tcp
-systemctl enable ufw
-systemctl start ufw || true
+echo -e "${GREEN}Configuring firewall rules + fail2ban...${NC}"
+# Configure UFW rules now, but DO NOT enable yet. If pacman -Syu upgraded the
+# kernel earlier in this run, the running kernel is missing iptables modules
+# (xt_addrtype, conntrack, etc.). UFW would half-apply, leaving iptables in a
+# fail-closed state that blocks outbound DNS — which then breaks every
+# downstream AUR/curl install. We enable UFW at the very end of the script,
+# AFTER all network-dependent installs are done.
+ufw default deny incoming || true
+ufw default allow outgoing || true
+ufw allow ssh || true
+ufw allow 80/tcp || true
+ufw allow 443/tcp || true
 
 install -m 644 "$CONFIGS/fail2ban-jail.local" /etc/fail2ban/jail.local
 systemctl enable fail2ban
-systemctl start fail2ban
+if ! systemctl start fail2ban; then
+    journalctl -xeu fail2ban.service --no-pager -n 10 || true
+    FAILED_SERVICES+=("fail2ban")
+fi
 
 # SSH hardening — only disable password auth if user has authorized keys
 sed -i 's/#\?PermitRootLogin.*/PermitRootLogin no/' /etc/ssh/sshd_config
@@ -160,14 +206,20 @@ else
     echo -e "${YELLOW}No authorized_keys for $REAL_USER; leaving PasswordAuthentication unchanged.${NC}"
     echo -e "${YELLOW}Add your key with: ssh-copy-id $REAL_USER@<host>${NC}"
 fi
-systemctl restart sshd
+# Reload — not restart — so the connection running this script doesn't get dropped.
+# sshd re-reads its config on SIGHUP; no need to bounce the daemon.
+systemctl reload sshd || systemctl restart sshd || true
 
 # -----------------------------------------------------------------------------
 # Databases
 # -----------------------------------------------------------------------------
 echo -e "${GREEN}Configuring PostgreSQL + Valkey...${NC}"
 if [ ! -d "/var/lib/postgres/data" ] || [ -z "$(ls -A /var/lib/postgres/data 2>/dev/null)" ]; then
-    sudo -u postgres initdb -D /var/lib/postgres/data --locale=en_US.UTF-8 --encoding=UTF8
+    # Use C.UTF-8 — always available regardless of glibc state, no
+    # locale-archive dependency. (en_US.UTF-8 fails to start post-reboot
+    # when pacman upgraded glibc earlier in this same script run, because
+    # the locale-archive needs to be regenerated by the new glibc.)
+    sudo -u postgres initdb -D /var/lib/postgres/data --locale=C.UTF-8 --encoding=UTF8
 fi
 
 systemctl enable postgresql
@@ -181,7 +233,10 @@ if systemctl is-active --quiet postgresql; then
 fi
 
 systemctl enable valkey
-systemctl start valkey
+if ! systemctl start valkey; then
+    journalctl -xeu valkey.service --no-pager -n 10 || true
+    FAILED_SERVICES+=("valkey")
+fi
 
 install -m 644 "$CONFIGS/logrotate-gnar.conf" /etc/logrotate.d/gnar
 
@@ -190,13 +245,23 @@ install -m 644 "$CONFIGS/logrotate-gnar.conf" /etc/logrotate.d/gnar
 # -----------------------------------------------------------------------------
 echo -e "${GREEN}Configuring code-server...${NC}"
 
-VSCODE_PASSWORD=$(openssl rand -base64 24 | tr -d "=+/" | cut -c1-25)
-
+CODE_SERVER_CFG="$REAL_HOME/.config/code-server/config.yaml"
 install -d -o "$REAL_USER" -g "$REAL_USER" "$REAL_HOME/.config/code-server"
-sed "s|__PASSWORD__|$VSCODE_PASSWORD|" "$CONFIGS/code-server-config.yaml" \
-    > "$REAL_HOME/.config/code-server/config.yaml"
-chown "$REAL_USER:$REAL_USER" "$REAL_HOME/.config/code-server/config.yaml"
-chmod 600 "$REAL_HOME/.config/code-server/config.yaml"
+
+# Re-running setup.sh must NOT clobber an existing password — preserve it
+# and only generate a fresh one on first install.
+if [ -f "$CODE_SERVER_CFG" ] && \
+   ! grep -q "__PASSWORD__" "$CODE_SERVER_CFG" && \
+   grep -q "^password:" "$CODE_SERVER_CFG"; then
+    VSCODE_PASSWORD=$(awk '/^password:/ {print $2; exit}' "$CODE_SERVER_CFG")
+    echo "Reusing existing code-server password from $CODE_SERVER_CFG"
+else
+    VSCODE_PASSWORD=$(openssl rand -base64 24 | tr -d "=+/" | cut -c1-25)
+    sed "s|__PASSWORD__|$VSCODE_PASSWORD|" "$CONFIGS/code-server-config.yaml" \
+        > "$CODE_SERVER_CFG"
+    chown "$REAL_USER:$REAL_USER" "$CODE_SERVER_CFG"
+    chmod 600 "$CODE_SERVER_CFG"
+fi
 
 install -d -o "$REAL_USER" -g "$REAL_USER" "$REAL_HOME/.local/share/code-server/User"
 install -m 644 -o "$REAL_USER" -g "$REAL_USER" \
@@ -208,8 +273,7 @@ install -m 644 "$CONFIGS/code-server.service" /etc/systemd/system/code-server@.s
 # -----------------------------------------------------------------------------
 # yay (AUR helper)
 # -----------------------------------------------------------------------------
-if ! command -v yay &>/dev/null; then
-    echo -e "${GREEN}Installing yay...${NC}"
+install_yay() {
     sudo -u "$REAL_USER" bash <<'EOF'
 set -e
 cd /tmp
@@ -219,28 +283,54 @@ cd yay
 makepkg -si --noconfirm
 cd /tmp && rm -rf yay
 EOF
+}
+if ! command -v yay &>/dev/null; then
+    echo -e "${GREEN}Installing yay...${NC}"
+    # AUR builds + git clone over the network can flake. One retry, then tolerate.
+    if ! install_yay; then
+        echo -e "${YELLOW}yay install failed; retrying once...${NC}"
+        sleep 5
+        install_yay || FAILED_SERVICES+=("yay")
+    fi
 fi
 
-# code-server (from AUR or official)
+# code-server (from AUR or official). Both paths can fail under poor network
+# or transient AUR issues — tolerate so the rest of the bootstrap proceeds.
 echo -e "${GREEN}Installing code-server...${NC}"
 if command -v yay &>/dev/null; then
-    sudo -u "$REAL_USER" yay -S --noconfirm code-server || true
+    sudo -u "$REAL_USER" yay -S --noconfirm code-server || \
+        FAILED_SERVICES+=("code-server-install")
 else
-    sudo -u "$REAL_USER" bash -c 'curl -fsSL https://code-server.dev/install.sh | sh'
+    sudo -u "$REAL_USER" bash -c 'curl -fsSL https://code-server.dev/install.sh | sh' || \
+        FAILED_SERVICES+=("code-server-install")
 fi
 
 systemctl daemon-reload
-systemctl enable "code-server@$REAL_USER"
-systemctl start "code-server@$REAL_USER" || \
-    journalctl -xeu "code-server@$REAL_USER" --no-pager -n 5
+# Only enable code-server if its binary actually landed; otherwise the unit
+# loops in 203/EXEC at every boot.
+if command -v code-server &>/dev/null; then
+    systemctl enable "code-server@$REAL_USER"
+    if ! systemctl start "code-server@$REAL_USER"; then
+        journalctl -xeu "code-server@$REAL_USER" --no-pager -n 5 || true
+        FAILED_SERVICES+=("code-server@$REAL_USER")
+    fi
+else
+    echo -e "${YELLOW}code-server not installed; skipping enable.${NC}"
+    FAILED_SERVICES+=("code-server@$REAL_USER")
+fi
 
 # -----------------------------------------------------------------------------
 # Per-user runtime tooling
 # -----------------------------------------------------------------------------
 echo -e "${GREEN}Installing per-user tooling (npm, bun, python, ruby, rust, go)...${NC}"
 
-sudo -u "$REAL_USER" bash <<'EOF'
-set -e
+# Whole heredoc is wrapped in `|| true` — every step has its own `|| true`
+# inside, but the heredoc as a whole shouldn't be allowed to abort the
+# bootstrap if (e.g.) the rustup curl-installer hits a network blip.
+sudo -u "$REAL_USER" bash <<'EOF' || true
+# Don't `set -e` — each command guards itself, and any single failure
+# (npm registry hiccup, AUR mirror flake, rustup curl glitch) shouldn't
+# stop the rest of the per-user tooling from being installed.
 mkdir -p "$HOME/.npm-global"
 npm config set prefix "$HOME/.npm-global"
 export PATH="$HOME/.npm-global/bin:$PATH"
@@ -259,9 +349,9 @@ uv tool install black || true
 gem install bundler || true
 
 # Rust (rustup)
-curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
-. "$HOME/.cargo/env"
-rustup default stable
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y || true
+[ -f "$HOME/.cargo/env" ] && . "$HOME/.cargo/env"
+command -v rustup &>/dev/null && rustup default stable || true
 
 # Go
 export GOPATH="$HOME/go"
@@ -280,6 +370,26 @@ install -m 755 "$BIN/gnar-help"   /usr/local/bin/gnar-help
 # Default shell
 chsh -s /usr/bin/zsh "$REAL_USER" || \
     echo -e "${YELLOW}Could not change shell; run: chsh -s /usr/bin/zsh${NC}"
+
+# -----------------------------------------------------------------------------
+# Enable UFW (last — see comment in firewall rules section above for why).
+# -----------------------------------------------------------------------------
+echo -e "${GREEN}Enabling firewall...${NC}"
+# Always enable the systemd unit so ufw will start on boot regardless of
+# whether the immediate `ufw enable` succeeds. If it fails now (kernel module
+# mismatch from pacman -Syu), the unit will retry post-reboot when modules
+# match — and at that point everything we configured will Just Work.
+systemctl enable ufw &>/dev/null
+if ! ufw --force enable; then
+    echo -e "${YELLOW}UFW enable failed now (running kernel missing iptables modules).${NC}"
+    echo -e "${YELLOW}Marked enabled in /etc/ufw/ufw.conf — will activate on next boot.${NC}"
+    # ufw refused to flip ENABLED=yes because iptables-restore failed; do it
+    # manually so /usr/lib/ufw/ufw-init brings it up cleanly post-reboot.
+    sed -i 's/^ENABLED=.*/ENABLED=yes/' /etc/ufw/ufw.conf 2>/dev/null || true
+    FAILED_SERVICES+=("ufw")
+else
+    systemctl start ufw || true
+fi
 
 # -----------------------------------------------------------------------------
 # Status
@@ -302,6 +412,11 @@ echo "  password: $VSCODE_PASSWORD"
 echo "  (saved at $REAL_HOME/.config/code-server/config.yaml)"
 echo "  Add 'vscode.local' to your client /etc/hosts pointing at this server."
 echo
+if [ ${#FAILED_SERVICES[@]} -gt 0 ]; then
+    echo -e "${YELLOW}Some services did not start cleanly:${NC} ${FAILED_SERVICES[*]}"
+    echo -e "${YELLOW}This is usually because pacman -Syu upgraded the kernel — reboot will resolve it.${NC}"
+    echo
+fi
 echo "Next steps:"
 echo "  1. sudo reboot"
 echo "  2. ssh in, run: tmux"
