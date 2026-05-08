@@ -1,6 +1,6 @@
 #!/bin/bash
 #
-# GNAR - Home Server Bootstrap for Arch Linux
+# GNAR - Home Server Bootstrap for Arch
 # Spaceship + Zsh + Tmux + Caddy + code-server + runtimes
 #
 
