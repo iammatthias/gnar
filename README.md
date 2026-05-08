@@ -20,6 +20,7 @@ personal home-server bootstrap, not a minimal TTY distribution.
 - **Caddy Web Server** - Automatic HTTPS, reverse proxy, and site management
 - **PM2 Process Management** - Node.js app process management
 - **Database Support** - PostgreSQL and Valkey (Redis-compatible) databases
+- **Btrfs + Snapper** - Auto-snapshot before/after every pacman transaction; boot-into-snapshot via GRUB submenu when an update breaks the system (only when root is btrfs)
 - **Security Features** - UFW firewall, Fail2ban, SSH hardening
 - **System Monitoring** - btop, iotop, nethogs, smartmontools
 - **Runtime Support** - Node.js, Bun, Python, Ruby, Rust, Go, Java, Docker

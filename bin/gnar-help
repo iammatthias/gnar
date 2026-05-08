@@ -108,4 +108,13 @@ Backup / scaffolding
 
 AUR (yay)
   yay-update yay-install yay-remove yay-search yay-info
+
+Snapper (btrfs only)
+  snapper -c root list                List snapshots
+  snapper -c root create              Manual snapshot
+  snapper -c root delete <N>          Delete snapshot N
+  snapper -c root undochange A..B     Roll back changes between A and B
+  snapper -c root status A..B         Diff snapshots
+  Boot stuck after a bad pacman -Syu? Pick a pre-update snapshot from
+  GRUB's "Snapshots" submenu.
 EOF

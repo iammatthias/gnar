@@ -52,6 +52,15 @@ It is a single-tenant home server intended for remote development over SSH.
 - Edit `~/.config/hypr/hyprland.conf` to swap the dashboard process
   (e.g. `tmux new -A -s dash`, `glances`, `wtfutil`).
 
+### Snapshots (btrfs only)
+- `snapper` + `snap-pac` — automatic pre/post snapshots for every
+  pacman transaction. Recover from a bad `pacman -Syu` via
+  `snapper -c root rollback` or by booting an older snapshot from
+  GRUB's "Snapshots" submenu.
+- Retention: 5 hourly, 7 daily, 2 weekly, 2 monthly.
+- `/var/lib/postgres`, `/var/lib/valkey`, `/var/lib/docker` are marked
+  `chattr +C` (no CoW) — important for write-heavy DB/container files.
+
 ### Network / security
 - `ufw` (deny-incoming except 22/80/443)
 - `fail2ban` (sshd jail, 3 retries, 1h ban)

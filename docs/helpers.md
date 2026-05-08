@@ -111,6 +111,39 @@ In-Hyprland keybindings (only matter if you walk up to the box):
 
 `hyprctl reload` from any shell also reloads the config.
 
+## Snapshots (btrfs only)
+
+If your root is btrfs, `setup.sh` configures Snapper and `snap-pac`:
+
+- `snap-pac` auto-snapshots **before and after every pacman transaction** —
+  so a bad `pacman -Syu` is recoverable in 30 seconds.
+- `snapper-timeline.timer` keeps rolling snapshots: 5 hourly, 7 daily,
+  2 weekly, 2 monthly.
+- `snapper-cleanup.timer` prunes old snapshots automatically.
+- On GRUB systems, `grub-btrfs` adds a "Snapshots" submenu so you can
+  boot into any snapshot when an update breaks the system.
+- `chattr +C` is set on `/var/lib/postgres`, `/var/lib/valkey`, and
+  `/var/lib/docker` to skip CoW on database/container files (these
+  get tons of small random writes; CoW makes them slow + bloats
+  snapshot sizes).
+
+```bash
+snapper -c root list                    # list snapshots
+snapper -c root create -d "before X"    # manual snapshot with description
+snapper -c root status N..M             # diff between two snapshots
+snapper -c root undochange N..M         # selectively revert files
+snapper -c root delete N                # delete a specific snapshot
+```
+
+If a `pacman -Syu` breaks boot: reboot, hold Shift to enter GRUB, pick
+"Arch Linux snapshots" submenu, choose the most recent pre-update entry,
+boot into it (read-only), then either `snapper rollback` from there or
+`btrfs subvolume set-default` to make it the new root.
+
+systemd-boot users: GRUB-style boot-into-snapshot is GRUB-only. Snapper
+itself still works (so `undochange` and timeline retention are useful),
+but recovery from a non-bootable system needs a USB.
+
 ## VS Code Server
 
 ```bash
