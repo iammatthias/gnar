@@ -123,6 +123,7 @@ backup_and_remove "$REAL_HOME/.zprofile"
 backup_and_remove "$REAL_HOME/.tmux.conf"
 backup_and_remove "$REAL_HOME/.config/fastfetch/config.jsonc"
 backup_and_remove "$REAL_HOME/.config/hypr/hyprland.conf"
+backup_and_remove "$REAL_HOME/.config/foot/foot.ini"
 backup_and_remove "$REAL_HOME/.config/code-server/config.yaml"
 backup_and_remove "$REAL_HOME/.local/share/code-server/User/settings.json"
 
