@@ -45,6 +45,13 @@ It is a single-tenant home server intended for remote development over SSH.
 ### Containers
 - `docker`, `docker-compose` (the user is in the `docker` group)
 
+### Display / kiosk dashboard
+- `hyprland` + `foot` (Wayland). Headless by default. If a display is
+  attached, `getty@tty1` auto-logs the user in and `~/.zprofile` exec's
+  Hyprland, which fullscreens `btop` as a live system dashboard.
+- Edit `~/.config/hypr/hyprland.conf` to swap the dashboard process
+  (e.g. `tmux new -A -s dash`, `glances`, `wtfutil`).
+
 ### Network / security
 - `ufw` (deny-incoming except 22/80/443)
 - `fail2ban` (sshd jail, 3 retries, 1h ban)

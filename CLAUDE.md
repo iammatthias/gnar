@@ -10,6 +10,10 @@ reverse proxy, code-server (browser VS Code), Docker, PostgreSQL + Valkey, a
 broad set of language runtimes (Node, Python via uv, Ruby, Rust, Go, Java),
 and Claude Code (`claude`).
 
+It also installs Hyprland + foot so an optional attached display becomes a
+live kiosk dashboard (auto-login on tty1 → Hyprland → fullscreen `btop`).
+The dashboard guard in `~/.zprofile` is a no-op on truly headless boxes.
+
 It is intentionally heavy — this is a personal home-server bootstrap, not a
 "minimal TTY" distribution.
 

@@ -68,6 +68,12 @@ echo -e "${YELLOW}Removing system config...${NC}"
 [ -f /etc/systemd/system/code-server@.service ] && \
     rm -f /etc/systemd/system/code-server@.service
 
+# tty1 auto-login drop-in
+if [ -d /etc/systemd/system/getty@tty1.service.d ]; then
+    rm -f /etc/systemd/system/getty@tty1.service.d/autologin.conf
+    rmdir --ignore-fail-on-non-empty /etc/systemd/system/getty@tty1.service.d
+fi
+
 # Restore /etc/ssh/sshd_config and locale files from the setup-time snapshots
 # if they exist; otherwise fall back to best-effort sed reverts.
 if [ -f /etc/ssh/sshd_config.gnar-orig ]; then
@@ -108,8 +114,10 @@ backup_and_remove() {
 }
 
 backup_and_remove "$REAL_HOME/.zshrc"
+backup_and_remove "$REAL_HOME/.zprofile"
 backup_and_remove "$REAL_HOME/.tmux.conf"
 backup_and_remove "$REAL_HOME/.config/fastfetch/config.jsonc"
+backup_and_remove "$REAL_HOME/.config/hypr/hyprland.conf"
 backup_and_remove "$REAL_HOME/.config/code-server/config.yaml"
 backup_and_remove "$REAL_HOME/.local/share/code-server/User/settings.json"
 
@@ -123,7 +131,8 @@ fi
 sudo -u "$REAL_USER" rm -rf "$REAL_HOME/.oh-my-zsh" || true
 
 # Helper scripts
-rm -f /usr/local/bin/gnar-info /usr/local/bin/gnar-update /usr/local/bin/gnar-help
+rm -f /usr/local/bin/gnar-info /usr/local/bin/gnar-update /usr/local/bin/gnar-help \
+      /usr/local/bin/gnar-dashboard /usr/local/bin/gnar-services-status /usr/local/bin/gnar-claude-stats
 
 echo
 echo -e "${GREEN}GNAR configuration removed.${NC}"
@@ -136,4 +145,4 @@ echo "    nodejs npm python uv ruby go jdk-openjdk maven gradle \\"
 echo "    eza bat fd fzf zoxide ripgrep jq yq fastfetch htop btop \\"
 echo "    iotop nethogs ncdu rsync rclone p7zip imagemagick httpie \\"
 echo "    ufw fail2ban nmap tcpdump wireshark-cli postgresql valkey \\"
-echo "    sqlite smartmontools"
+echo "    sqlite smartmontools hyprland foot"

@@ -87,6 +87,11 @@ pacman -S --noconfirm \
   net-tools openssh ufw fail2ban nmap tcpdump wireshark-cli \
   postgresql valkey sqlite smartmontools
 
+echo -e "${GREEN}Installing display stack (Hyprland kiosk dashboard)...${NC}"
+# Wayland compositor + terminal for the optional attached-display dashboard.
+# Only activates when a display is plugged in (see ~/.zprofile guard).
+pacman -S --noconfirm hyprland foot
+
 # Re-run locale-gen post-install. pacman -Syu earlier may have replaced
 # glibc; locale-archive needs to be regenerated against the new libraries
 # or postgres rejects "en_US.UTF-8" at startup.
@@ -185,7 +190,16 @@ echo -e "${GREEN}Configuring firewall rules + fail2ban...${NC}"
 # AFTER all network-dependent installs are done.
 ufw default deny incoming || true
 ufw default allow outgoing || true
-ufw allow ssh || true
+
+# Detect the actual sshd port instead of trusting `ufw allow ssh` (which
+# only opens 22). Critical when running setup.sh over SSH on a remote box
+# with a non-default port — wrong rule = locked out, need physical access.
+SSH_PORTS=$(awk '/^[[:space:]]*Port[[:space:]]+[0-9]+/ {print $2}' /etc/ssh/sshd_config 2>/dev/null)
+[ -z "$SSH_PORTS" ] && SSH_PORTS=22
+for _port in $SSH_PORTS; do
+    ufw allow "$_port/tcp" || true
+    echo "  ufw: opened sshd port $_port/tcp"
+done
 ufw allow 80/tcp || true
 ufw allow 443/tcp || true
 
@@ -363,9 +377,30 @@ EOF
 # Helper scripts
 # -----------------------------------------------------------------------------
 echo -e "${GREEN}Installing helper scripts...${NC}"
-install -m 755 "$BIN/gnar-info"   /usr/local/bin/gnar-info
-install -m 755 "$BIN/gnar-update" /usr/local/bin/gnar-update
-install -m 755 "$BIN/gnar-help"   /usr/local/bin/gnar-help
+install -m 755 "$BIN/gnar-info"             /usr/local/bin/gnar-info
+install -m 755 "$BIN/gnar-update"           /usr/local/bin/gnar-update
+install -m 755 "$BIN/gnar-help"             /usr/local/bin/gnar-help
+install -m 755 "$BIN/gnar-dashboard"        /usr/local/bin/gnar-dashboard
+install -m 755 "$BIN/gnar-services-status"  /usr/local/bin/gnar-services-status
+install -m 755 "$BIN/gnar-claude-stats"     /usr/local/bin/gnar-claude-stats
+
+# -----------------------------------------------------------------------------
+# Kiosk dashboard (Hyprland on tty1 when a display is attached)
+# -----------------------------------------------------------------------------
+echo -e "${GREEN}Configuring kiosk dashboard (auto-login + Hyprland on tty1)...${NC}"
+install -d -o "$REAL_USER" -g "$REAL_USER" "$REAL_HOME/.config/hypr"
+install -m 644 -o "$REAL_USER" -g "$REAL_USER" \
+    "$CONFIGS/hyprland.conf" "$REAL_HOME/.config/hypr/hyprland.conf"
+install -m 644 -o "$REAL_USER" -g "$REAL_USER" \
+    "$CONFIGS/zprofile" "$REAL_HOME/.zprofile"
+
+# Auto-login on tty1 only — other TTYs still prompt for a password.
+install -d /etc/systemd/system/getty@tty1.service.d
+sed "s|__USER__|$REAL_USER|g" "$CONFIGS/getty-autologin.conf" \
+    > /etc/systemd/system/getty@tty1.service.d/autologin.conf
+chmod 644 /etc/systemd/system/getty@tty1.service.d/autologin.conf
+systemctl daemon-reload
+systemctl enable getty@tty1.service &>/dev/null || true
 
 # Default shell
 chsh -s /usr/bin/zsh "$REAL_USER" || \
