@@ -455,6 +455,9 @@ echo -e "${GREEN}Configuring kiosk dashboard (auto-login + Hyprland on tty1)...$
 install -d -o "$REAL_USER" -g "$REAL_USER" "$REAL_HOME/.config/hypr"
 install -m 644 -o "$REAL_USER" -g "$REAL_USER" \
     "$CONFIGS/hyprland.conf" "$REAL_HOME/.config/hypr/hyprland.conf"
+install -d -o "$REAL_USER" -g "$REAL_USER" "$REAL_HOME/.config/foot"
+install -m 644 -o "$REAL_USER" -g "$REAL_USER" \
+    "$CONFIGS/foot.ini" "$REAL_HOME/.config/foot/foot.ini"
 install -m 644 -o "$REAL_USER" -g "$REAL_USER" \
     "$CONFIGS/zprofile" "$REAL_HOME/.zprofile"
 
