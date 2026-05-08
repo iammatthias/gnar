@@ -7,6 +7,10 @@ Core
   gnar-info                   System information (fastfetch)
   gnar-update                 Update system
   gnar-help                   This reference
+  gnar-dashboard              Multi-pane tmux dashboard (btop + sites +
+                              docker/pm2 + Claude stats)
+  gnar-services-status        Caddy sites + service health (one-shot)
+  gnar-claude-stats           Claude Code session + token stats
 
 System info / status
   ff, nf                      fastfetch
@@ -43,6 +47,14 @@ VS Code Server
   vscode-logs (vsl)           Tail code-server logs
   vscode-password             Print current password
   vscode-change-password <pw>
+
+Kiosk dashboard (attached display)
+  Auto-login + Hyprland on tty1; runs `gnar-dashboard` fullscreen.
+  Run `gnar-dashboard` from any shell to attach the same session.
+  hyprctl reload              Apply config changes
+  Super+Return                Open another foot terminal
+  Super+Q                     Close window
+  Super+Shift+E               Exit Hyprland
 
 AI / LLM
   claude                      Claude Code CLI (reads ~/CLAUDE.md)

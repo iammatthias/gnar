@@ -1,0 +1,41 @@
+#!/bin/bash
+# GNAR — multi-pane tmux dashboard.
+#
+# Layout:
+#   ┌────────────────────┬────────────────────┐
+#   │  btop              │  services + caddy  │
+#   │  (system)          │  (gnar-services)   │
+#   ├────────────────────┼────────────────────┤
+#   │  docker / pm2      │  Claude Code       │
+#   │                    │  (gnar-claude)     │
+#   └────────────────────┴────────────────────┘
+#
+# Auto-attaches if the session already exists. Hyprland's `exec-once`
+# launches `foot -e gnar-dashboard`, so on display attach this is your
+# kiosk view. Run from any shell to attach manually.
+
+set -uo pipefail
+
+SESSION=dashboard
+
+# Already running? Just attach.
+if tmux has-session -t "$SESSION" 2>/dev/null; then
+    exec tmux attach -t "$SESSION"
+fi
+
+DOCKER_PMTWO_CMD='clear; echo "─── docker ───"; \
+    if systemctl is-active --quiet docker; then \
+        docker ps --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}" 2>/dev/null || echo "(unable to list containers)"; \
+    else echo "(docker inactive)"; fi; \
+    echo; echo "─── pm2 ───"; \
+    if command -v pm2 >/dev/null; then pm2 list --no-color 2>/dev/null || echo "(pm2 not started)"; else echo "(pm2 not installed)"; fi'
+
+tmux new-session  -d -s "$SESSION" -n main 'btop'
+tmux split-window -h -t "$SESSION:main"   "watch -n 30 -t -c 'gnar-services-status'"
+tmux split-window -v -t "$SESSION:main.0" "watch -n  5 -t -c \"$DOCKER_PMTWO_CMD\""
+tmux split-window -v -t "$SESSION:main.1" "watch -n 60 -t -c 'gnar-claude-stats'"
+tmux select-layout -t "$SESSION:main" tiled
+tmux set-option   -t "$SESSION" status off
+tmux set-option   -t "$SESSION" mouse on
+
+exec tmux attach -t "$SESSION"

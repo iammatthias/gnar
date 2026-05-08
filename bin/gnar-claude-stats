@@ -1,0 +1,73 @@
+#!/bin/bash
+# GNAR — Claude Code usage stats for the dashboard pane.
+#
+# Reads ~/.claude/projects/*/*.jsonl session transcripts. Each .jsonl line
+# is a message; assistant messages carry a `message.usage` field with
+# input/output/cache token counts.
+
+set -uo pipefail
+
+CLAUDE_DIR="${CLAUDE_DIR:-$HOME/.claude}"
+PROJECTS_DIR="$CLAUDE_DIR/projects"
+
+# Headers
+printf '\033[1;36m═══ Claude Code ═══\033[0m\n'
+
+if [ ! -d "$PROJECTS_DIR" ]; then
+    echo "No sessions yet ($PROJECTS_DIR not present)."
+    echo "Run \`claude\` to start one."
+    exit 0
+fi
+
+# Active processes — match against the npm-global path so we don't false-match
+# on shell aliases or subprocesses with "claude" in their name.
+active=$(pgrep -fc "@anthropic-ai/claude-code" 2>/dev/null || echo 0)
+
+projects=$(find "$PROJECTS_DIR" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | wc -l)
+sessions=$(find "$PROJECTS_DIR" -name '*.jsonl' 2>/dev/null | wc -l)
+
+# Most recent session timestamp.
+last_epoch=$(find "$PROJECTS_DIR" -name '*.jsonl' -printf '%T@\n' 2>/dev/null | sort -rn | head -1 | cut -d. -f1)
+if [ -n "$last_epoch" ]; then
+    last_human=$(date -d "@$last_epoch" '+%Y-%m-%d %H:%M' 2>/dev/null || echo unknown)
+else
+    last_human="never"
+fi
+
+# Token totals via jq. Skip if data is huge (parsing all .jsonl is O(n) and
+# we don't want a 60s blocking scan in the dashboard).
+size_mb=$(find "$PROJECTS_DIR" -name '*.jsonl' -printf '%s\n' 2>/dev/null \
+    | awk '{ s += $1 } END { print int((s + 0) / 1048576) }')
+size_mb=${size_mb:-0}
+
+if command -v jq &>/dev/null && [ "$size_mb" -lt 50 ]; then
+    tokens=$(find "$PROJECTS_DIR" -name '*.jsonl' -exec cat {} + 2>/dev/null \
+        | jq -s '[.[]
+            | .message.usage // empty
+            | ((.input_tokens // 0)
+              + (.output_tokens // 0)
+              + (.cache_read_input_tokens // 0)
+              + (.cache_creation_input_tokens // 0))]
+            | add // 0' 2>/dev/null)
+    tokens=${tokens:-0}
+else
+    tokens="(skipped: ${size_mb}MB of session data)"
+fi
+
+printf '\033[32mActive agents:\033[0m     %s\n' "$active"
+printf '\033[32mProjects:\033[0m          %s\n' "$projects"
+printf '\033[32mStored sessions:\033[0m   %s\n' "$sessions"
+printf '\033[32mLast activity:\033[0m     %s\n' "$last_human"
+if [[ "$tokens" =~ ^[0-9]+$ ]]; then
+    printf "\033[32mTokens consumed:\033[0m   %'d\n" "$tokens"
+else
+    printf '\033[32mTokens consumed:\033[0m   %s\n' "$tokens"
+fi
+
+# Per-project breakdown (top 5 by session count)
+echo
+printf '\033[1;36m─── Top projects (by session count) ───\033[0m\n'
+find "$PROJECTS_DIR" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | while read -r d; do
+    n=$(find "$d" -name '*.jsonl' 2>/dev/null | wc -l)
+    printf '%4d  %s\n' "$n" "${d##*/}"
+done | sort -rn | head -5

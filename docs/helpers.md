@@ -57,6 +57,60 @@ caddy-restart                  # systemctl restart caddy
 caddy-logs                     # journalctl -fu caddy
 ```
 
+## Kiosk dashboard (attached display)
+
+GNAR is headless by default, but `setup.sh` also installs Hyprland +
+foot and configures `getty@tty1` to auto-log the user in. When a
+display is plugged into the box, on next login `~/.zprofile` exec's
+Hyprland, which fullscreens `gnar-dashboard` — a 4-pane tmux session:
+
+```
+┌────────────────────┬────────────────────┐
+│  btop              │  services + caddy  │
+│  (system load)     │  (health + sites)  │
+├────────────────────┼────────────────────┤
+│  docker / pm2      │  Claude Code       │
+│  (containers,      │  (active agents,   │
+│   processes)       │   token burn)      │
+└────────────────────┴────────────────────┘
+```
+
+You can also run `gnar-dashboard` from any shell — it attaches the
+same session if it already exists, or builds it.
+
+The dashboard helpers are stand-alone too:
+
+```bash
+gnar-services-status   # Caddy sites + service health (one-shot)
+gnar-claude-stats      # Claude Code sessions + token usage
+```
+
+`gnar-claude-stats` reads `~/.claude/projects/*/*.jsonl` to compute
+total token usage across all sessions, count active `claude` processes,
+and break down sessions by project. Token computation is skipped if
+total session data exceeds 50 MB.
+
+To swap the dashboard for something else, edit
+`~/.config/hypr/hyprland.conf` and change the `exec-once` line:
+
+```bash
+exec-once = foot --fullscreen --override font_size=16 btop
+exec-once = foot --fullscreen glances
+exec-once = foot --fullscreen tmux new -A -s dash
+```
+
+In-Hyprland keybindings (only matter if you walk up to the box):
+
+| Keybinding | Action |
+|---|---|
+| `Super + Return` | Open another `foot` terminal |
+| `Super + Q` | Close the focused window |
+| `Super + F` | Toggle fullscreen |
+| `Super + Shift + R` | Reload `hyprland.conf` |
+| `Super + Shift + E` | Exit Hyprland |
+
+`hyprctl reload` from any shell also reloads the config.
+
 ## VS Code Server
 
 ```bash

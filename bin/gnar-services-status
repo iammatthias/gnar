@@ -1,0 +1,47 @@
+#!/bin/bash
+# GNAR — service + Caddy-site health for the dashboard pane.
+set -uo pipefail
+
+dot() {
+    case "$1" in
+        active|up)   printf '\033[32m●\033[0m' ;;
+        inactive|down|failed|unknown) printf '\033[31m●\033[0m' ;;
+        *)           printf '\033[33m●\033[0m' ;;
+    esac
+}
+
+printf '\033[1;36m═══ Services ═══\033[0m\n'
+USER_NAME=${SUDO_USER:-${USER:-$(id -un)}}
+for svc in caddy docker postgresql valkey fail2ban ufw "code-server@$USER_NAME"; do
+    state=$(systemctl is-active "$svc" 2>/dev/null || echo unknown)
+    printf '  '; dot "$state"; printf ' %-26s %s\n' "$svc" "$state"
+done
+
+# fail2ban — show currently banned count, useful at a glance.
+if systemctl is-active --quiet fail2ban; then
+    banned=$(fail2ban-client status sshd 2>/dev/null \
+        | awk -F'[ \t]+' '/Currently banned/ {print $NF}')
+    [ -n "$banned" ] && printf '  fail2ban (sshd): %s currently banned\n' "$banned"
+fi
+
+echo
+printf '\033[1;36m═══ Caddy sites ═══\033[0m\n'
+if [ -f /etc/caddy/Caddyfile ]; then
+    grep -E '^[a-zA-Z0-9._-]+(\.local)?(:[0-9]+)? \{' /etc/caddy/Caddyfile 2>/dev/null \
+        | sed 's/ {//' \
+        | while read -r site; do
+            host="${site%:*}"
+            port="${site##*:}"
+            [ "$host" = "$port" ] && port=80
+            code=$(curl -s -o /dev/null -w '%{http_code}' -m 2 \
+                --resolve "$host:$port:127.0.0.1" \
+                "http://$host:$port/" 2>/dev/null || echo 000)
+            if [[ "$code" =~ ^[23] ]]; then
+                printf '  '; dot up; printf ' %-30s HTTP %s\n' "$site" "$code"
+            else
+                printf '  '; dot down; printf ' %-30s HTTP %s\n' "$site" "$code"
+            fi
+        done
+else
+    echo '  (no /etc/caddy/Caddyfile)'
+fi
