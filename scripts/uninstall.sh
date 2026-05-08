@@ -74,6 +74,11 @@ if [ -d /etc/systemd/system/getty@tty1.service.d ]; then
     rmdir --ignore-fail-on-non-empty /etc/systemd/system/getty@tty1.service.d
 fi
 
+# grub-btrfsd — disable but leave snapper config + snapshots alone
+# (those are user data; the user can `snapper -c root delete-config` manually).
+systemctl is-enabled --quiet grub-btrfsd 2>/dev/null && \
+    systemctl disable --now grub-btrfsd >/dev/null 2>&1 || true
+
 # Restore /etc/ssh/sshd_config and locale files from the setup-time snapshots
 # if they exist; otherwise fall back to best-effort sed reverts.
 if [ -f /etc/ssh/sshd_config.gnar-orig ]; then

@@ -14,6 +14,11 @@ It also installs Hyprland + foot so an optional attached display becomes a
 live kiosk dashboard (auto-login on tty1 → Hyprland → fullscreen `btop`).
 The dashboard guard in `~/.zprofile` is a no-op on truly headless boxes.
 
+When root is btrfs, the script installs Snapper + snap-pac (auto-snapshot
+on every pacman transaction) and grub-btrfs (boot-into-snapshot from GRUB).
+`/var/lib/{postgres,valkey,docker}` get `chattr +C` to skip CoW on
+high-churn database/container files.
+
 It is intentionally heavy — this is a personal home-server bootstrap, not a
 "minimal TTY" distribution.
 

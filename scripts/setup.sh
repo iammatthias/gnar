@@ -98,6 +98,70 @@ pacman -S --noconfirm hyprland foot
 locale-gen &>/dev/null || true
 
 # -----------------------------------------------------------------------------
+# Btrfs + Snapper (only if root filesystem is btrfs)
+# -----------------------------------------------------------------------------
+ROOT_FS=$(stat -f -c %T / 2>/dev/null || echo unknown)
+if [ "$ROOT_FS" = "btrfs" ]; then
+    echo -e "${GREEN}Detected btrfs root — configuring Snapper...${NC}"
+
+    # snap-pac auto-snapshots before/after every pacman transaction; once
+    # it's installed, every subsequent pacman call below will snapshot.
+    pacman -S --noconfirm snapper snap-pac inotify-tools
+
+    # grub-btrfs adds a "Snapshots" submenu to GRUB so you can boot into
+    # any snapshot when an update breaks the system. Only meaningful on
+    # GRUB; systemd-boot has no equivalent.
+    if command -v grub-mkconfig &>/dev/null; then
+        pacman -S --noconfirm grub-btrfs
+    else
+        echo -e "${YELLOW}Not on GRUB — skipping grub-btrfs.${NC}"
+        echo -e "${YELLOW}For boot-into-snapshot on systemd-boot, see https://wiki.archlinux.org/title/Snapper${NC}"
+    fi
+
+    # archinstall ships @.snapshots mounted at /.snapshots (per fstab).
+    # snapper wants to own /.snapshots itself. Preserve the archinstall
+    # subvolume but get snapper's config files in place.
+    if [ ! -f /etc/snapper/configs/root ]; then
+        if mountpoint -q /.snapshots; then
+            umount /.snapshots
+            rmdir /.snapshots 2>/dev/null || true
+            snapper -c root create-config /
+            # snapper just made a fresh subvol at /.snapshots; ditch it
+            # and re-mount archinstall's @.snapshots in its place.
+            btrfs subvolume delete /.snapshots 2>/dev/null || true
+            mkdir /.snapshots
+            mount -a
+        else
+            snapper -c root create-config /
+        fi
+
+        snapper -c root set-config "TIMELINE_LIMIT_HOURLY=5"
+        snapper -c root set-config "TIMELINE_LIMIT_DAILY=7"
+        snapper -c root set-config "TIMELINE_LIMIT_WEEKLY=2"
+        snapper -c root set-config "TIMELINE_LIMIT_MONTHLY=2"
+        snapper -c root set-config "TIMELINE_LIMIT_YEARLY=0"
+        snapper -c root set-config "ALLOW_GROUPS=wheel"
+
+        chmod 750 /.snapshots 2>/dev/null || true
+        chgrp wheel /.snapshots 2>/dev/null || true
+    fi
+
+    # Disable CoW on dirs with lots of small random writes (databases,
+    # container storage). chattr +C only takes effect on NEW files, so do
+    # this BEFORE postgres initdb / dockerd populates them.
+    for _dir in /var/lib/postgres /var/lib/valkey /var/lib/docker; do
+        [ -d "$_dir" ] || mkdir -p "$_dir"
+        chattr +C "$_dir" 2>/dev/null || true
+    done
+
+    systemctl enable --now snapper-timeline.timer 2>/dev/null || true
+    systemctl enable --now snapper-cleanup.timer  2>/dev/null || true
+    if command -v grub-mkconfig &>/dev/null; then
+        systemctl enable --now grub-btrfsd 2>/dev/null || true
+    fi
+fi
+
+# -----------------------------------------------------------------------------
 # Zsh + Spaceship + Oh My Zsh
 # -----------------------------------------------------------------------------
 echo -e "${GREEN}Configuring zsh...${NC}"
@@ -457,3 +521,11 @@ echo "  1. sudo reboot"
 echo "  2. ssh in, run: tmux"
 echo "  3. add-site myapp 3000   # reverse proxy a service"
 echo "  4. gnar-help             # full reference"
+if [ "$ROOT_FS" = "btrfs" ]; then
+    echo
+    echo "Btrfs detected — Snapper is enabled. Useful commands:"
+    echo "  snapper -c root list          # list snapshots"
+    echo "  snapper -c root create        # manual snapshot"
+    echo "  snapper -c root undochange N..M  # selectively roll back files"
+    echo "  (snap-pac auto-snapshots before/after each pacman transaction)"
+fi
