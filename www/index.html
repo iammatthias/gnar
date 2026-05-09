@@ -279,88 +279,27 @@
  \____| |_| \_| /_/   \_\ |_| \_\
         </code>
     </pre>
-      <p>GNAR turns a fresh Arch Linux box into a headless personal dev server. One script, about ten minutes, one reboot.</p>
+      <p>One script. Fresh Arch Linux box becomes a headless home dev server.</p>
 
-      <p>It is intentionally heavy. The goal is a box you SSH into and have everything ready &mdash; not a minimal TTY you build up by hand.</p>
-
-      <h2>Who this is for</h2>
-
-      <p>You, if you want:</p>
+      <h2>What's installed</h2>
 
       <ul>
-        <li>An always-on box on your home network for code, services, and side projects</li>
-        <li>An SSH-first workflow with a polished shell waiting for you</li>
-        <li>VS Code in the browser when you'd rather not live in nvim</li>
-        <li>Postgres, Valkey, Docker, and a stack of language runtimes already installed and started</li>
-        <li>A snapshot safety net for the day a routine update breaks the system</li>
+        <li>zsh, tmux, neovim</li>
+        <li>code-server at <code>http://vscode.local</code></li>
+        <li>Caddy, Docker, PostgreSQL, Valkey, sqlite</li>
+        <li>Node, Python (uv), Ruby, Rust, Go, Java</li>
+        <li>Claude Code</li>
+        <li>UFW, fail2ban, hardened sshd</li>
+        <li>Snapper + snap-pac on btrfs</li>
+        <li>Mango kiosk dashboard when a display is attached</li>
       </ul>
-
-      <p>It's <strong>not</strong> for multi-user setups, public production servers, or boxes where you want to handpick every package. This bootstraps too much.</p>
-
-      <h2>The shape of an install</h2>
-
-      <ol>
-        <li><strong>Install Arch Linux.</strong> <code>archinstall</code> from the live ISO is the easiest path. Pick <strong>btrfs</strong> as the filesystem and <strong>GRUB</strong> as the bootloader &mdash; both unlock the snapshot recovery story below. Create a regular user with sudo access.</li>
-        <li><strong>First boot, update once.</strong> Run <code>sudo pacman -Syu</code> and reboot. This gets the kernel upgrade out of the way before <code>setup.sh</code> runs, which avoids a class of mid-script weirdness.</li>
-        <li><strong>Add your SSH key</strong> to <code>~/.ssh/authorized_keys</code>. Once <code>setup.sh</code> sees a key on file, it'll safely turn off password auth on its own.</li>
-        <li><strong>Run GNAR.</strong> Clone the repo and <code>sudo ./scripts/setup.sh</code>. Walk away for a coffee. When it finishes, the closing banner prints the code-server password and a list of any service that didn't start cleanly (usually docker/ufw, both fixed by the next step).</li>
-        <li><strong>Reboot.</strong> Done.</li>
-      </ol>
-
-      <h2>What's there when you SSH in</h2>
-
-      <p>Your shell is <strong>zsh</strong> with Oh My Zsh, the Spaceship prompt, and tmux on <code>t</code>. <strong>eza</strong>, <strong>bat</strong>, <strong>fd</strong>, <strong>fzf</strong>, <strong>zoxide</strong>, <strong>ripgrep</strong>, and friends replace the crusty originals. <code>gnar-help</code> prints a cheat sheet of every alias and helper.</p>
-
-      <p>Reach for any runtime: <strong>Node</strong> (npm + yarn/pnpm/bun + pm2), <strong>Python</strong> via <strong>uv</strong>, <strong>Ruby</strong>, <strong>Rust</strong>, <strong>Go</strong>, <strong>Java</strong> with Maven and Gradle. <code>claude</code> is on PATH for AI work and reads <code>~/CLAUDE.md</code> on the box for system context.</p>
-
-      <p>To put a service behind a friendly hostname, run <code>add-site myapp 3000</code>. Caddy reverse-proxies <code>http://myapp.local</code> to <code>localhost:3000</code> on your LAN. <code>list-sites</code> and <code>remove-site</code> work the way you'd hope.</p>
-
-      <h2>code-server in the browser</h2>
-
-      <p>Open <code>http://vscode.local</code> from any client on your LAN. The password is generated at install time and printed once, then stored at <code>~/.config/code-server/config.yaml</code> (mode 600). Run <code>vscode-password</code> on the box to read it back later.</p>
-
-      <p>One-time client setup: add this line to your laptop's <code>/etc/hosts</code>:</p>
-
-      <div class="code-wrapper">
-        <button class="copy-btn" onclick="copyCode(this)">Copy</button>
-        <pre><code>&lt;box-ip&gt;  vscode.local</code></pre>
-      </div>
-
-      <h2>Plug in a display, get a dashboard</h2>
-
-      <p>If you ever connect a monitor and keyboard to the box, it auto-logs in on <code>tty1</code> and launches <strong>Mango</strong> (a small Wayland WM). The screen fills with a 4-pane TUI:</p>
-
-      <pre><code>┌─────────────┬─────────────┐
-│  btop       │  services   │
-│  (system)   │  + Caddy    │
-├─────────────┼─────────────┤
-│  docker /   │  Claude     │
-│  pm2        │  Code stats │
-└─────────────┴─────────────┘</code></pre>
-
-      <p>If no display is connected, none of this happens. The launcher checks <code>/sys/class/drm/*/status</code> for a live port and short-circuits when there's nothing there &mdash; so a truly headless server stays a TTY.</p>
-
-      <p>Run <code>gnar-dashboard</code> from any shell to attach the same session over SSH.</p>
-
-      <h2>When an update breaks the system</h2>
-
-      <p>On btrfs, GNAR installs <strong>Snapper</strong> and <code>snap-pac</code>. Every <code>pacman</code> transaction snapshots both before and after. If the next <code>pacman -Syu</code> ships a kernel that won't boot or breaks the box in some other way:</p>
-
-      <ol>
-        <li>Reboot. Hold <kbd>Shift</kbd> at GRUB.</li>
-        <li>Pick <strong>Arch Linux snapshots</strong> from the menu.</li>
-        <li>Choose the most recent pre-update entry. Boot into it.</li>
-        <li><code>sudo snapper rollback</code>. Reboot.</li>
-      </ol>
-
-      <p>About a minute, end to end.</p>
 
       <h2>Install</h2>
 
-      <p>You'll need a fresh Arch install with a non-root user that has sudo. Then:</p>
+      <p>Fresh Arch with a sudo user. Recommended: btrfs + GRUB.</p>
 
       <details open>
-        <summary>Git (recommended)</summary>
+        <summary>git</summary>
         <div class="install-content">
           <div class="code-wrapper">
             <button class="copy-btn" onclick="copyCode(this)">Copy</button>
@@ -372,7 +311,7 @@ sudo ./scripts/setup.sh</code></pre>
       </details>
 
       <details>
-        <summary>Without git (curl)</summary>
+        <summary>curl</summary>
         <div class="install-content">
           <div class="code-wrapper">
             <button class="copy-btn" onclick="copyCode(this)">Copy</button>
@@ -384,7 +323,7 @@ sudo ./scripts/setup.sh</code></pre>
       </details>
 
       <details>
-        <summary>Without git (wget)</summary>
+        <summary>wget</summary>
         <div class="install-content">
           <div class="code-wrapper">
             <button class="copy-btn" onclick="copyCode(this)">Copy</button>
@@ -396,28 +335,14 @@ sudo ./scripts/setup.sh</code></pre>
         </div>
       </details>
 
-      <h2>First-reboot checklist</h2>
-
-      <p>From the box, or back over SSH:</p>
-
-      <div class="code-wrapper">
-        <button class="copy-btn" onclick="copyCode(this)">Copy</button>
-        <pre><code>gnar-info        # fastfetch summary
-gnar-help        # full reference
-gnar-dashboard   # 4-pane TUI dashboard
-add-site myapp 3000   # reverse-proxy a service through Caddy</code></pre>
-      </div>
+      <p>Reboot when it finishes. Run <code>gnar-help</code>.</p>
 
       <h2>Uninstall</h2>
-
-      <p>If you change your mind:</p>
 
       <div class="code-wrapper">
         <button class="copy-btn" onclick="copyCode(this)">Copy</button>
         <pre><code>sudo ./scripts/uninstall.sh</code></pre>
       </div>
-
-      <p>This restores the config files GNAR replaced (from snapshots taken at install time), removes GNAR's helper scripts, and steps the user out of the docker group. The pacman packages it installed are not removed &mdash; the script prints the <code>pacman -Rns</code> line to run yourself if you want them gone.</p>
 
       <footer>
         <p><a href="https://github.com/iammatthias/gnar">GitHub</a> &middot; MIT License &middot; Built for Arch Linux</p>
