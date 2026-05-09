@@ -8,8 +8,12 @@
       name="description"
       content="GNAR turns a fresh Arch Linux box into a headless personal dev server. One script, ten minutes, one reboot. Code-server, Caddy, Docker, Postgres, Valkey, language runtimes, Claude Code, a Mango kiosk dashboard, and Snapper recovery on btrfs."
     />
-    <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%2210 0 100 100%22><text y=%22.90em%22 font-size=%2290%22>💾</text></svg>"></link>
-    
+    <!-- Override Orbiter's broken <base> auto-inject (it pulls `___|` from
+         the ASCII art on the page and writes it as the base href). -->
+    <base href="/">
+    <link rel="icon" href="data:image/svg+xml;utf8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%2210%200%20100%20100%22%3E%3Ctext%20y%3D%22.90em%22%20font-size%3D%2290%22%3E%F0%9F%92%BE%3C%2Ftext%3E%3C%2Fsvg%3E">
+    <link rel="canonical" href="https://gnar.to/">
+
 
     <style>
       :root {
@@ -213,7 +217,7 @@
       <pre class="ascii">  ____   _   _      _      ____
  / ___| | \ | |    / \    |  _ \
 | |  _  |  \| |   / _ \   | |_) |
-| |_| | | |\  |  / ___ \  |  _ <
+| |_| | | |\  |  / ___ \  |  _ &lt;
  \____| |_| \_| /_/   \_\ |_| \_\</pre>
 
       <p class="lede">One script. Fresh Arch Linux box becomes a headless home dev server.</p>
