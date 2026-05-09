@@ -93,7 +93,7 @@ echo -e "${GREEN}Installing display stack (Hyprland kiosk dashboard)...${NC}"
 # Fonts: JetBrainsMono Nerd has the box-drawing + icon glyphs that btop,
 # tmux, and the spaceship zsh prompt rely on. Without them, the dashboard
 # renders boxes-of-nothing.
-pacman -S --noconfirm hyprland foot \
+pacman -S --noconfirm hyprland foot uwsm \
     ttf-jetbrains-mono-nerd ttf-firacode-nerd \
     noto-fonts noto-fonts-emoji
 
