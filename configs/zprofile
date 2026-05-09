@@ -3,11 +3,20 @@
 # Headless boxes never reach Hyprland: the DRM-status check below short-
 # circuits when no monitor is connected. Plug a display into the server
 # and on next login this exec-launches the kiosk dashboard.
-if [ -z "$DISPLAY$WAYLAND_DISPLAY" ] && [ "$(tty)" = "/dev/tty1" ] && command -v Hyprland &>/dev/null; then
+if [ -z "$DISPLAY$WAYLAND_DISPLAY" ] && [ "$(tty)" = "/dev/tty1" ]; then
     for _drm_status in /sys/class/drm/*/status; do
         [ -r "$_drm_status" ] || continue
         if [ "$(cat "$_drm_status")" = "connected" ]; then
-            exec Hyprland
+            # Prefer uwsm (Universal Wayland Session Manager) — Hyprland
+            # upstream recommends it for proper systemd user-session
+            # integration. Falls back to plain `Hyprland` if uwsm or its
+            # Hyprland session file isn't present.
+            if command -v uwsm &>/dev/null && \
+               [ -f /usr/share/wayland-sessions/hyprland-uwsm.desktop ]; then
+                exec uwsm start hyprland-uwsm.desktop
+            elif command -v Hyprland &>/dev/null; then
+                exec Hyprland
+            fi
         fi
     done
 fi
