@@ -87,13 +87,12 @@ pacman -S --noconfirm \
   net-tools openssh ufw fail2ban nmap tcpdump wireshark-cli \
   postgresql valkey sqlite smartmontools
 
-echo -e "${GREEN}Installing display stack (Hyprland kiosk dashboard)...${NC}"
-# Wayland compositor + terminal for the optional attached-display dashboard.
-# Only activates when a display is plugged in (see ~/.zprofile guard).
-# Fonts: JetBrainsMono Nerd has the box-drawing + icon glyphs that btop,
-# tmux, and the spaceship zsh prompt rely on. Without them, the dashboard
-# renders boxes-of-nothing.
-pacman -S --noconfirm hyprland foot uwsm \
+echo -e "${GREEN}Installing display stack (Mango kiosk dashboard)...${NC}"
+# Wayland terminal + fonts for the optional attached-display dashboard.
+# The compositor (mango) is in the AUR — installed via yay later in this
+# script. Fonts: JetBrainsMono Nerd has the box-drawing + icon glyphs
+# that btop, tmux, and the spaceship zsh prompt rely on.
+pacman -S --noconfirm foot \
     ttf-jetbrains-mono-nerd ttf-firacode-nerd \
     noto-fonts noto-fonts-emoji
 
@@ -388,6 +387,17 @@ else
         FAILED_SERVICES+=("code-server-install")
 fi
 
+# Mango (Wayland compositor for the optional attached-display dashboard).
+# In AUR only; pulls in scenefx + wlroots as build deps.
+echo -e "${GREEN}Installing Mango compositor (AUR mangowm-git)...${NC}"
+if command -v yay &>/dev/null; then
+    sudo -u "$REAL_USER" yay -S --noconfirm mangowm-git || \
+        FAILED_SERVICES+=("mango-install")
+else
+    echo -e "${YELLOW}yay not available — skipping mango install.${NC}"
+    FAILED_SERVICES+=("mango-install")
+fi
+
 systemctl daemon-reload
 # Only enable code-server if its binary actually landed; otherwise the unit
 # loops in 203/EXEC at every boot.
@@ -454,12 +464,12 @@ install -m 755 "$BIN/gnar-services-status"  /usr/local/bin/gnar-services-status
 install -m 755 "$BIN/gnar-claude-stats"     /usr/local/bin/gnar-claude-stats
 
 # -----------------------------------------------------------------------------
-# Kiosk dashboard (Hyprland on tty1 when a display is attached)
+# Kiosk dashboard (Mango on tty1 when a display is attached)
 # -----------------------------------------------------------------------------
-echo -e "${GREEN}Configuring kiosk dashboard (auto-login + Hyprland on tty1)...${NC}"
-install -d -o "$REAL_USER" -g "$REAL_USER" "$REAL_HOME/.config/hypr"
+echo -e "${GREEN}Configuring kiosk dashboard (auto-login + Mango on tty1)...${NC}"
+install -d -o "$REAL_USER" -g "$REAL_USER" "$REAL_HOME/.config/mango"
 install -m 644 -o "$REAL_USER" -g "$REAL_USER" \
-    "$CONFIGS/hyprland.conf" "$REAL_HOME/.config/hypr/hyprland.conf"
+    "$CONFIGS/mango-config.conf" "$REAL_HOME/.config/mango/config.conf"
 install -d -o "$REAL_USER" -g "$REAL_USER" "$REAL_HOME/.config/foot"
 install -m 644 -o "$REAL_USER" -g "$REAL_USER" \
     "$CONFIGS/foot.ini" "$REAL_HOME/.config/foot/foot.ini"

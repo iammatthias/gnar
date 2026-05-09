@@ -49,12 +49,14 @@ VS Code Server
   vscode-change-password <pw>
 
 Kiosk dashboard (attached display)
-  Auto-login + Hyprland on tty1; runs `gnar-dashboard` fullscreen.
+  Auto-login + Mango (Wayland WM) on tty1; runs `gnar-dashboard` fullscreen.
   Run `gnar-dashboard` from any shell to attach the same session.
-  hyprctl reload              Apply config changes
-  Super+Return                Open another foot terminal
-  Super+Q                     Close window
-  Super+Shift+E               Exit Hyprland
+  Edit ~/.config/mango/config.conf to change behavior.
+  Alt+Return                  Open another foot terminal
+  Alt+Q                       Close window
+  Super+F                     Toggle fullscreen
+  Super+M                     Quit Mango
+  Super+Shift+R               Reload mango config
 
 AI / LLM
   claude                      Claude Code CLI (reads ~/CLAUDE.md)

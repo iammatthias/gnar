@@ -12,7 +12,7 @@ personal home-server bootstrap, not a minimal TTY distribution.
 
 ## What You Get
 
-- **Kiosk Dashboard** - Hyprland + foot auto-launches `btop` on an attached display (no-op when headless)
+- **Kiosk Dashboard** - Mango (Wayland WM) + foot auto-launches `gnar-dashboard` (4-pane TUI: btop + services + containers + Claude metrics) on an attached display (no-op when headless)
 - **VS Code Server** - Full VS Code experience in your browser
 - **Spaceship Prompt** - Beautiful, fast, and customizable Zsh prompt
 - **Zsh with Essential Plugins** - Autosuggestions, syntax highlighting, completions

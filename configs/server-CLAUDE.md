@@ -46,11 +46,13 @@ It is a single-tenant home server intended for remote development over SSH.
 - `docker`, `docker-compose` (the user is in the `docker` group)
 
 ### Display / kiosk dashboard
-- `hyprland` + `foot` (Wayland). Headless by default. If a display is
-  attached, `getty@tty1` auto-logs the user in and `~/.zprofile` exec's
-  Hyprland, which fullscreens `btop` as a live system dashboard.
-- Edit `~/.config/hypr/hyprland.conf` to swap the dashboard process
-  (e.g. `tmux new -A -s dash`, `glances`, `wtfutil`).
+- `mango` (Wayland WM, AUR `mangowm-git`) + `foot`. Headless by default.
+  If a display is attached, `getty@tty1` auto-logs the user in and
+  `~/.zprofile` exec's `mango`, which fullscreens `gnar-dashboard` —
+  a 4-pane tmux session showing system, services, containers, and
+  Claude Code metrics.
+- Edit `~/.config/mango/config.conf` to swap the dashboard process or
+  rebind keys.
 
 ### Snapshots (btrfs only)
 - `snapper` + `snap-pac` — automatic pre/post snapshots for every

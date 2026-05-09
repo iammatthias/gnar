@@ -59,10 +59,11 @@ caddy-logs                     # journalctl -fu caddy
 
 ## Kiosk dashboard (attached display)
 
-GNAR is headless by default, but `setup.sh` also installs Hyprland +
-foot and configures `getty@tty1` to auto-log the user in. When a
-display is plugged into the box, on next login `~/.zprofile` exec's
-Hyprland, which fullscreens `gnar-dashboard` — a 4-pane tmux session:
+GNAR is headless by default, but `setup.sh` also installs **Mango**
+(Wayland WM, AUR `mangowm-git`) + `foot` and configures `getty@tty1`
+to auto-log the user in. When a display is plugged into the box, on
+next login `~/.zprofile` exec's `mango`, which fullscreens
+`gnar-dashboard` — a 4-pane tmux session:
 
 ```
 ┌────────────────────┬────────────────────┐
@@ -91,25 +92,24 @@ and break down sessions by project. Token computation is skipped if
 total session data exceeds 50 MB.
 
 To swap the dashboard for something else, edit
-`~/.config/hypr/hyprland.conf` and change the `exec-once` line:
+`~/.config/mango/config.conf` and change the `exec-once` line:
 
-```bash
-exec-once = foot --fullscreen --override font_size=16 btop
-exec-once = foot --fullscreen glances
-exec-once = foot --fullscreen tmux new -A -s dash
+```ini
+exec-once=foot --fullscreen -e gnar-dashboard
+exec-once=foot --fullscreen -e btop
+exec-once=foot --fullscreen -e glances
+exec-once=foot --fullscreen -e tmux new -A -s dash
 ```
 
-In-Hyprland keybindings (only matter if you walk up to the box):
+In-Mango keybindings (only matter if you walk up to the box):
 
 | Keybinding | Action |
 |---|---|
-| `Super + Return` | Open another `foot` terminal |
-| `Super + Q` | Close the focused window |
+| `Alt + Return` | Open another `foot` terminal |
+| `Alt + Q` | Close the focused window |
 | `Super + F` | Toggle fullscreen |
-| `Super + Shift + R` | Reload `hyprland.conf` |
-| `Super + Shift + E` | Exit Hyprland |
-
-`hyprctl reload` from any shell also reloads the config.
+| `Super + Shift + R` | Reload `config.conf` |
+| `Super + M` | Quit Mango |
 
 ## Snapshots (btrfs only)
 
