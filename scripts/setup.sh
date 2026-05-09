@@ -90,7 +90,12 @@ pacman -S --noconfirm \
 echo -e "${GREEN}Installing display stack (Hyprland kiosk dashboard)...${NC}"
 # Wayland compositor + terminal for the optional attached-display dashboard.
 # Only activates when a display is plugged in (see ~/.zprofile guard).
-pacman -S --noconfirm hyprland foot
+# Fonts: JetBrainsMono Nerd has the box-drawing + icon glyphs that btop,
+# tmux, and the spaceship zsh prompt rely on. Without them, the dashboard
+# renders boxes-of-nothing.
+pacman -S --noconfirm hyprland foot \
+    ttf-jetbrains-mono-nerd ttf-firacode-nerd \
+    noto-fonts noto-fonts-emoji
 
 # Re-run locale-gen post-install. pacman -Syu earlier may have replaced
 # glibc; locale-archive needs to be regenerated against the new libraries
