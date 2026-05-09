@@ -32,11 +32,13 @@ plugins=(
 
 source $ZSH/oh-my-zsh.sh
 
-# Spaceship prompt
+# Spaceship prompt — conventional `user@host dir [git] $exec_time` layout.
+# `battery` removed (this is a server, not a laptop). `host` moved before
+# `dir` so user/host stay glued together, then a single space, then path.
 SPACESHIP_PROMPT_ORDER=(
   user
-  dir
   host
+  dir
   git
   node
   python
@@ -44,26 +46,38 @@ SPACESHIP_PROMPT_ORDER=(
   docker
   exec_time
   line_sep
-  battery
   jobs
   exit_code
   char
 )
 
+# Character (final prompt symbol)
 SPACESHIP_CHAR_SYMBOL="❯ "
-SPACESHIP_CHAR_SUFFIX=" "
+SPACESHIP_CHAR_SUFFIX=""
+
+# user@host with NO space between (so `iam@homelab`, not `iam @homelab`).
 SPACESHIP_USER_SHOW="always"
 SPACESHIP_USER_PREFIX=""
 SPACESHIP_USER_SUFFIX=""
 SPACESHIP_HOST_SHOW="always"
 SPACESHIP_HOST_PREFIX="@"
+SPACESHIP_HOST_SUFFIX=" "
+
+# Path
 SPACESHIP_DIR_PREFIX=""
+SPACESHIP_DIR_SUFFIX=" "
 SPACESHIP_DIR_TRUNC=3
+
+# Git
 SPACESHIP_GIT_PREFIX=""
-SPACESHIP_GIT_SUFFIX=""
+SPACESHIP_GIT_SUFFIX=" "
 SPACESHIP_GIT_BRANCH_PREFIX=""
 SPACESHIP_GIT_STATUS_PREFIX=" ["
 SPACESHIP_GIT_STATUS_SUFFIX="]"
+
+# exec_time appears at end of first line, e.g. `… took 4.6s`
+SPACESHIP_EXEC_TIME_PREFIX=" took "
+SPACESHIP_EXEC_TIME_SUFFIX=""
 
 # History
 HISTFILE=$HOME/.zsh_history
