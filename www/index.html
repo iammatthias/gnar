@@ -6,7 +6,7 @@
     <title>GNAR</title>
     <meta
       name="description"
-      content="GNAR is an opinionated home-server bootstrap for Arch Linux. One script provisions Caddy, code-server, Docker, Postgres, Valkey, and a full set of language runtimes for headless remote development over SSH."
+      content="GNAR is an opinionated home-server bootstrap for Arch Linux. One script provisions Caddy, code-server, Docker, Postgres, Valkey, language runtimes, Claude Code, a Hyprland kiosk dashboard, and Snapper/btrfs snapshots for headless remote development over SSH."
     />
     <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%2210 0 100 100%22><text y=%22.90em%22 font-size=%2290%22>💾</text></svg>"></link>
     
@@ -272,12 +272,13 @@
       <ul>
         <li><strong>Shell</strong> &mdash; zsh + Oh My Zsh + Spaceship prompt, tmux with vim-style splits</li>
         <li><strong>Editor</strong> &mdash; <strong>code-server</strong> (VS Code in the browser) at <code>http://vscode.local</code>, plus neovim</li>
-        <li><strong>Kiosk dashboard</strong> &mdash; Hyprland + foot auto-launch <code>btop</code> on an attached display (no-op when headless)</li>
+        <li><strong>Kiosk dashboard</strong> &mdash; plug a display into the box, <code>gnar-dashboard</code> auto-launches a 4-pane TUI (btop + services + docker/pm2 + Claude Code stats) under Hyprland. Truly headless = no-op.</li>
         <li><strong>Web</strong> &mdash; <strong>Caddy</strong> reverse proxy with automatic HTTPS, <code>add-site &lt;name&gt; &lt;port&gt;</code></li>
         <li><strong>Containers</strong> &mdash; Docker + docker-compose</li>
         <li><strong>Databases</strong> &mdash; PostgreSQL, Valkey, sqlite</li>
         <li><strong>Runtimes</strong> &mdash; Node (npm/yarn/pnpm/bun/pm2), Python (uv), Ruby, Rust, Go, Java</li>
         <li><strong>AI</strong> &mdash; <strong>Claude Code</strong> (<code>claude</code>), reads <code>~/CLAUDE.md</code> for system context</li>
+        <li><strong>Snapshots</strong> &mdash; <strong>Snapper</strong> + <code>snap-pac</code> auto-snapshot every <code>pacman</code> transaction (btrfs only); boot-into-snapshot via GRUB recovers from a bad update in 30s</li>
         <li><strong>Modern CLI</strong> &mdash; eza, bat, fd, fzf, zoxide, ripgrep, jq, fastfetch, btop</li>
         <li><strong>Security</strong> &mdash; UFW deny-incoming, fail2ban sshd jail, hardened SSH</li>
       </ul>
