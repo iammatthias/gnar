@@ -10,9 +10,10 @@ reverse proxy, code-server (browser VS Code), Docker, PostgreSQL + Valkey, a
 broad set of language runtimes (Node, Python via uv, Ruby, Rust, Go, Java),
 and Claude Code (`claude`).
 
-It also installs Hyprland + foot so an optional attached display becomes a
-live kiosk dashboard (auto-login on tty1 → Hyprland → fullscreen `btop`).
-The dashboard guard in `~/.zprofile` is a no-op on truly headless boxes.
+It also installs Mango (Wayland WM, AUR `mangowm-git`) + foot so an optional
+attached display becomes a live kiosk dashboard (auto-login on tty1 →
+Mango → fullscreen `gnar-dashboard` 4-pane tmux session). The DRM-status
+guard in `~/.zprofile` is a no-op on truly headless boxes.
 
 When root is btrfs, the script installs Snapper + snap-pac (auto-snapshot
 on every pacman transaction) and grub-btrfs (boot-into-snapshot from GRUB).
