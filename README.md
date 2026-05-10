@@ -23,6 +23,7 @@ personal home-server bootstrap, not a minimal TTY distribution.
 - **Btrfs + Snapper** - Auto-snapshot before/after every pacman transaction; boot-into-snapshot via GRUB submenu when an update breaks the system (only when root is btrfs)
 - **Security Features** - UFW firewall, Fail2ban, SSH hardening
 - **System Monitoring** - btop, iotop, nethogs, smartmontools
+- **AI Orchestrator** - Hermes (ChatGPT OAuth brain, Telegram bot, Kanban dashboard) with Claude Code as a subprocess tool, chainlink for per-project issue tracking
 - **Runtime Support** - Node.js, Bun, Python, Ruby, Rust, Go, Java, Docker
 - **Development Tools** - eza, bat, fd, fzf, zoxide, ripgrep, and more
 

@@ -398,6 +398,45 @@ else
     FAILED_SERVICES+=("mango-install")
 fi
 
+# -----------------------------------------------------------------------------
+# Hermes orchestrator (top-level brain over Claude Code + chainlink)
+# -----------------------------------------------------------------------------
+# Hermes is the human-facing orchestrator. It uses Claude Code as a subprocess
+# tool (via the claude-with-chainlink skill below) and surfaces it through a
+# Telegram bot + Kanban dashboard. Setup of OAuth, Telegram, and the terminal-
+# sandbox config is interactive and stays manual — see the closing banner.
+echo -e "${GREEN}Installing Hermes orchestrator (AUR hermes-agent, with fallback)...${NC}"
+if command -v yay &>/dev/null; then
+    if ! sudo -u "$REAL_USER" yay -S --noconfirm hermes-agent 2>/dev/null; then
+        echo -e "${YELLOW}AUR hermes-agent unavailable; trying upstream installer...${NC}"
+        sudo -u "$REAL_USER" bash -c \
+            'curl -fsSL https://raw.githubusercontent.com/NousResearch/hermes-agent/main/scripts/install.sh | bash' \
+            || FAILED_SERVICES+=("hermes-install")
+    fi
+else
+    FAILED_SERVICES+=("hermes-install")
+fi
+
+# Drop the claude-with-chainlink skill template.
+install -d -o "$REAL_USER" -g "$REAL_USER" \
+    "$REAL_HOME/.hermes/skills/claude-with-chainlink"
+install -m 644 -o "$REAL_USER" -g "$REAL_USER" \
+    "$CONFIGS/hermes/skills/claude-with-chainlink/SKILL.md" \
+    "$REAL_HOME/.hermes/skills/claude-with-chainlink/SKILL.md"
+
+# systemd USER units (don't auto-enable — Hermes needs OAuth setup first
+# or the units will crashloop).
+install -d -o "$REAL_USER" -g "$REAL_USER" "$REAL_HOME/.config/systemd/user"
+install -m 644 -o "$REAL_USER" -g "$REAL_USER" \
+    "$CONFIGS/hermes-gateway.service" \
+    "$REAL_HOME/.config/systemd/user/hermes-gateway.service"
+install -m 644 -o "$REAL_USER" -g "$REAL_USER" \
+    "$CONFIGS/hermes-dashboard.service" \
+    "$REAL_HOME/.config/systemd/user/hermes-dashboard.service"
+
+# Enable user-linger so user services run without an active SSH/login session.
+loginctl enable-linger "$REAL_USER" || true
+
 systemctl daemon-reload
 # Only enable code-server if its binary actually landed; otherwise the unit
 # loops in 203/EXEC at every boot.
@@ -450,6 +489,11 @@ command -v rustup &>/dev/null && rustup default stable || true
 export GOPATH="$HOME/go"
 mkdir -p "$GOPATH/bin"
 go install github.com/go-delve/delve/cmd/dlv@latest || true
+
+# chainlink — per-project issue tracker, used by the Hermes skill below.
+[ -f "$HOME/.cargo/env" ] && . "$HOME/.cargo/env"
+command -v cargo &>/dev/null && \
+    cargo install --git https://github.com/dollspace-gay/chainlink chainlink || true
 EOF
 
 # -----------------------------------------------------------------------------
@@ -539,6 +583,16 @@ echo "  1. sudo reboot"
 echo "  2. ssh in, run: tmux"
 echo "  3. add-site myapp 3000   # reverse proxy a service"
 echo "  4. gnar-help             # full reference"
+echo
+echo "Hermes orchestrator (interactive setup — Claude Code is now a tool, not the entry point):"
+echo "  claude                                          # /login via browser, then /exit"
+echo "  hermes setup                                    # OAuth your ChatGPT account"
+echo "  hermes gateway setup                            # paste BotFather token + your Telegram user id"
+echo "  hermes config set terminal.backend docker"
+echo "  hermes config set terminal.docker.image archlinux:latest"
+echo "  hermes config set terminal.timeout 600"
+echo "  systemctl --user enable --now hermes-gateway hermes-dashboard"
+echo "  Dashboard: http://<server-tailscale-ip>:9119"
 if [ "$ROOT_FS" = "btrfs" ]; then
     echo
     echo "Btrfs detected — Snapper is enabled. Useful commands:"

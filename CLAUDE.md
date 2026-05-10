@@ -20,6 +20,15 @@ on every pacman transaction) and grub-btrfs (boot-into-snapshot from GRUB).
 `/var/lib/{postgres,valkey,docker}` get `chattr +C` to skip CoW on
 high-churn database/container files.
 
+The top-level AI surface is **Hermes** (`hermes` CLI; AUR `hermes-agent`),
+not Claude Code directly. Hermes runs the orchestrator brain on a ChatGPT
+OAuth credential and exposes a Telegram bot + Kanban dashboard (port 9119,
+expected to be Tailscale-gated). Claude Code is still installed and used
+by Hermes as a subprocess tool via the `claude-with-chainlink` skill;
+`chainlink` (cargo install) provides per-project issue tracking that the
+skill threads through. OAuth + Telegram setup is interactive and not
+automated by `setup.sh` — see the closing banner.
+
 It is intentionally heavy — this is a personal home-server bootstrap, not a
 "minimal TTY" distribution.
 
