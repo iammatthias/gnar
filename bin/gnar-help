@@ -8,9 +8,14 @@ Core
   gnar-update                 Update system
   gnar-help                   This reference
   gnar-dashboard              Multi-pane tmux dashboard (btop + sites +
-                              docker/pm2 + Claude stats)
+                              docker/pm2 + Hermes status)
   gnar-services-status        Caddy sites + service health (one-shot)
-  gnar-claude-stats           Claude Code session + token stats
+  gnar-hermes-status          Hermes auth + kanban + cron (one-shot)
+  gnar-claude-stats           Claude Code session + token stats (one-shot)
+  gnar-project-init <path> [desc]
+                              Bootstrap a project for Hermes:
+                              chainlink init + CLAUDE.md template +
+                              register in ~/.hermes/MEMORY.md
 
 System info / status
   ff, nf                      fastfetch
