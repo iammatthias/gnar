@@ -1,0 +1,14 @@
+[Unit]
+Description=Hermes gateway (Telegram + agent)
+After=network-online.target docker.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=%h/.local/bin/hermes gateway run
+Restart=on-failure
+RestartSec=5
+Environment="PATH=%h/.local/bin:%h/.cargo/bin:%h/.npm-global/bin:%h/.bun/bin:/usr/local/bin:/usr/bin:/bin"
+
+[Install]
+WantedBy=default.target

@@ -58,9 +58,16 @@ Kiosk dashboard (attached display)
   Super+M                     Quit Mango
   Super+Shift+R               Reload mango config
 
-AI / LLM
-  claude                      Claude Code CLI (reads ~/CLAUDE.md)
-  claude --help               Claude Code usage
+AI / LLM (Hermes orchestrator + Claude Code subprocess)
+  hermes                      Hermes CLI (top-level brain, ChatGPT OAuth)
+  hermes setup                Re-run OAuth setup
+  hermes ask <q>              One-shot question
+  hermes skills list          List installed skills
+  hermes cron list            Scheduled jobs
+  systemctl --user status hermes-gateway hermes-dashboard
+  Dashboard: http://<box>:9119  (Kanban + sessions, Tailscale-only)
+  claude                      Claude Code CLI — used by Hermes as a tool
+  chainlink list              Per-project issue tracker (run inside a project)
 
 Python (uv)
   uv venv                     Create a virtualenv

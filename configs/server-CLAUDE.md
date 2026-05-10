@@ -30,8 +30,15 @@ It is a single-tenant home server intended for remote development over SSH.
 - **Java** (`java`, `mvn`, `gradle`)
 
 ### AI / LLM tooling
-- **Claude Code** (`claude`) — Anthropic's official CLI. `claude --help`.
-  Reads CLAUDE.md (this file) for system context.
+- **Hermes** (`hermes`) — top-level orchestrator. ChatGPT OAuth brain,
+  Telegram bot interface, Kanban dashboard at port 9119 (Tailscale-only).
+  Spawns Claude Code as a subprocess via the `claude-with-chainlink`
+  skill. Don't run `claude` directly for new work — message the bot.
+- **Claude Code** (`claude`) — installed but used as a Hermes subprocess
+  tool. Still reads CLAUDE.md (this file) for system context when invoked.
+- **chainlink** — per-project issue tracker. Run `chainlink init` inside
+  any project you want Hermes to operate on; the skill threads each
+  Claude session through a chainlink issue so you can resume later.
 
 ### Web / proxy
 - `caddy` — reverse proxy with automatic HTTPS. `add-site <name> <port|dir>`

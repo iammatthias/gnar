@@ -79,6 +79,14 @@ fi
 systemctl is-enabled --quiet grub-btrfsd 2>/dev/null && \
     systemctl disable --now grub-btrfsd >/dev/null 2>&1 || true
 
+# Hermes user services — disable both. Leave ~/.hermes/ alone (it has the
+# user's OAuth tokens, kanban db, MEMORY.md — that's user data).
+sudo -u "$REAL_USER" XDG_RUNTIME_DIR="/run/user/$(id -u "$REAL_USER")" \
+    systemctl --user disable --now hermes-gateway hermes-dashboard 2>/dev/null || true
+rm -f "$REAL_HOME/.config/systemd/user/hermes-gateway.service" \
+      "$REAL_HOME/.config/systemd/user/hermes-dashboard.service"
+loginctl disable-linger "$REAL_USER" 2>/dev/null || true
+
 # Restore /etc/ssh/sshd_config and locale files from the setup-time snapshots
 # if they exist; otherwise fall back to best-effort sed reverts.
 if [ -f /etc/ssh/sshd_config.gnar-orig ]; then
