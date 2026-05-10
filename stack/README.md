@@ -78,3 +78,45 @@ docker compose exec caddy caddy reload
 ```
 
 The `add-site myapp 3000` zsh helper does this for you.
+
+## Public ingress via Cloudflare Tunnel (optional)
+
+Cloudflared is in the compose file but disabled by default (behind the
+`cloudflared` profile). To enable it, create a tunnel + connector token
+in the Cloudflare Zero Trust dashboard, paste it into `/srv/stack/.env`
+as `CLOUDFLARED_TOKEN=...`, route the tunnel's public hostname to
+`http://localhost:80` in the dashboard, then:
+
+```
+cd /srv/stack
+docker compose --profile cloudflared up -d
+```
+
+Cloudflared runs in the tailscale netns alongside caddy. The tunnel
+delivers traffic to `localhost:80` (caddy), which dispatches by hostname
+per the Caddyfile. So you get one tunnel that fronts every site `add-site`
+adds.
+
+## Agent has git + gh + cloudflared
+
+The hermes container ships with `git`, `gh` (GitHub CLI), `cloudflared`,
+and `openssh`. Host's `~/.ssh` and `~/.gitconfig` bind-mount in read-only,
+so anything the agent does over SSH/git authenticates as you.
+
+GitHub API access (issues, PRs, releases) needs an interactive
+`gh auth login` once:
+
+```
+docker compose exec hermes-gateway gh auth login
+```
+
+Cloudflared CLI tunnel management (creating/listing/deleting tunnels,
+not the long-running connector) similarly:
+
+```
+docker compose exec hermes-gateway cloudflared tunnel login
+```
+
+Both store credentials in `data/agent-tools/` on host (mounted as
+`/root/.config` in the container), so they survive `docker compose down`
+and image rebuilds.

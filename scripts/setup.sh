@@ -376,7 +376,22 @@ install -d -o "$REAL_USER" -g "$REAL_USER" \
     /srv/stack/data/caddy/data \
     /srv/stack/data/caddy/config \
     /srv/stack/data/hermes \
-    /srv/stack/data/claude
+    /srv/stack/data/claude \
+    /srv/stack/data/agent-tools
+
+# ~/.gitconfig must exist on host or the read-only bind mount into the
+# hermes container fails. Drop a stub if missing — user can edit later.
+if [ ! -f "$REAL_HOME/.gitconfig" ]; then
+    cat > "$REAL_HOME/.gitconfig" <<EOF
+# Edit user.name + user.email to your identity.
+[user]
+    name = $REAL_USER
+    email = $REAL_USER@$(hostname)
+[init]
+    defaultBranch = main
+EOF
+    chown "$REAL_USER:$REAL_USER" "$REAL_HOME/.gitconfig"
+fi
 
 # systemd unit that runs `docker compose up -d --build` at boot.
 install -m 644 "$CONFIGS/gnar-stack.service" /etc/systemd/system/gnar-stack.service
@@ -548,6 +563,15 @@ echo "  cd /srv/stack && docker compose exec hermes-gateway hermes gateway setup
 echo "  cd /srv/stack && docker compose restart hermes-gateway hermes-dashboard"
 echo
 echo "  Dashboard: http://<tailnet-ip> (caddy reverse-proxies hermes.local → :9119)"
+echo
+echo "Optional, for agent capabilities:"
+echo "  # GitHub API (issues, PRs, releases — git push works without this):"
+echo "  cd /srv/stack && docker compose exec hermes-gateway gh auth login"
+echo
+echo "  # Cloudflare Tunnel (public ingress to caddy):"
+echo "  # 1. Create a tunnel + token in dashboard → Networks → Tunnels"
+echo "  # 2. Set CLOUDFLARED_TOKEN in /srv/stack/.env"
+echo "  # 3. cd /srv/stack && docker compose --profile cloudflared up -d"
 echo
 echo "Per-project bootstrap (run once for each repo Hermes should operate on):"
 echo "  gnar-project-init /srv/projects/<name> \"<one-line description>\""

@@ -20,12 +20,14 @@ RUN printf '[options]\nDisableSandbox\n' > /etc/pacman.conf.sandbox-off \
 
 RUN pacman -Syu --noconfirm \
  && pacman -S --noconfirm \
-      base-devel git curl wget unzip \
+      base-devel git curl wget unzip openssh \
       python python-pip uv \
       nodejs npm \
       rustup \
       docker docker-compose \
-      jq \
+      jq yq \
+      github-cli \
+      cloudflared \
  && pacman -Scc --noconfirm \
  && rm -rf /var/cache/pacman/pkg/*
 

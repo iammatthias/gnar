@@ -62,6 +62,14 @@ services:
       - /srv/projects:/srv/projects:rw
       # So the agent can `docker ps` etc. on the host docker.
       - /var/run/docker.sock:/var/run/docker.sock
+      # Git: share the host user's SSH keys + gitconfig so `git push` Just
+      # Works. Read-only so the agent can't mutate host credentials.
+      - ${HOME}/.ssh:/root/.ssh:ro
+      - ${HOME}/.gitconfig:/root/.gitconfig:ro
+      # gh CLI auth + cloudflared cert (created by interactive `gh auth login`
+      # / `cloudflared tunnel login` from inside the container). Both persist
+      # across rebuilds via this bind mount.
+      - ./data/agent-tools:/root/.config
     extra_hosts:
       - "host.docker.internal:host-gateway"
     restart: unless-stopped
@@ -77,4 +85,19 @@ services:
       - ./data/hermes:/root/.hermes
       - ./data/claude:/root/.claude
       - ./skills:/root/.hermes/skills/gnar:ro
+    restart: unless-stopped
+
+  # Cloudflare Tunnel — public ingress to caddy without opening host ports.
+  # Disabled by default. To enable: create a tunnel in the Cloudflare
+  # dashboard (Zero Trust → Networks → Tunnels), copy the connector token
+  # into /srv/stack/.env as CLOUDFLARED_TOKEN, then `docker compose up -d
+  # cloudflared`. Route the tunnel's public hostname to localhost:80 in
+  # the dashboard; caddy then handles vhost routing per-hostname.
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    container_name: gnar-cloudflared
+    network_mode: service:tailscale
+    depends_on: [tailscale, caddy]
+    command: tunnel --no-autoupdate run --token ${CLOUDFLARED_TOKEN:-}
+    profiles: ["cloudflared"]
     restart: unless-stopped
