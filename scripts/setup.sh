@@ -383,6 +383,10 @@ install -m 644 -o "$REAL_USER" -g "$REAL_USER" \
     "$CONFIGS/hermes/skills/claude-with-chainlink/SKILL.md" \
     "$REAL_HOME/.hermes/skills/claude-with-chainlink/SKILL.md"
 
+# `install -d` only applies ownership to dirs it creates; if `~/.hermes` was
+# created earlier as root by something else, its mode persists. Force-fix.
+chown -R "$REAL_USER:$REAL_USER" "$REAL_HOME/.hermes"
+
 # systemd USER units (don't auto-enable — Hermes needs OAuth setup first
 # or the units will crashloop).
 install -d -o "$REAL_USER" -g "$REAL_USER" "$REAL_HOME/.config/systemd/user"
