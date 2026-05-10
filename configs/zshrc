@@ -199,10 +199,11 @@ alias ufw-status="sudo ufw status verbose"
 alias fail2ban-status="sudo fail2ban-client status"
 
 # Caddy
-alias caddy-edit="sudo \$EDITOR /etc/caddy/Caddyfile"
-alias caddy-reload="sudo systemctl reload caddy"
-alias caddy-logs="sudo journalctl -u caddy -f"
-alias caddy-restart="sudo systemctl restart caddy"
+# Caddy lives in the gnar-caddy container under /srv/stack now.
+alias caddy-edit="sudo \$EDITOR /srv/stack/Caddyfile"
+alias caddy-reload="sudo docker compose -f /srv/stack/docker-compose.yml exec -T caddy caddy reload"
+alias caddy-logs="sudo docker compose -f /srv/stack/docker-compose.yml logs -f caddy"
+alias caddy-restart="sudo docker compose -f /srv/stack/docker-compose.yml restart caddy"
 
 # AUR (yay)
 alias yay-update="yay -Syu"
@@ -286,55 +287,63 @@ up() {
 alias e="nvim"
 alias edit="nvim"
 
-# ----- Caddy site management -----
+# ----- Caddy site management (Caddy runs in /srv/stack) -----
+#
+# Reverse-proxy services to host ports via Caddy in the gnar-caddy
+# container. The container reaches host services through the
+# `host.docker.internal:host-gateway` extra_hosts entry.
+
+GNAR_CADDYFILE=/srv/stack/Caddyfile
+GNAR_CADDY_RELOAD='cd /srv/stack && docker compose exec -T caddy caddy reload --config /etc/caddy/Caddyfile'
 
 add-site() {
     if [ -z "$1" ]; then
         echo "Usage: add-site <name> [port|directory]"
         echo "Examples:"
-        echo "  add-site myapp 3000           # reverse proxy to localhost:3000"
+        echo "  add-site myapp 3000           # reverse proxy to host:3000"
         echo "  add-site static /var/www/site # serve static files"
         return 1
     fi
 
     local name=$1
     local target=${2:-3000}
-    local backup="/etc/caddy/Caddyfile.backup.$(date +%Y%m%d_%H%M%S)"
+    local backup="$GNAR_CADDYFILE.backup.$(date +%Y%m%d_%H%M%S)"
 
-    sudo cp /etc/caddy/Caddyfile "$backup"
+    sudo cp "$GNAR_CADDYFILE" "$backup"
 
     # Drop any existing block for this name so re-runs replace cleanly.
-    if sudo grep -q "^$name\.local:80 {" /etc/caddy/Caddyfile 2>/dev/null; then
-        sudo sed -i "/^$name\.local:80 {/,/^}/d" /etc/caddy/Caddyfile
+    if sudo grep -q "^$name\.local:80 {" "$GNAR_CADDYFILE" 2>/dev/null; then
+        sudo sed -i "/^$name\.local:80 {/,/^}/d" "$GNAR_CADDYFILE"
     fi
 
     if [[ "$target" =~ ^[0-9]+$ ]]; then
-        echo -e "\n# $name service (reverse proxy)\n$name.local:80 {\n    reverse_proxy localhost:$target\n}" | sudo tee -a /etc/caddy/Caddyfile > /dev/null
-        echo "Added $name.local:80 -> localhost:$target"
+        # host.docker.internal so Caddy in container reaches host port.
+        echo -e "\n# $name service (reverse proxy to host)\n$name.local:80 {\n    reverse_proxy host.docker.internal:$target\n}" | sudo tee -a "$GNAR_CADDYFILE" > /dev/null
+        echo "Added $name.local:80 -> host:$target"
     else
         if [ ! -d "$target" ]; then
             echo "Directory $target does not exist"
             return 1
         fi
-        echo -e "\n# $name service (static files)\n$name.local:80 {\n    root * $target\n    file_server\n}" | sudo tee -a /etc/caddy/Caddyfile > /dev/null
+        echo -e "\n# $name service (static files)\n$name.local:80 {\n    root * $target\n    file_server\n}" | sudo tee -a "$GNAR_CADDYFILE" > /dev/null
         echo "Added $name.local:80 -> $target"
+        echo "Note: $target must be bind-mounted into the caddy container; edit /srv/stack/docker-compose.yml."
     fi
 
-    if caddy validate --config /etc/caddy/Caddyfile 2>/dev/null; then
-        sudo systemctl reload caddy
+    if eval "sudo $GNAR_CADDY_RELOAD" 2>/dev/null; then
         echo "Site available at: http://$name.local"
     else
-        echo "Configuration error - rolling back"
-        sudo mv "$backup" /etc/caddy/Caddyfile
+        echo "Configuration error — rolling back"
+        sudo mv "$backup" "$GNAR_CADDYFILE"
         return 1
     fi
 }
 
 list-sites() {
-    if [ -f "/etc/caddy/Caddyfile" ]; then
-        sudo grep -E "^[a-zA-Z0-9.-]+(.local)?(:[0-9]+)? {" /etc/caddy/Caddyfile 2>/dev/null | sed 's/ {//' || echo "No sites configured"
+    if [ -f "$GNAR_CADDYFILE" ]; then
+        sudo grep -E "^[a-zA-Z0-9.-]+(.local)?(:[0-9]+)? {" "$GNAR_CADDYFILE" 2>/dev/null | sed 's/ {//' || echo "No sites configured"
     else
-        echo "No Caddyfile found"
+        echo "No Caddyfile at $GNAR_CADDYFILE"
     fi
 }
 
@@ -345,29 +354,28 @@ remove-site() {
     fi
 
     local name=$1
-    local backup="/etc/caddy/Caddyfile.backup.$(date +%Y%m%d_%H%M%S)"
+    local backup="$GNAR_CADDYFILE.backup.$(date +%Y%m%d_%H%M%S)"
 
-    sudo cp /etc/caddy/Caddyfile "$backup"
-    sudo sed -i "/^$name\.local:80 {/,/^}/d" /etc/caddy/Caddyfile
+    sudo cp "$GNAR_CADDYFILE" "$backup"
+    sudo sed -i "/^$name\.local:80 {/,/^}/d" "$GNAR_CADDYFILE"
 
-    if caddy validate --config /etc/caddy/Caddyfile 2>/dev/null; then
-        sudo systemctl reload caddy
+    if eval "sudo $GNAR_CADDY_RELOAD" 2>/dev/null; then
         echo "Removed $name.local from Caddy"
     else
-        echo "Configuration error - rolling back"
-        sudo mv "$backup" /etc/caddy/Caddyfile
+        echo "Configuration error — rolling back"
+        sudo mv "$backup" "$GNAR_CADDYFILE"
         return 1
     fi
 }
 
 test-caddy() {
-    caddy validate --config /etc/caddy/Caddyfile
+    sudo docker compose -f /srv/stack/docker-compose.yml exec -T caddy caddy validate --config /etc/caddy/Caddyfile
 }
 
 caddy-status() {
-    sudo systemctl status caddy --no-pager
+    sudo docker compose -f /srv/stack/docker-compose.yml ps caddy
     echo
-    sudo journalctl -u caddy --no-pager -n 10
+    sudo docker compose -f /srv/stack/docker-compose.yml logs --tail 20 caddy
 }
 
 # ----- PM2 management -----
@@ -488,7 +496,7 @@ backup-system() {
     sudo rsync -a \
         --exclude='ssh_host_*_key' \
         --exclude='ssh_host_*_key.pub' \
-        /etc/caddy /etc/ssh /etc/ufw /etc/fail2ban "$dir/" 2>/dev/null || true
+        /srv/stack/Caddyfile /etc/ssh /etc/ufw /etc/fail2ban "$dir/" 2>/dev/null || true
     cp -r ~/.zshrc ~/.tmux.conf ~/.config "$dir/" 2>/dev/null || true
     sudo chown -R "$USER:$USER" "$dir"
     echo "Backup: $dir"

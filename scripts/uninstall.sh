@@ -42,10 +42,19 @@ echo
 # -----------------------------------------------------------------------------
 # Stop / disable services
 # -----------------------------------------------------------------------------
-for svc in caddy fail2ban valkey postgresql ufw; do
+for svc in gnar-stack fail2ban valkey postgresql ufw; do
     systemctl is-active --quiet "$svc" && systemctl stop "$svc" || true
     systemctl is-enabled --quiet "$svc" 2>/dev/null && systemctl disable "$svc" || true
 done
+
+# Tear down the container stack and remove its files. Leaves /srv/stack/data
+# in place — that's user state (tailscale identity, hermes auth, kanban db,
+# MEMORY.md, claude session transcripts). Move it aside if you want a clean
+# wipe.
+if [ -f /srv/stack/docker-compose.yml ]; then
+    docker compose -f /srv/stack/docker-compose.yml down 2>/dev/null || true
+fi
+rm -f /etc/systemd/system/gnar-stack.service
 
 # Reset UFW to default deny-all-allow-all (before disabling) so reinstall is clean
 if command -v ufw &>/dev/null; then
@@ -56,9 +65,6 @@ fi
 # System config files
 # -----------------------------------------------------------------------------
 echo -e "${YELLOW}Removing system config...${NC}"
-
-[ -f /etc/caddy/Caddyfile ] && \
-    mv /etc/caddy/Caddyfile "/etc/caddy/Caddyfile.gnar-backup.$TS"
 
 [ -f /etc/fail2ban/jail.local ] && \
     mv /etc/fail2ban/jail.local "/etc/fail2ban/jail.local.gnar-backup.$TS"
@@ -75,14 +81,6 @@ fi
 # (those are user data; the user can `snapper -c root delete-config` manually).
 systemctl is-enabled --quiet grub-btrfsd 2>/dev/null && \
     systemctl disable --now grub-btrfsd >/dev/null 2>&1 || true
-
-# Hermes user services — disable both. Leave ~/.hermes/ alone (it has the
-# user's OAuth tokens, kanban db, MEMORY.md — that's user data).
-sudo -u "$REAL_USER" XDG_RUNTIME_DIR="/run/user/$(id -u "$REAL_USER")" \
-    systemctl --user disable --now hermes-gateway hermes-dashboard 2>/dev/null || true
-rm -f "$REAL_HOME/.config/systemd/user/hermes-gateway.service" \
-      "$REAL_HOME/.config/systemd/user/hermes-dashboard.service"
-loginctl disable-linger "$REAL_USER" 2>/dev/null || true
 
 # Drop the agent-mode passwordless-sudo grant. Other sudoers config left alone.
 rm -f "/etc/sudoers.d/gnar-${REAL_USER}-nopasswd"
@@ -154,10 +152,13 @@ echo
 echo "Backups: *.gnar-backup.$TS"
 echo
 echo "Packages remain installed. To remove the GNAR package set:"
-echo "  sudo pacman -Rns zsh tmux neovim caddy docker docker-compose \\"
+echo "  sudo pacman -Rns zsh tmux neovim docker docker-compose \\"
 echo "    nodejs npm python uv ruby go jdk-openjdk maven gradle \\"
 echo "    eza bat fd fzf zoxide ripgrep jq yq fastfetch htop btop \\"
 echo "    iotop nethogs ncdu rsync rclone p7zip imagemagick httpie \\"
 echo "    ufw fail2ban nmap tcpdump wireshark-cli postgresql valkey \\"
 echo "    sqlite smartmontools foot"
 echo "  yay -Rns mangowm-git"
+echo
+echo "Container stack data (tailscale identity, hermes auth, kanban) is"
+echo "preserved at /srv/stack/data/ — wipe manually if you want a clean slate."

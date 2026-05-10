@@ -27,24 +27,37 @@ It is a single-tenant home server intended for remote development over SSH.
 - **Go** (`go`, `dlv`)
 - **Java** (`java`, `mvn`, `gradle`)
 
-### AI / LLM tooling
-- **Hermes** (`hermes`) — top-level orchestrator. ChatGPT OAuth brain,
-  Telegram bot interface, Kanban dashboard at port 9119 (Tailscale-only).
-  Spawns Claude Code as a subprocess via the `claude-with-chainlink`
-  skill. Don't run `claude` directly for new work — message the bot.
-- **Claude Code** (`claude`) — installed but used as a Hermes subprocess
-  tool. Still reads CLAUDE.md (this file) for system context when invoked.
-- **chainlink** — per-project issue tracker. Run `chainlink init` inside
-  any project you want Hermes to operate on; the skill threads each
-  Claude session through a chainlink issue so you can resume later.
+### AI / LLM tooling (containerized in /srv/stack)
+- **Hermes** — top-level orchestrator. Runs as `gnar-hermes-gateway`
+  (Telegram bot + agent brain) and `gnar-hermes-dashboard` (web UI on
+  :9119). Don't invoke directly on host — `docker compose exec
+  hermes-gateway hermes ...` for one-shot work, or just message the
+  Telegram bot.
+- **Claude Code** — bundled inside the hermes container image. Used as
+  a subprocess tool by the `claude-with-chainlink` skill. Auth at
+  `/srv/stack/data/claude/` (mounted into container).
+- **chainlink** — per-project issue tracker, also bundled in the
+  hermes image. Run `chainlink init` inside a project before pointing
+  the agent at it.
 - **gnar-project-init `<path>` [`<desc>`]** — one-shot bootstrap for a
-  new Hermes-managed project: runs `chainlink init`, drops a starter
-  `CLAUDE.md`, and registers the project in `~/.hermes/MEMORY.md`.
-  Default project root is `/srv/projects`.
+  new project: runs `chainlink init`, drops a starter `CLAUDE.md`,
+  registers the project in `/srv/stack/data/hermes/MEMORY.md`. Default
+  project root is `/srv/projects` (bind-mounted into the agent
+  container at the same path).
 
-### Web / proxy
-- `caddy` — reverse proxy with automatic HTTPS. `add-site <name> <port|dir>`
-  to add a virtual host, `list-sites`, `remove-site <name>`.
+### Web / proxy + agent stack
+The network ingress + agent layer runs as a docker-compose stack at
+`/srv/stack` (not on host). Three containers share the tailscale
+container's network namespace:
+- `gnar-tailscale` — tailnet identity, ingress
+- `gnar-caddy` — reverse proxy (`add-site <name> <port>` writes to
+  `/srv/stack/Caddyfile` and reloads via `docker compose exec caddy
+  caddy reload`)
+- `gnar-hermes-gateway` + `gnar-hermes-dashboard` — Telegram bot brain +
+  web UI
+
+Stack lifecycle is `cd /srv/stack && docker compose <cmd>`. The
+`gnar-stack` systemd unit runs `docker compose up -d --build` at boot.
 
 ### Databases
 - `postgresql` (systemd unit `postgresql`, default user matches `$USER`)

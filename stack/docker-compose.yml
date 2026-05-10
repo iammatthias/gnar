@@ -1,0 +1,80 @@
+services:
+  # Network ingress. Owns the tailnet identity. Other services share its
+  # network namespace so they reach the tailnet directly + can proxy to
+  # one another via localhost.
+  tailscale:
+    image: tailscale/tailscale:latest
+    container_name: gnar-tailscale
+    hostname: ${TS_HOSTNAME:-gnar}
+    environment:
+      # Set in .env (copy from .env.example) for unattended bring-up:
+      #   TS_AUTHKEY=tskey-auth-...
+      # Or leave unset and run `docker compose exec tailscale tailscale up` once.
+      TS_AUTHKEY: ${TS_AUTHKEY:-}
+      TS_HOSTNAME: ${TS_HOSTNAME:-gnar}
+      TS_STATE_DIR: /var/lib/tailscale
+      TS_EXTRA_ARGS: ${TS_EXTRA_ARGS:---ssh}
+    volumes:
+      - ./data/tailscale:/var/lib/tailscale
+      - /dev/net/tun:/dev/net/tun
+    cap_add:
+      - NET_ADMIN
+      - NET_RAW
+    restart: unless-stopped
+
+  # Reverse proxy for everything served from the box. Edits to ./Caddyfile
+  # take effect with `docker compose exec caddy caddy reload`.
+  caddy:
+    image: caddy:latest
+    container_name: gnar-caddy
+    network_mode: service:tailscale
+    depends_on: [tailscale]
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - ./data/caddy/data:/data
+      - ./data/caddy/config:/config
+    extra_hosts:
+      # So `reverse_proxy host.docker.internal:3000` reaches host services.
+      - "host.docker.internal:host-gateway"
+    restart: unless-stopped
+
+  # Hermes orchestrator: Telegram bot + agent brain. Calls the bundled
+  # `claude` and `chainlink` binaries inside this container.
+  hermes-gateway:
+    build:
+      context: ./hermes
+      dockerfile: Dockerfile
+    image: gnar-hermes:latest
+    container_name: gnar-hermes-gateway
+    network_mode: service:tailscale
+    depends_on: [tailscale]
+    command: ["hermes", "gateway", "run"]
+    volumes:
+      # Persistent ~/.hermes (auth.json, MEMORY.md, kanban.db, sessions).
+      - ./data/hermes:/root/.hermes
+      # Persistent ~/.claude (subscription auth, project session transcripts).
+      - ./data/claude:/root/.claude
+      # Skills shipped with the repo, mounted read-only so updates land via
+      # `git pull && docker compose restart hermes-gateway`.
+      - ./skills:/root/.hermes/skills/gnar:ro
+      # Project files. Same path on host + container so paths match what
+      # the user types from the Telegram bot.
+      - /srv/projects:/srv/projects:rw
+      # So the agent can `docker ps` etc. on the host docker.
+      - /var/run/docker.sock:/var/run/docker.sock
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    restart: unless-stopped
+
+  # Web UI for the kanban board + session inspector.
+  hermes-dashboard:
+    image: gnar-hermes:latest
+    container_name: gnar-hermes-dashboard
+    network_mode: service:tailscale
+    depends_on: [tailscale, hermes-gateway]
+    command: ["hermes", "dashboard", "--host", "0.0.0.0", "--port", "9119"]
+    volumes:
+      - ./data/hermes:/root/.hermes
+      - ./data/claude:/root/.claude
+      - ./skills:/root/.hermes/skills/gnar:ro
+    restart: unless-stopped

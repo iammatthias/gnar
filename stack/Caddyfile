@@ -1,0 +1,17 @@
+# GNAR — Caddy configuration (lives in the gnar-caddy container).
+#
+# Edit this file, then on the host:
+#   docker compose -f /srv/stack/docker-compose.yml exec caddy caddy reload
+# (the `add-site` / `remove-site` shell functions do that automatically).
+
+# Default site. Replies on the tailnet IP at port 80.
+:80 {
+    respond "GNAR Server"
+}
+
+# Hermes dashboard, reverse-proxied so you can reach it at a friendly hostname.
+# Localhost works because hermes-dashboard shares the tailscale container's
+# network namespace.
+hermes.local:80 {
+    reverse_proxy localhost:9119
+}

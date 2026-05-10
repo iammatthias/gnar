@@ -4,15 +4,47 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Overview
 
-GNAR is an opinionated home-server bootstrap for Arch Linux. One script provisions
-a headless Arch box for remote development over SSH: enhanced zsh, tmux, Caddy
-reverse proxy, Docker, PostgreSQL + Valkey, a broad set of language runtimes
-(Node, Python via uv, Ruby, Rust, Go, Java), and Claude Code (`claude`).
+GNAR is an opinionated home-server bootstrap for Arch Linux. One script
+provisions a headless Arch box for remote development over SSH: enhanced
+zsh, tmux, Docker, PostgreSQL + Valkey, a broad set of language runtimes
+(Node, Python via uv, Ruby, Rust, Go, Java), plus a docker-compose stack
+under /srv/stack for the network-ingress + agent layer (Tailscale, Caddy,
+Hermes orchestrator, Claude Code).
 
 It also installs Mango (Wayland WM, AUR `mangowm-git`) + foot so an optional
 attached display becomes a live kiosk dashboard (auto-login on tty1 →
 Mango → fullscreen `gnar-dashboard` 4-pane tmux session). The DRM-status
 guard in `~/.zprofile` is a no-op on truly headless boxes.
+
+### Container stack (`/srv/stack`)
+
+The network ingress + agent surface is a docker-compose stack — atomically
+updatable via `git pull && docker compose up -d --build` and isolated from
+the host substrate.
+
+- `gnar-tailscale` (image: `tailscale/tailscale`) — tailnet identity. Other
+  services share its network namespace (`network_mode: service:tailscale`)
+  so they reach the tailnet directly + can talk to one another on
+  `localhost`.
+- `gnar-caddy` (image: `caddy:latest`) — reverse proxy. Caddyfile lives at
+  `/srv/stack/Caddyfile`, mounted into the container.
+  `add-site`/`remove-site` shell helpers edit it and reload via
+  `docker compose exec`.
+- `gnar-hermes-gateway` + `gnar-hermes-dashboard` (image: built from
+  `stack/hermes/Dockerfile`) — Telegram-bot orchestrator brain + web UI.
+  Bundles `hermes-cli`, `claude` (Claude Code), `chainlink`. `~/.hermes` and
+  `~/.claude` mount from `/srv/stack/data/{hermes,claude}` so state is
+  inspectable on host and survives rebuilds.
+
+State on host:
+- `/srv/stack/Caddyfile` — caddy config (user-editable)
+- `/srv/stack/.env` — TS_AUTHKEY, TS_HOSTNAME (chmod 600)
+- `/srv/stack/data/tailscale/` — tailnet identity
+- `/srv/stack/data/caddy/{data,config}/` — caddy data + cert cache
+- `/srv/stack/data/hermes/{auth.json,MEMORY.md,kanban.db,...}`
+- `/srv/stack/data/claude/` — subscription auth + session transcripts
+- `/srv/stack/skills/` — skill files shipped with the repo (read-only mount)
+- `/srv/projects/` — bind-mounted into hermes-gateway at the same path
 
 When root is btrfs, the script installs Snapper + snap-pac (auto-snapshot
 on every pacman transaction) and grub-btrfs (boot-into-snapshot from GRUB).

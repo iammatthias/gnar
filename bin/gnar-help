@@ -56,16 +56,21 @@ Kiosk dashboard (attached display)
   Super+M                     Quit Mango
   Super+Shift+R               Reload mango config
 
-AI / LLM (Hermes orchestrator + Claude Code subprocess)
-  hermes                      Hermes CLI (top-level brain, ChatGPT OAuth)
-  hermes setup                Re-run OAuth setup
-  hermes ask <q>              One-shot question
-  hermes skills list          List installed skills
-  hermes cron list            Scheduled jobs
-  systemctl --user status hermes-gateway hermes-dashboard
-  Dashboard: http://<box>:9119  (Kanban + sessions, Tailscale-only)
-  claude                      Claude Code CLI — used by Hermes as a tool
-  chainlink list              Per-project issue tracker (run inside a project)
+AI / LLM (Hermes orchestrator + Claude Code, both in /srv/stack containers)
+  Stack lifecycle:
+    sudo systemctl status gnar-stack
+    cd /srv/stack && docker compose ps
+    cd /srv/stack && docker compose logs -f hermes-gateway
+    cd /srv/stack && docker compose pull && docker compose up -d --build
+  Inside the gateway:
+    docker compose exec hermes-gateway hermes ask "..."
+    docker compose exec hermes-gateway hermes skills list
+    docker compose exec hermes-gateway hermes kanban list
+    docker compose exec hermes-gateway claude   # subscription-auth tool
+  Dashboard: http://<tailnet-ip> (caddy → hermes.local → :9119)
+  Per-project tracker (host shell, inside the project):
+    chainlink list              # not on host PATH; use docker exec
+    docker compose exec hermes-gateway chainlink list
 
 Python (uv)
   uv venv                     Create a virtualenv

@@ -1,6 +1,0 @@
-# GNAR - Caddy Configuration
-
-# Default site
-:80 {
-    respond "GNAR Server - Add sites with: add-site <name> <port>"
-}
