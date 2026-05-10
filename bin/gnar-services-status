@@ -13,7 +13,10 @@ dot() {
 printf '\033[1;36m═══ Services ═══\033[0m\n'
 USER_NAME=${SUDO_USER:-${USER:-$(id -un)}}
 for svc in caddy docker postgresql valkey fail2ban ufw "code-server@$USER_NAME"; do
-    state=$(systemctl is-active "$svc" 2>/dev/null || echo unknown)
+    # `systemctl is-active` prints state to stdout AND exits non-zero when
+    # not active. Don't chain `|| echo unknown` — that doubles the output.
+    state=$(systemctl is-active "$svc" 2>/dev/null) || true
+    state=${state:-unknown}
     printf '  '; dot "$state"; printf ' %-26s %s\n' "$svc" "$state"
 done
 
@@ -33,9 +36,12 @@ if [ -f /etc/caddy/Caddyfile ]; then
             host="${site%:*}"
             port="${site##*:}"
             [ "$host" = "$port" ] && port=80
+            # Same trap as systemctl is-active: curl prints 000 on failure
+            # AND exits non-zero. Don't chain `|| echo 000`.
             code=$(curl -s -o /dev/null -w '%{http_code}' -m 2 \
                 --resolve "$host:$port:127.0.0.1" \
-                "http://$host:$port/" 2>/dev/null || echo 000)
+                "http://$host:$port/" 2>/dev/null) || true
+            code=${code:-000}
             if [[ "$code" =~ ^[23] ]]; then
                 printf '  '; dot up; printf ' %-30s HTTP %s\n' "$site" "$code"
             else
