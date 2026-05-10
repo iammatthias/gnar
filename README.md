@@ -4,8 +4,9 @@
 
 A single setup script that turns a fresh Arch install into a headless
 home server for remote development over SSH. Spaceship + Zsh + Tmux,
-Caddy reverse proxy, Docker, PostgreSQL +
-Valkey, and a full set of language runtimes.
+Docker, PostgreSQL + Valkey, a full set of language runtimes,
+and a docker-compose stack (Tailscale + Caddy + Hermes orchestrator)
+that ships the agent + network surface.
 
 This is intentionally opinionated and intentionally heavy — it's a
 personal home-server bootstrap, not a minimal TTY distribution.
@@ -22,7 +23,7 @@ personal home-server bootstrap, not a minimal TTY distribution.
 - **Btrfs + Snapper** - Auto-snapshot before/after every pacman transaction; boot-into-snapshot via GRUB submenu when an update breaks the system (only when root is btrfs)
 - **Security Features** - UFW firewall, Fail2ban, SSH hardening
 - **System Monitoring** - btop, iotop, nethogs, smartmontools
-- **AI Orchestrator** - Hermes (ChatGPT OAuth brain, Telegram bot, Kanban dashboard) with Claude Code as a subprocess tool, chainlink for per-project issue tracking
+- **AI Orchestrator stack** - docker-compose at `/srv/stack/`: Tailscale + Caddy + Hermes (Telegram bot, Kanban dashboard) with Claude Code as a subprocess tool inside the hermes container, chainlink for per-project issue tracking. `git pull && docker compose up -d --build` to update.
 - **Runtime Support** - Node.js, Bun, Python, Ruby, Rust, Go, Java, Docker
 - **Development Tools** - eza, bat, fd, fzf, zoxide, ripgrep, and more
 

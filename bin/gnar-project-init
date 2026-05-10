@@ -77,10 +77,13 @@ EOF
 fi
 
 # 3. Register in Hermes MEMORY.md
-HERMES_DIR="${HOME}/.hermes"
+# Lives at /srv/stack/data/hermes/MEMORY.md (bind-mounted into the
+# hermes-gateway container as /root/.hermes/MEMORY.md).
+HERMES_DIR=/srv/stack/data/hermes
 HERMES_MEMORY="$HERMES_DIR/MEMORY.md"
-mkdir -p "$HERMES_DIR"
-[ -f "$HERMES_MEMORY" ] || touch "$HERMES_MEMORY"
+sudo mkdir -p "$HERMES_DIR"
+sudo touch "$HERMES_MEMORY"
+sudo chown -R "$USER:$USER" "$HERMES_DIR" 2>/dev/null || true
 
 if grep -q "^- ${PROJECT_PATH}:" "$HERMES_MEMORY" 2>/dev/null; then
     echo "  [skip] $PROJECT_PATH already in $HERMES_MEMORY"

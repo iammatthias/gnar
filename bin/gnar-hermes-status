@@ -1,39 +1,45 @@
 #!/bin/bash
 # GNAR — Hermes orchestrator status, formatted for the dashboard pane.
+# Hermes runs as containers under /srv/stack; everything is `docker compose
+# exec` calls into hermes-gateway.
 set -uo pipefail
+
+COMPOSE='docker compose -f /srv/stack/docker-compose.yml'
+EXEC="$COMPOSE exec -T hermes-gateway"
 
 dot() {
     case "$1" in
-        active|up|ok)   printf '\033[32m●\033[0m' ;;
-        inactive|down|failed|unknown) printf '\033[31m●\033[0m' ;;
-        *)              printf '\033[33m●\033[0m' ;;
+        active|up|running|ok)   printf '\033[32m●\033[0m' ;;
+        inactive|down|failed|exited|unknown) printf '\033[31m●\033[0m' ;;
+        *)                      printf '\033[33m●\033[0m' ;;
     esac
 }
 
 printf '\033[1;36m═══ Hermes ═══\033[0m\n'
 
-if ! command -v hermes &>/dev/null; then
-    echo "  (hermes not installed)"
+if [ ! -f /srv/stack/docker-compose.yml ]; then
+    echo "  (no /srv/stack — stack not deployed)"
     exit 0
 fi
 
-# Service status (user-level systemd units)
-gateway_state=$(systemctl --user is-active hermes-gateway 2>/dev/null || echo unknown)
-dash_state=$(systemctl --user is-active hermes-dashboard 2>/dev/null || echo unknown)
-printf '  '; dot "$gateway_state";   printf ' gateway     %s\n' "$gateway_state"
-printf '  '; dot "$dash_state";      printf ' dashboard   %s\n' "$dash_state"
+# Container state for the four stack services.
+$COMPOSE ps --format '{{.Service}}\t{{.State}}\t{{.Status}}' 2>/dev/null \
+  | while IFS=$'\t' read -r svc state status; do
+        [ -z "$svc" ] && continue
+        printf '  '; dot "$state"; printf ' %-22s %s\n' "$svc" "$status"
+    done
 
-# Auth: which provider is wired up
-echo
-printf '\033[1;36m─── Auth ───\033[0m\n'
-hermes auth list 2>/dev/null | head -3 | sed 's/^/  /' || echo "  (auth list unavailable)"
+# Auth, kanban, cron — only meaningful when the gateway is up.
+if $COMPOSE ps hermes-gateway 2>/dev/null | grep -q running; then
+    echo
+    printf '\033[1;36m─── Auth ───\033[0m\n'
+    $EXEC hermes auth list 2>/dev/null | head -3 | sed 's/^/  /' || echo "  (auth list unavailable)"
 
-# Kanban: top of the board
-echo
-printf '\033[1;36m─── Kanban ───\033[0m\n'
-hermes kanban list 2>/dev/null | head -8 | sed 's/^/  /' || echo "  (kanban list unavailable)"
+    echo
+    printf '\033[1;36m─── Kanban ───\033[0m\n'
+    $EXEC hermes kanban list 2>/dev/null | head -8 | sed 's/^/  /' || echo "  (kanban list unavailable)"
 
-# Cron: scheduled jobs
-echo
-printf '\033[1;36m─── Cron ───\033[0m\n'
-hermes cron list 2>/dev/null | head -4 | sed 's/^/  /' || echo "  (no cron jobs / unavailable)"
+    echo
+    printf '\033[1;36m─── Cron ───\033[0m\n'
+    $EXEC hermes cron list 2>/dev/null | head -4 | sed 's/^/  /' || echo "  (no cron jobs / unavailable)"
+fi

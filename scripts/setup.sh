@@ -70,9 +70,12 @@ systemd-tmpfiles --create --prefix /var/log/journal &>/dev/null || true
 systemctl kill --kill-whom=main -s USR1 systemd-journald &>/dev/null || true
 
 echo -e "${GREEN}Installing core packages...${NC}"
+# caddy + tailscale + hermes live in the /srv/stack docker compose now,
+# not on the host. Docker is the only network-layer thing we install
+# directly.
 pacman -S --noconfirm \
   zsh tmux neovim git curl wget unzip \
-  caddy docker docker-compose \
+  docker docker-compose \
   nodejs npm \
   python uv \
   ruby \
@@ -221,18 +224,6 @@ if [ ! -e "$REAL_HOME/CLAUDE.md" ]; then
 fi
 
 # -----------------------------------------------------------------------------
-# Caddy
-# -----------------------------------------------------------------------------
-echo -e "${GREEN}Configuring Caddy...${NC}"
-install -m 644 "$CONFIGS/Caddyfile" /etc/caddy/Caddyfile
-if caddy validate --config /etc/caddy/Caddyfile 2>/dev/null; then
-    systemctl enable caddy
-    systemctl start caddy || journalctl -xeu caddy.service --no-pager -n 10
-else
-    echo -e "${RED}Caddyfile invalid; skipping start${NC}"
-fi
-
-# -----------------------------------------------------------------------------
 # Docker
 # -----------------------------------------------------------------------------
 echo -e "${GREEN}Configuring Docker...${NC}"
@@ -358,60 +349,52 @@ else
 fi
 
 # -----------------------------------------------------------------------------
-# Hermes orchestrator (top-level brain over Claude Code + chainlink)
+# Container stack (caddy + tailscale + hermes — see /srv/stack/README)
 # -----------------------------------------------------------------------------
-# Hermes is the human-facing orchestrator. It uses Claude Code as a subprocess
-# tool (via the claude-with-chainlink skill below) and surfaces it through a
-# Telegram bot + Kanban dashboard. Setup of OAuth, Telegram, and the terminal-
-# sandbox config is interactive and stays manual — see the closing banner.
-echo -e "${GREEN}Installing Hermes orchestrator (AUR hermes-agent, with fallback)...${NC}"
-if command -v yay &>/dev/null; then
-    if ! sudo -u "$REAL_USER" yay -S --noconfirm hermes-agent 2>/dev/null; then
-        echo -e "${YELLOW}AUR hermes-agent unavailable; trying upstream installer...${NC}"
-        sudo -u "$REAL_USER" bash -c \
-            'curl -fsSL https://raw.githubusercontent.com/NousResearch/hermes-agent/main/scripts/install.sh | bash' \
-            || FAILED_SERVICES+=("hermes-install")
-    fi
-else
-    FAILED_SERVICES+=("hermes-install")
+# Everything that the orchestrator + network-ingress layer needs runs as a
+# docker-compose stack out of /srv/stack. Updating the stack is `git pull
+# && docker compose up -d --build` — atomic, easy rollback, isolated from
+# the host.
+echo -e "${GREEN}Deploying container stack to /srv/stack...${NC}"
+install -d -o "$REAL_USER" -g "$REAL_USER" /srv/stack
+cp -r "$REPO_ROOT/stack/." /srv/stack/
+chown -R "$REAL_USER:$REAL_USER" /srv/stack
+
+# .env is sensitive (TS_AUTHKEY) — start from .env.example if not present.
+if [ ! -f /srv/stack/.env ]; then
+    cp /srv/stack/.env.example /srv/stack/.env
+    chmod 600 /srv/stack/.env
+    chown "$REAL_USER:$REAL_USER" /srv/stack/.env
 fi
 
-# Drop the claude-with-chainlink skill template.
+# Bind-mount target dirs (created with the right ownership before
+# docker auto-creates them with root).
 install -d -o "$REAL_USER" -g "$REAL_USER" \
-    "$REAL_HOME/.hermes/skills/claude-with-chainlink"
-install -m 644 -o "$REAL_USER" -g "$REAL_USER" \
-    "$CONFIGS/hermes/skills/claude-with-chainlink/SKILL.md" \
-    "$REAL_HOME/.hermes/skills/claude-with-chainlink/SKILL.md"
+    /srv/stack/data \
+    /srv/stack/data/tailscale \
+    /srv/stack/data/caddy \
+    /srv/stack/data/caddy/data \
+    /srv/stack/data/caddy/config \
+    /srv/stack/data/hermes \
+    /srv/stack/data/claude
 
-# `install -d` only applies ownership to dirs it creates; if `~/.hermes` was
-# created earlier as root by something else, its mode persists. Force-fix.
-chown -R "$REAL_USER:$REAL_USER" "$REAL_HOME/.hermes"
-
-# systemd USER units (don't auto-enable — Hermes needs OAuth setup first
-# or the units will crashloop).
-install -d -o "$REAL_USER" -g "$REAL_USER" "$REAL_HOME/.config/systemd/user"
-install -m 644 -o "$REAL_USER" -g "$REAL_USER" \
-    "$CONFIGS/hermes-gateway.service" \
-    "$REAL_HOME/.config/systemd/user/hermes-gateway.service"
-install -m 644 -o "$REAL_USER" -g "$REAL_USER" \
-    "$CONFIGS/hermes-dashboard.service" \
-    "$REAL_HOME/.config/systemd/user/hermes-dashboard.service"
-
-# Enable user-linger so user services run without an active SSH/login session.
-loginctl enable-linger "$REAL_USER" || true
+# systemd unit that runs `docker compose up -d --build` at boot.
+install -m 644 "$CONFIGS/gnar-stack.service" /etc/systemd/system/gnar-stack.service
 
 # Passwordless sudo for the user. Required so the Hermes orchestrator (which
-# runs as $REAL_USER and shells out via terminal()) can manage host services
-# — tailscale, systemctl, pacman, ufw, etc. — without hanging on a password
-# prompt. The auth surface for "root-on-this-box" is already (a) the user's
-# SSH key + (b) the Telegram allowlist on the bot; both compromises already
-# imply full host access, so this doesn't materially widen the threat model.
+# runs inside the gnar-hermes-gateway container with /var/run/docker.sock
+# mounted, but also needs to poke host things via `sudo` over docker exec
+# from helper scripts) can manage the box without hanging on a password.
+# The auth surface for "root-on-this-box" was already (a) the user's SSH
+# key and (b) the Telegram allowlist on the bot — both compromises imply
+# full host access — so this doesn't materially widen the threat model.
 SUDOERS_FILE=/etc/sudoers.d/gnar-${REAL_USER}-nopasswd
 echo "$REAL_USER ALL=(ALL) NOPASSWD: ALL" > "$SUDOERS_FILE"
 chmod 440 "$SUDOERS_FILE"
 visudo -c -q || { echo -e "${RED}sudoers syntax error — removing $SUDOERS_FILE${NC}"; rm -f "$SUDOERS_FILE"; }
 
 systemctl daemon-reload
+systemctl enable gnar-stack.service
 
 # -----------------------------------------------------------------------------
 # Per-user runtime tooling
@@ -525,7 +508,7 @@ fi
 # -----------------------------------------------------------------------------
 echo
 echo -e "${GREEN}=== Service status ===${NC}"
-for svc in caddy docker postgresql valkey fail2ban ufw; do
+for svc in docker postgresql valkey fail2ban ufw gnar-stack; do
     if systemctl is-active --quiet "$svc"; then
         echo "  [+] $svc"
     else
@@ -548,20 +531,23 @@ echo "  2. ssh in, run: tmux"
 echo "  3. add-site myapp 3000   # reverse proxy a service"
 echo "  4. gnar-help             # full reference"
 echo
-echo "Hermes orchestrator (interactive setup — Claude Code is now a tool, not the entry point):"
-echo "  claude                                          # /login via browser, then /exit"
-echo "  hermes auth add anthropic --type oauth          # or openai-codex / api-key"
-echo "  hermes gateway setup                            # paste BotFather token + your Telegram user id"
-echo "  hermes config set terminal.backend local        # see note below"
-echo "  hermes config set terminal.timeout 600"
-echo "  systemctl --user enable --now hermes-gateway hermes-dashboard"
-echo "  Dashboard: http://<server-tailscale-ip>:9119"
+echo "Container stack (caddy + tailscale + hermes-gateway + hermes-dashboard):"
+echo "  systemctl status gnar-stack             # build status (one-time on first boot)"
+echo "  cd /srv/stack && docker compose ps      # individual services"
 echo
-echo "  Note on terminal.backend: 'docker' sandboxes each tool call in a fresh"
-echo "  container, which blocks the agent from reaching your projects, services,"
-echo "  Claude auth, etc. 'local' runs on the host — required for any real work."
-echo "  Telegram allowlist is your safety net. If you want true sandboxing,"
-echo "  build a custom docker image with claude + chainlink + host bind mounts."
+echo "Interactive first-boot setup (run on the host):"
+echo "  # 1. Tailscale: either fill TS_AUTHKEY in /srv/stack/.env, or:"
+echo "  cd /srv/stack && docker compose exec tailscale tailscale up"
+echo
+echo "  # 2. Claude Code subscription auth (used as a subprocess by the agent):"
+echo "  cd /srv/stack && docker compose exec hermes-gateway claude   # /login, /exit"
+echo
+echo "  # 3. Hermes orchestrator brain auth (Anthropic OAuth, OpenAI-Codex, or api-key):"
+echo "  cd /srv/stack && docker compose exec hermes-gateway hermes auth add anthropic --type oauth"
+echo "  cd /srv/stack && docker compose exec hermes-gateway hermes gateway setup"
+echo "  cd /srv/stack && docker compose restart hermes-gateway hermes-dashboard"
+echo
+echo "  Dashboard: http://<tailnet-ip> (caddy reverse-proxies hermes.local → :9119)"
 echo
 echo "Per-project bootstrap (run once for each repo Hermes should operate on):"
 echo "  gnar-project-init /srv/projects/<name> \"<one-line description>\""

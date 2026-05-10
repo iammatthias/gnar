@@ -1,0 +1,18 @@
+[Unit]
+Description=GNAR container stack (tailscale + caddy + hermes)
+After=docker.service network-online.target
+Requires=docker.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=true
+WorkingDirectory=/srv/stack
+# Build any out-of-date images on first start, then bring everything up.
+# `up -d --build` is idempotent; subsequent boots reuse cached layers.
+ExecStart=/usr/bin/docker compose up -d --build --remove-orphans
+ExecStop=/usr/bin/docker compose down
+TimeoutStartSec=600
+
+[Install]
+WantedBy=multi-user.target
