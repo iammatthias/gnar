@@ -400,6 +400,17 @@ install -m 644 -o "$REAL_USER" -g "$REAL_USER" \
 # Enable user-linger so user services run without an active SSH/login session.
 loginctl enable-linger "$REAL_USER" || true
 
+# Passwordless sudo for the user. Required so the Hermes orchestrator (which
+# runs as $REAL_USER and shells out via terminal()) can manage host services
+# — tailscale, systemctl, pacman, ufw, etc. — without hanging on a password
+# prompt. The auth surface for "root-on-this-box" is already (a) the user's
+# SSH key + (b) the Telegram allowlist on the bot; both compromises already
+# imply full host access, so this doesn't materially widen the threat model.
+SUDOERS_FILE=/etc/sudoers.d/gnar-${REAL_USER}-nopasswd
+echo "$REAL_USER ALL=(ALL) NOPASSWD: ALL" > "$SUDOERS_FILE"
+chmod 440 "$SUDOERS_FILE"
+visudo -c -q || { echo -e "${RED}sudoers syntax error — removing $SUDOERS_FILE${NC}"; rm -f "$SUDOERS_FILE"; }
+
 systemctl daemon-reload
 
 # -----------------------------------------------------------------------------

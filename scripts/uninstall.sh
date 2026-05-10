@@ -84,6 +84,9 @@ rm -f "$REAL_HOME/.config/systemd/user/hermes-gateway.service" \
       "$REAL_HOME/.config/systemd/user/hermes-dashboard.service"
 loginctl disable-linger "$REAL_USER" 2>/dev/null || true
 
+# Drop the agent-mode passwordless-sudo grant. Other sudoers config left alone.
+rm -f "/etc/sudoers.d/gnar-${REAL_USER}-nopasswd"
+
 # Restore /etc/ssh/sshd_config and locale files from the setup-time snapshots
 # if they exist; otherwise fall back to best-effort sed reverts.
 if [ -f /etc/ssh/sshd_config.gnar-orig ]; then
