@@ -42,7 +42,7 @@ echo
 # -----------------------------------------------------------------------------
 # Stop / disable services
 # -----------------------------------------------------------------------------
-for svc in "code-server@$REAL_USER" caddy fail2ban valkey postgresql ufw; do
+for svc in caddy fail2ban valkey postgresql ufw; do
     systemctl is-active --quiet "$svc" && systemctl stop "$svc" || true
     systemctl is-enabled --quiet "$svc" 2>/dev/null && systemctl disable "$svc" || true
 done
@@ -64,9 +64,6 @@ echo -e "${YELLOW}Removing system config...${NC}"
     mv /etc/fail2ban/jail.local "/etc/fail2ban/jail.local.gnar-backup.$TS"
 
 [ -f /etc/logrotate.d/gnar ] && rm -f /etc/logrotate.d/gnar
-
-[ -f /etc/systemd/system/code-server@.service ] && \
-    rm -f /etc/systemd/system/code-server@.service
 
 # tty1 auto-login drop-in
 if [ -d /etc/systemd/system/getty@tty1.service.d ]; then
@@ -132,8 +129,6 @@ backup_and_remove "$REAL_HOME/.tmux.conf"
 backup_and_remove "$REAL_HOME/.config/fastfetch/config.jsonc"
 backup_and_remove "$REAL_HOME/.config/mango/config.conf"
 backup_and_remove "$REAL_HOME/.config/foot/foot.ini"
-backup_and_remove "$REAL_HOME/.config/code-server/config.yaml"
-backup_and_remove "$REAL_HOME/.local/share/code-server/User/settings.json"
 
 # Only back up CLAUDE.md if it's the one GNAR installed (sentinel: first
 # line is "# GNAR Server"). Hand-written ones are left alone.

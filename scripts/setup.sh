@@ -1,7 +1,7 @@
 #!/bin/bash
 #
 # GNAR - Home Server Bootstrap for Arch
-# Spaceship + Zsh + Tmux + Caddy + code-server + runtimes
+# Spaceship + Zsh + Tmux + Caddy + runtimes
 #
 
 set -euo pipefail
@@ -323,36 +323,6 @@ fi
 install -m 644 "$CONFIGS/logrotate-gnar.conf" /etc/logrotate.d/gnar
 
 # -----------------------------------------------------------------------------
-# code-server
-# -----------------------------------------------------------------------------
-echo -e "${GREEN}Configuring code-server...${NC}"
-
-CODE_SERVER_CFG="$REAL_HOME/.config/code-server/config.yaml"
-install -d -o "$REAL_USER" -g "$REAL_USER" "$REAL_HOME/.config/code-server"
-
-# Re-running setup.sh must NOT clobber an existing password — preserve it
-# and only generate a fresh one on first install.
-if [ -f "$CODE_SERVER_CFG" ] && \
-   ! grep -q "__PASSWORD__" "$CODE_SERVER_CFG" && \
-   grep -q "^password:" "$CODE_SERVER_CFG"; then
-    VSCODE_PASSWORD=$(awk '/^password:/ {print $2; exit}' "$CODE_SERVER_CFG")
-    echo "Reusing existing code-server password from $CODE_SERVER_CFG"
-else
-    VSCODE_PASSWORD=$(openssl rand -base64 24 | tr -d "=+/" | cut -c1-25)
-    sed "s|__PASSWORD__|$VSCODE_PASSWORD|" "$CONFIGS/code-server-config.yaml" \
-        > "$CODE_SERVER_CFG"
-    chown "$REAL_USER:$REAL_USER" "$CODE_SERVER_CFG"
-    chmod 600 "$CODE_SERVER_CFG"
-fi
-
-install -d -o "$REAL_USER" -g "$REAL_USER" "$REAL_HOME/.local/share/code-server/User"
-install -m 644 -o "$REAL_USER" -g "$REAL_USER" \
-    "$CONFIGS/code-server-settings.json" \
-    "$REAL_HOME/.local/share/code-server/User/settings.json"
-
-install -m 644 "$CONFIGS/code-server.service" /etc/systemd/system/code-server@.service
-
-# -----------------------------------------------------------------------------
 # yay (AUR helper)
 # -----------------------------------------------------------------------------
 install_yay() {
@@ -374,17 +344,6 @@ if ! command -v yay &>/dev/null; then
         sleep 5
         install_yay || FAILED_SERVICES+=("yay")
     fi
-fi
-
-# code-server (from AUR or official). Both paths can fail under poor network
-# or transient AUR issues — tolerate so the rest of the bootstrap proceeds.
-echo -e "${GREEN}Installing code-server...${NC}"
-if command -v yay &>/dev/null; then
-    sudo -u "$REAL_USER" yay -S --noconfirm code-server || \
-        FAILED_SERVICES+=("code-server-install")
-else
-    sudo -u "$REAL_USER" bash -c 'curl -fsSL https://code-server.dev/install.sh | sh' || \
-        FAILED_SERVICES+=("code-server-install")
 fi
 
 # Mango (Wayland compositor for the optional attached-display dashboard).
@@ -438,18 +397,6 @@ install -m 644 -o "$REAL_USER" -g "$REAL_USER" \
 loginctl enable-linger "$REAL_USER" || true
 
 systemctl daemon-reload
-# Only enable code-server if its binary actually landed; otherwise the unit
-# loops in 203/EXEC at every boot.
-if command -v code-server &>/dev/null; then
-    systemctl enable "code-server@$REAL_USER"
-    if ! systemctl start "code-server@$REAL_USER"; then
-        journalctl -xeu "code-server@$REAL_USER" --no-pager -n 5 || true
-        FAILED_SERVICES+=("code-server@$REAL_USER")
-    fi
-else
-    echo -e "${YELLOW}code-server not installed; skipping enable.${NC}"
-    FAILED_SERVICES+=("code-server@$REAL_USER")
-fi
 
 # -----------------------------------------------------------------------------
 # Per-user runtime tooling
@@ -563,7 +510,7 @@ fi
 # -----------------------------------------------------------------------------
 echo
 echo -e "${GREEN}=== Service status ===${NC}"
-for svc in caddy docker postgresql valkey fail2ban ufw "code-server@$REAL_USER"; do
+for svc in caddy docker postgresql valkey fail2ban ufw; do
     if systemctl is-active --quiet "$svc"; then
         echo "  [+] $svc"
     else
@@ -574,10 +521,6 @@ done
 echo
 echo -e "${GREEN}=== Setup complete ===${NC}"
 echo
-echo "VS Code Server: http://vscode.local"
-echo "  password: $VSCODE_PASSWORD"
-echo "  (saved at $REAL_HOME/.config/code-server/config.yaml)"
-echo "  Add 'vscode.local' to your client /etc/hosts pointing at this server."
 echo
 if [ ${#FAILED_SERVICES[@]} -gt 0 ]; then
     echo -e "${YELLOW}Some services did not start cleanly:${NC} ${FAILED_SERVICES[*]}"

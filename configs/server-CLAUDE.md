@@ -11,8 +11,6 @@ It is a single-tenant home server intended for remote development over SSH.
 
 ### Editors
 - `nvim`
-- `code-server` — VS Code in the browser at `http://vscode.local` (password
-  in `~/.config/code-server/config.yaml`, mode 600)
 
 ### Modern CLI
 - `eza` (ls), `bat` (cat/pager), `fd` (find), `ripgrep` / `rg` (grep),
@@ -92,8 +90,6 @@ Highlights:
 
 - Caddy: `add-site myapp 3000`, `list-sites`, `remove-site myapp`,
   `caddy-edit`, `caddy-reload`, `caddy-logs`, `test-caddy`
-- code-server: `vs` (status), `vsr` (restart), `vsl` (logs),
-  `vscode-password`, `vscode-change-password <pw>`
 - PM2: `pm2-start`, `pm2-add-site`, `pm2-remove`, `pm2-restart`,
   `pm2-logs`, `pm2-status`
 - Status: `system-status`, `db-status`, `security-status`,
@@ -110,8 +106,8 @@ Highlights:
   steps at once.
 - Python projects use `uv` — never `pip install` into the system Python
   (Arch's Python is externally-managed).
-- Secrets do not live in the repo — code-server's password is in
-  `~/.config/code-server/config.yaml` (mode 600).
+- Secrets do not live in the repo. Hermes OAuth tokens live at
+  `~/.hermes/auth.json` (mode 600).
 
 ## Reverting
 

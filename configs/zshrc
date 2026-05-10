@@ -204,11 +204,6 @@ alias caddy-reload="sudo systemctl reload caddy"
 alias caddy-logs="sudo journalctl -u caddy -f"
 alias caddy-restart="sudo systemctl restart caddy"
 
-# VS Code Server
-alias vs="vscode-status"
-alias vsr="vscode-restart"
-alias vsl="vscode-logs"
-
 # AUR (yay)
 alias yay-update="yay -Syu"
 alias yay-install="yay -S"
@@ -481,50 +476,6 @@ port-check() {
     else
         echo "Port $1 is available"
     fi
-}
-
-# ----- VS Code Server management -----
-
-vscode-status() {
-    sudo systemctl status code-server@$USER --no-pager
-    echo
-    sudo journalctl -u code-server@$USER --no-pager -n 10
-    echo
-    echo "Access at: http://vscode.local"
-    if [ -f "$HOME/.config/code-server/config.yaml" ]; then
-        echo "Password:  $(grep '^password:' "$HOME/.config/code-server/config.yaml" | awk '{print $2}')"
-    fi
-}
-
-vscode-restart() {
-    sudo systemctl restart code-server@$USER
-    vscode-status
-}
-
-vscode-logs() {
-    sudo journalctl -u code-server@$USER -f
-}
-
-vscode-password() {
-    if [ -f "$HOME/.config/code-server/config.yaml" ]; then
-        echo "Password: $(grep '^password:' "$HOME/.config/code-server/config.yaml" | awk '{print $2}')"
-        echo "URL:      http://vscode.local"
-    fi
-}
-
-vscode-change-password() {
-    if [ -z "$1" ]; then
-        echo "Usage: vscode-change-password <new-password>"
-        return 1
-    fi
-    local cfg="$HOME/.config/code-server/config.yaml"
-    [ -f "$cfg" ] || { echo "$cfg not found"; return 1; }
-    # Rewrite the password line via awk to avoid sed escaping issues with /, &, \, etc.
-    local new_pw=$1
-    awk -v pw="$new_pw" '/^password:/ { print "password: " pw; next } { print }' "$cfg" > "$cfg.tmp" \
-        && mv "$cfg.tmp" "$cfg" && chmod 600 "$cfg"
-    sudo systemctl restart code-server@$USER
-    echo "Password updated"
 }
 
 # ----- Backup -----
