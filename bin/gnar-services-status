@@ -11,8 +11,7 @@ dot() {
 }
 
 printf '\033[1;36m═══ Services ═══\033[0m\n'
-USER_NAME=${SUDO_USER:-${USER:-$(id -un)}}
-for svc in caddy docker postgresql valkey fail2ban ufw "code-server@$USER_NAME"; do
+for svc in caddy docker postgresql valkey fail2ban ufw; do
     # `systemctl is-active` prints state to stdout AND exits non-zero when
     # not active. Don't chain `|| echo unknown` — that doubles the output.
     state=$(systemctl is-active "$svc" 2>/dev/null) || true
