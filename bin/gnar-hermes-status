@@ -1,0 +1,39 @@
+#!/bin/bash
+# GNAR — Hermes orchestrator status, formatted for the dashboard pane.
+set -uo pipefail
+
+dot() {
+    case "$1" in
+        active|up|ok)   printf '\033[32m●\033[0m' ;;
+        inactive|down|failed|unknown) printf '\033[31m●\033[0m' ;;
+        *)              printf '\033[33m●\033[0m' ;;
+    esac
+}
+
+printf '\033[1;36m═══ Hermes ═══\033[0m\n'
+
+if ! command -v hermes &>/dev/null; then
+    echo "  (hermes not installed)"
+    exit 0
+fi
+
+# Service status (user-level systemd units)
+gateway_state=$(systemctl --user is-active hermes-gateway 2>/dev/null || echo unknown)
+dash_state=$(systemctl --user is-active hermes-dashboard 2>/dev/null || echo unknown)
+printf '  '; dot "$gateway_state";   printf ' gateway     %s\n' "$gateway_state"
+printf '  '; dot "$dash_state";      printf ' dashboard   %s\n' "$dash_state"
+
+# Auth: which provider is wired up
+echo
+printf '\033[1;36m─── Auth ───\033[0m\n'
+hermes auth list 2>/dev/null | head -3 | sed 's/^/  /' || echo "  (auth list unavailable)"
+
+# Kanban: top of the board
+echo
+printf '\033[1;36m─── Kanban ───\033[0m\n'
+hermes kanban list 2>/dev/null | head -8 | sed 's/^/  /' || echo "  (kanban list unavailable)"
+
+# Cron: scheduled jobs
+echo
+printf '\033[1;36m─── Cron ───\033[0m\n'
+hermes cron list 2>/dev/null | head -4 | sed 's/^/  /' || echo "  (no cron jobs / unavailable)"

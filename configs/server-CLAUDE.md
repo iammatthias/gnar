@@ -39,6 +39,10 @@ It is a single-tenant home server intended for remote development over SSH.
 - **chainlink** — per-project issue tracker. Run `chainlink init` inside
   any project you want Hermes to operate on; the skill threads each
   Claude session through a chainlink issue so you can resume later.
+- **gnar-project-init `<path>` [`<desc>`]** — one-shot bootstrap for a
+  new Hermes-managed project: runs `chainlink init`, drops a starter
+  `CLAUDE.md`, and registers the project in `~/.hermes/MEMORY.md`.
+  Default project root is `/srv/projects`.
 
 ### Web / proxy
 - `caddy` — reverse proxy with automatic HTTPS. `add-site <name> <port|dir>`

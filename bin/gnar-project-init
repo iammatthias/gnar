@@ -1,0 +1,99 @@
+#!/bin/bash
+# GNAR — bootstrap a project so Hermes can operate on it.
+#
+# Does three things:
+#   1. `chainlink init` so the claude-with-chainlink skill has a place to
+#      track issues + Claude session ids.
+#   2. Drop a starter CLAUDE.md if one isn't already there. This is the
+#      system context Claude reads when Hermes spawns it on this project.
+#   3. Register the project in ~/.hermes/MEMORY.md so the orchestrator
+#      remembers it across sessions.
+#
+# Usage: gnar-project-init <path> [description]
+#   gnar-project-init /srv/projects/foo "backend API, FastAPI + Postgres"
+
+set -uo pipefail
+
+PROJECT_PATH=${1:-}
+DESCRIPTION=${2:-}
+
+if [ -z "$PROJECT_PATH" ]; then
+    cat <<'USAGE'
+Usage: gnar-project-init <path> [description]
+
+Example:
+  gnar-project-init /srv/projects/foo "backend API, FastAPI + Postgres"
+USAGE
+    exit 1
+fi
+
+# Resolve to absolute path so MEMORY.md gets a usable entry.
+mkdir -p "$PROJECT_PATH"
+PROJECT_PATH=$(cd "$PROJECT_PATH" && pwd)
+cd "$PROJECT_PATH" || { echo "cannot cd into $PROJECT_PATH"; exit 1; }
+
+NAME=$(basename "$PROJECT_PATH")
+
+# 1. chainlink
+if [ -d .chainlink ]; then
+    echo "  [skip] chainlink already initialized"
+elif command -v chainlink &>/dev/null; then
+    chainlink init
+    echo "  [+] chainlink initialized"
+else
+    echo "  [warn] chainlink not installed; issue tracker skipped"
+fi
+
+# 2. CLAUDE.md
+if [ -f CLAUDE.md ]; then
+    echo "  [skip] CLAUDE.md already exists"
+else
+    cat > CLAUDE.md <<EOF
+# $NAME
+
+${DESCRIPTION:-_(Add a one-line description here.)_}
+
+## Conventions
+
+- Language / framework:
+- Build system:
+- Test command:
+- Run-dev command:
+
+## Layout
+
+\`\`\`
+(directory map — fill in once the project has structure)
+\`\`\`
+
+## Notes for Claude
+
+- Anything Claude should *always* do (lint before commit, run tests after
+  edits, etc.) goes here.
+- Anything Claude should *never* do (touch certain dirs, run network calls,
+  etc.) goes here.
+EOF
+    echo "  [+] CLAUDE.md template written"
+fi
+
+# 3. Register in Hermes MEMORY.md
+HERMES_DIR="${HOME}/.hermes"
+HERMES_MEMORY="$HERMES_DIR/MEMORY.md"
+mkdir -p "$HERMES_DIR"
+[ -f "$HERMES_MEMORY" ] || touch "$HERMES_MEMORY"
+
+if grep -q "^- ${PROJECT_PATH}:" "$HERMES_MEMORY" 2>/dev/null; then
+    echo "  [skip] $PROJECT_PATH already in $HERMES_MEMORY"
+else
+    if ! grep -q "^## Projects" "$HERMES_MEMORY"; then
+        printf '\n## Projects\n\n' >> "$HERMES_MEMORY"
+    fi
+    printf -- '- %s: %s\n' "$PROJECT_PATH" "${DESCRIPTION:-(no description)}" >> "$HERMES_MEMORY"
+    echo "  [+] registered in $HERMES_MEMORY"
+fi
+
+echo
+echo "Project ready: $PROJECT_PATH"
+echo "From Telegram, you can now ask Hermes to use it. Example:"
+echo "  \"Use the claude-with-chainlink skill: project_path=$PROJECT_PATH,"
+echo "   task=...\""

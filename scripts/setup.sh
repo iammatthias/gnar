@@ -506,6 +506,12 @@ install -m 755 "$BIN/gnar-help"             /usr/local/bin/gnar-help
 install -m 755 "$BIN/gnar-dashboard"        /usr/local/bin/gnar-dashboard
 install -m 755 "$BIN/gnar-services-status"  /usr/local/bin/gnar-services-status
 install -m 755 "$BIN/gnar-claude-stats"     /usr/local/bin/gnar-claude-stats
+install -m 755 "$BIN/gnar-hermes-status"    /usr/local/bin/gnar-hermes-status
+install -m 755 "$BIN/gnar-project-init"     /usr/local/bin/gnar-project-init
+
+# Default project root for Hermes-managed work. Owned by the user so
+# `gnar-project-init` doesn't need sudo to create new projects under it.
+install -d -o "$REAL_USER" -g "$REAL_USER" /srv/projects
 
 # -----------------------------------------------------------------------------
 # Kiosk dashboard (Mango on tty1 when a display is attached)
@@ -593,6 +599,10 @@ echo "  hermes config set terminal.docker.image archlinux:latest"
 echo "  hermes config set terminal.timeout 600"
 echo "  systemctl --user enable --now hermes-gateway hermes-dashboard"
 echo "  Dashboard: http://<server-tailscale-ip>:9119"
+echo
+echo "Per-project bootstrap (run once for each repo Hermes should operate on):"
+echo "  gnar-project-init /srv/projects/<name> \"<one-line description>\""
+echo "  cd /srv/projects/<name> && git init    # if not already a repo"
 if [ "$ROOT_FS" = "btrfs" ]; then
     echo
     echo "Btrfs detected — Snapper is enabled. Useful commands:"

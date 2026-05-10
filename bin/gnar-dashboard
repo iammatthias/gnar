@@ -6,9 +6,12 @@
 #   │  btop              │  services + caddy  │
 #   │  (system)          │  (gnar-services)   │
 #   ├────────────────────┼────────────────────┤
-#   │  docker / pm2      │  Claude Code       │
-#   │                    │  (gnar-claude)     │
+#   │  docker / pm2      │  Hermes            │
+#   │                    │  (gnar-hermes)     │
 #   └────────────────────┴────────────────────┘
+#
+# `gnar-claude-stats` still exists as a one-shot — run it manually if you
+# want a snapshot of Claude Code activity. Hermes is the day-to-day signal.
 #
 # Auto-attaches if the session already exists. Hyprland's `exec-once`
 # launches `foot -e gnar-dashboard`, so on display attach this is your
@@ -33,7 +36,7 @@ DOCKER_PMTWO_CMD='clear; echo "─── docker ───"; \
 tmux new-session  -d -s "$SESSION" -n main 'btop'
 tmux split-window -h -t "$SESSION:main"   "watch -n 30 -t -c 'gnar-services-status'"
 tmux split-window -v -t "$SESSION:main.0" "watch -n  5 -t -c \"$DOCKER_PMTWO_CMD\""
-tmux split-window -v -t "$SESSION:main.1" "watch -n 60 -t -c 'gnar-claude-stats'"
+tmux split-window -v -t "$SESSION:main.1" "watch -n 30 -t -c 'gnar-hermes-status'"
 tmux select-layout -t "$SESSION:main" tiled
 tmux set-option   -t "$SESSION" status off
 tmux set-option   -t "$SESSION" mouse on
