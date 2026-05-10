@@ -4,7 +4,7 @@
 
 A single setup script that turns a fresh Arch install into a headless
 home server for remote development over SSH. Spaceship + Zsh + Tmux,
-Caddy reverse proxy, code-server in the browser, Docker, PostgreSQL +
+Caddy reverse proxy, Docker, PostgreSQL +
 Valkey, and a full set of language runtimes.
 
 This is intentionally opinionated and intentionally heavy — it's a
@@ -13,7 +13,6 @@ personal home-server bootstrap, not a minimal TTY distribution.
 ## What You Get
 
 - **Kiosk Dashboard** - Mango (Wayland WM) + foot auto-launches `gnar-dashboard` (4-pane TUI: btop + services + containers + Claude metrics) on an attached display (no-op when headless)
-- **VS Code Server** - Full VS Code experience in your browser
 - **Spaceship Prompt** - Beautiful, fast, and customizable Zsh prompt
 - **Zsh with Essential Plugins** - Autosuggestions, syntax highlighting, completions
 - **Tmux as Default** - Tiling terminal multiplexer with vim keybindings
@@ -98,17 +97,6 @@ tmux
 - **Session Management**: `tn <name>` (new), `ta <name>` (attach)
 - **UTF-8 Support**: Works perfectly over SSH
 
-### VS Code Server
-
-- **Browser-based IDE**: Full VS Code experience in your browser
-- **Access**: `http://vscode.local` — password is generated at install time
-  and printed once; it's also stored in `~/.config/code-server/config.yaml`
-  (mode 600). Use `vscode-password` (or alias `vs`) to print it later.
-- **Extensions**: All VS Code extensions work
-- **Terminal**: Integrated terminal with full shell access
-- **Git Integration**: Full git support and source control
-- **File Management**: Complete file explorer and editor
-
 ### Caddy Web Server
 
 - **Automatic HTTPS**: Let's Encrypt certificates
@@ -161,17 +149,6 @@ dc             # docker-compose
 dps            # docker ps
 di             # docker images
 dex <container> # docker exec -it
-```
-
-### VS Code Server
-
-```bash
-vs                          # Status (alias for vscode-status)
-vsr                         # Restart (alias for vscode-restart)
-vsl                         # Tail logs (alias for vscode-logs)
-vscode-password             # Print current password
-vscode-change-password <pw> # Change password
-# Access at: http://vscode.local
 ```
 
 ### Caddy

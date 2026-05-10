@@ -6,9 +6,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 GNAR is an opinionated home-server bootstrap for Arch Linux. One script provisions
 a headless Arch box for remote development over SSH: enhanced zsh, tmux, Caddy
-reverse proxy, code-server (browser VS Code), Docker, PostgreSQL + Valkey, a
-broad set of language runtimes (Node, Python via uv, Ruby, Rust, Go, Java),
-and Claude Code (`claude`).
+reverse proxy, Docker, PostgreSQL + Valkey, a broad set of language runtimes
+(Node, Python via uv, Ruby, Rust, Go, Java), and Claude Code (`claude`).
 
 It also installs Mango (Wayland WM, AUR `mangowm-git`) + foot so an optional
 attached display becomes a live kiosk dashboard (auto-login on tty1 →
@@ -50,9 +49,6 @@ gnar/
 │   ├── fastfetch.jsonc
 │   ├── fail2ban-jail.local
 │   ├── logrotate-gnar.conf
-│   ├── code-server-config.yaml      # __PASSWORD__ placeholder
-│   ├── code-server-settings.json
-│   ├── code-server.service          # systemd template unit
 │   └── server-CLAUDE.md             # installed to ~/CLAUDE.md (system context for Claude Code)
 ├── bin/                  # Helper scripts installed to /usr/local/bin
 │   ├── gnar-info
@@ -89,7 +85,7 @@ gnar-help     # Full command reference
    databases, security tooling, modern CLI replacements.
 2. **System configuration**: install configs from `configs/` to their canonical
    locations, configure UFW + fail2ban + SSH hardening, init Postgres cluster,
-   enable systemd units (Caddy, Docker, Postgres, Valkey, code-server).
+   enable systemd units (Caddy, Docker, Postgres, Valkey).
 3. **Per-user tooling** (run as `$REAL_USER` via `sudo -u`): Oh My Zsh, plugins,
    Spaceship prompt, npm globals (yarn/pnpm/pm2/eslint/prettier/jest +
    `@anthropic-ai/claude-code`), Bun, `uv tool install` (ruff/pytest/black),
@@ -109,7 +105,6 @@ all per-user work runs through `sudo -u "$REAL_USER"`.
 - `~/.zshrc`                          — copied from `configs/zshrc`
 - `~/.tmux.conf`                      — copied from `configs/tmux.conf`
 - `~/.config/fastfetch/config.jsonc`  — copied from `configs/fastfetch.jsonc`
-- `~/.config/code-server/config.yaml` — generated from template with random password (chmod 600)
 - `~/CLAUDE.md`                       — copied from `configs/server-CLAUDE.md` (only if not already present); gives Claude Code system context
 
 ## Design principles
@@ -118,8 +113,8 @@ all per-user work runs through `sudo -u "$REAL_USER"`.
   general-purpose distribution.
 - **Idempotent-ish** — re-running setup.sh re-applies configs, backing up
   existing `~/.zshrc` first. Most steps tolerate already-configured state.
-- **No secrets in repo** — the code-server password is generated at install
-  time and printed once; the config file is chmod 600.
+- **No secrets in repo** — Hermes OAuth tokens land at `~/.hermes/auth.json`
+  (chmod 600) at runtime, never committed.
 - **Configs are tracked** — every file the bootstrap installs lives under
   `configs/` so changes are reviewable in diff form rather than buried in
   heredocs.

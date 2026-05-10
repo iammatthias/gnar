@@ -144,19 +144,6 @@ systemd-boot users: GRUB-style boot-into-snapshot is GRUB-only. Snapper
 itself still works (so `undochange` and timeline retention are useful),
 but recovery from a non-bootable system needs a USB.
 
-## VS Code Server
-
-```bash
-vs                             # status, URL, current password
-vsr                            # restart
-vsl                            # tail logs
-vscode-password                # print the password
-vscode-change-password <pw>    # change it (restarts code-server)
-```
-
-Reach it at `http://vscode.local` once you've added `vscode.local` to your
-client's `/etc/hosts` pointing at the server.
-
 ## PM2
 
 ```bash
