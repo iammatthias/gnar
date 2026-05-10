@@ -24,3 +24,6 @@ Thumbs.db
 # Test files
 test/
 tmp/
+
+# Claude agent workspace state
+.claude/
