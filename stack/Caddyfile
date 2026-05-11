@@ -1,17 +1,40 @@
-# GNAR — Caddy configuration (lives in the gnar-caddy container).
+# GNAR — Caddy configuration. Two distinct listeners:
 #
-# Edit this file, then on the host:
+#   :80   — PRIVATE. Reached over the tailnet (caddy lives in the
+#           tailscale container's netns). Dashboard + internal services.
+#
+#   :8080 — PUBLIC. Reached by the cloudflared connector, which routes
+#           public hostnames here. Anything in this section is on the
+#           public internet.
+#
+# Edits land via:
 #   docker compose -f /srv/stack/docker-compose.yml exec caddy caddy reload
-# (the `add-site` / `remove-site` shell functions do that automatically).
+# `add-site` (private) and `add-public-site` (public) do this for you.
 
-# Default site. Replies on the tailnet IP at port 80.
+# =============================================================================
+# PRIVATE — tailnet only
+# =============================================================================
+
 :80 {
-    respond "GNAR Server"
+    respond "GNAR (tailnet)"
 }
 
-# Hermes dashboard, reverse-proxied so you can reach it at a friendly hostname.
-# Localhost works because hermes-dashboard shares the tailscale container's
-# network namespace.
 hermes.local:80 {
     reverse_proxy localhost:9119
 }
+
+# add-site appends private vhosts below this line.
+# -------- PRIVATE-SITES --------
+
+# =============================================================================
+# PUBLIC — cloudflared tunnel target
+# =============================================================================
+
+http://:8080 {
+    # Default: refuse anything we don't explicitly route.
+    # Public hostnames are added per-vhost below.
+    respond 404
+}
+
+# add-public-site appends public vhosts below this line.
+# -------- PUBLIC-SITES --------

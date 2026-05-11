@@ -289,78 +289,139 @@ alias edit="nvim"
 
 # ----- Caddy site management (Caddy runs in /srv/stack) -----
 #
-# Reverse-proxy services to host ports via Caddy in the gnar-caddy
-# container. The container reaches host services through the
-# `host.docker.internal:host-gateway` extra_hosts entry.
+# Two listeners:
+#   :80   — private vhosts (tailnet only). Use add-site.
+#   :8080 — public vhosts (Cloudflare Tunnel target). Use add-public-site.
 
 GNAR_CADDYFILE=/srv/stack/Caddyfile
 GNAR_CADDY_RELOAD='cd /srv/stack && docker compose exec -T caddy caddy reload --config /etc/caddy/Caddyfile'
 
-add-site() {
-    if [ -z "$1" ]; then
-        echo "Usage: add-site <name> [port|directory]"
-        echo "Examples:"
-        echo "  add-site myapp 3000           # reverse proxy to host:3000"
-        echo "  add-site static /var/www/site # serve static files"
-        return 1
-    fi
-
-    local name=$1
-    local target=${2:-3000}
+# Append text right after a marker line and reload caddy. Rolls back on
+# invalid config.
+_gnar_caddy_append() {
+    local marker=$1
+    local block=$2
     local backup="$GNAR_CADDYFILE.backup.$(date +%Y%m%d_%H%M%S)"
 
     sudo cp "$GNAR_CADDYFILE" "$backup"
-
-    # Drop any existing block for this name so re-runs replace cleanly.
-    if sudo grep -q "^$name\.local:80 {" "$GNAR_CADDYFILE" 2>/dev/null; then
-        sudo sed -i "/^$name\.local:80 {/,/^}/d" "$GNAR_CADDYFILE"
-    fi
-
-    if [[ "$target" =~ ^[0-9]+$ ]]; then
-        # host.docker.internal so Caddy in container reaches host port.
-        echo -e "\n# $name service (reverse proxy to host)\n$name.local:80 {\n    reverse_proxy host.docker.internal:$target\n}" | sudo tee -a "$GNAR_CADDYFILE" > /dev/null
-        echo "Added $name.local:80 -> host:$target"
-    else
-        if [ ! -d "$target" ]; then
-            echo "Directory $target does not exist"
-            return 1
-        fi
-        echo -e "\n# $name service (static files)\n$name.local:80 {\n    root * $target\n    file_server\n}" | sudo tee -a "$GNAR_CADDYFILE" > /dev/null
-        echo "Added $name.local:80 -> $target"
-        echo "Note: $target must be bind-mounted into the caddy container; edit /srv/stack/docker-compose.yml."
-    fi
+    # Insert the new block right after the marker, separated by a blank line.
+    printf '%s\n' "$block" | sudo tee -a "$GNAR_CADDYFILE" > /dev/null
 
     if eval "sudo $GNAR_CADDY_RELOAD" 2>/dev/null; then
-        echo "Site available at: http://$name.local"
+        return 0
     else
-        echo "Configuration error — rolling back"
+        echo "Caddy reload failed — rolling back"
         sudo mv "$backup" "$GNAR_CADDYFILE"
         return 1
     fi
 }
 
-list-sites() {
-    if [ -f "$GNAR_CADDYFILE" ]; then
-        sudo grep -E "^[a-zA-Z0-9.-]+(.local)?(:[0-9]+)? {" "$GNAR_CADDYFILE" 2>/dev/null | sed 's/ {//' || echo "No sites configured"
-    else
-        echo "No Caddyfile at $GNAR_CADDYFILE"
+# --- Private vhost on :80 (tailnet) -----------------------------------------
+add-site() {
+    if [ -z "$1" ]; then
+        echo "Usage: add-site <name> [port|directory]"
+        echo "Examples:"
+        echo "  add-site myapp 3000              # reverse proxy http://myapp.local → host:3000"
+        echo "  add-site static /srv/projects/x  # serve static dir"
+        echo "Tailnet only. For public sites, use add-public-site."
+        return 1
     fi
+
+    local name=$1
+    local target=${2:-3000}
+
+    # Drop any existing block for this name (private).
+    if sudo grep -q "^$name\.local:80 {" "$GNAR_CADDYFILE" 2>/dev/null; then
+        sudo sed -i "/^$name\.local:80 {/,/^}/d" "$GNAR_CADDYFILE"
+    fi
+
+    local block
+    if [[ "$target" =~ ^[0-9]+$ ]]; then
+        block=$(printf '\n# private: %s\n%s.local:80 {\n    reverse_proxy host.docker.internal:%s\n}' \
+            "$name" "$name" "$target")
+        _gnar_caddy_append PRIVATE-SITES "$block" \
+            && echo "Private site: http://$name.local → host:$target"
+    else
+        if [ ! -d "$target" ]; then
+            echo "Directory $target does not exist"
+            return 1
+        fi
+        block=$(printf '\n# private static: %s\n%s.local:80 {\n    root * %s\n    file_server\n}' \
+            "$name" "$name" "$target")
+        _gnar_caddy_append PRIVATE-SITES "$block" \
+            && echo "Private static: http://$name.local → $target"
+        echo "Note: $target must be bind-mounted into the caddy container (edit /srv/stack/docker-compose.yml)."
+    fi
+}
+
+# --- Public vhost on :8080 (Cloudflare Tunnel) ------------------------------
+add-public-site() {
+    if [ -z "$1" ]; then
+        echo "Usage: add-public-site <hostname> [port|directory]"
+        echo "Examples:"
+        echo "  add-public-site myapp.example.com 3000"
+        echo "  add-public-site blog.example.com /srv/projects/blog/public"
+        echo "Public via cloudflared. You also need to (a) configure the public"
+        echo "hostname → http://localhost:8080 route in the Cloudflare dashboard,"
+        echo "and (b) point DNS at the tunnel."
+        return 1
+    fi
+
+    local host=$1
+    local target=${2:-3000}
+
+    # Drop any existing block for this host (public listener uses :8080).
+    if sudo grep -q "^http://$host:8080 {" "$GNAR_CADDYFILE" 2>/dev/null; then
+        sudo sed -i "/^http:\/\/$host:8080 {/,/^}/d" "$GNAR_CADDYFILE"
+    fi
+
+    local block
+    if [[ "$target" =~ ^[0-9]+$ ]]; then
+        block=$(printf '\n# public: %s\nhttp://%s:8080 {\n    reverse_proxy host.docker.internal:%s\n}' \
+            "$host" "$host" "$target")
+        _gnar_caddy_append PUBLIC-SITES "$block" \
+            && echo "Public site: https://$host → host:$target (via tunnel)"
+    else
+        if [ ! -d "$target" ]; then
+            echo "Directory $target does not exist"
+            return 1
+        fi
+        block=$(printf '\n# public static: %s\nhttp://%s:8080 {\n    root * %s\n    file_server\n}' \
+            "$host" "$host" "$target")
+        _gnar_caddy_append PUBLIC-SITES "$block" \
+            && echo "Public static: https://$host → $target (via tunnel)"
+        echo "Note: $target must be bind-mounted into the caddy container (edit /srv/stack/docker-compose.yml)."
+    fi
+}
+
+list-sites() {
+    if [ ! -f "$GNAR_CADDYFILE" ]; then
+        echo "No Caddyfile at $GNAR_CADDYFILE"
+        return
+    fi
+    echo "Private (tailnet):"
+    sudo grep -E "^[a-zA-Z0-9.-]+\.local:80 \{" "$GNAR_CADDYFILE" 2>/dev/null \
+        | sed 's/ {//;s/^/  /' || echo "  (none)"
+    echo "Public (cloudflared):"
+    sudo grep -E "^http://[a-zA-Z0-9.-]+:8080 \{" "$GNAR_CADDYFILE" 2>/dev/null \
+        | sed 's| {||;s|^http://|  |' || echo "  (none)"
 }
 
 remove-site() {
     if [ -z "$1" ]; then
-        echo "Usage: remove-site <name>"
+        echo "Usage: remove-site <name-or-hostname>"
+        echo "Matches both private (.local:80) and public (:8080) blocks."
         return 1
     fi
 
     local name=$1
     local backup="$GNAR_CADDYFILE.backup.$(date +%Y%m%d_%H%M%S)"
-
     sudo cp "$GNAR_CADDYFILE" "$backup"
     sudo sed -i "/^$name\.local:80 {/,/^}/d" "$GNAR_CADDYFILE"
+    sudo sed -i "/^http:\/\/$name:8080 {/,/^}/d" "$GNAR_CADDYFILE"
 
     if eval "sudo $GNAR_CADDY_RELOAD" 2>/dev/null; then
-        echo "Removed $name.local from Caddy"
+        echo "Removed $name from Caddy"
     else
         echo "Configuration error — rolling back"
         sudo mv "$backup" "$GNAR_CADDYFILE"
