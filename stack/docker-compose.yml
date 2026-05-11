@@ -91,7 +91,10 @@ services:
     container_name: gnar-hermes-dashboard
     network_mode: service:tailscale
     depends_on: [tailscale, hermes-gateway]
-    command: ["hermes", "dashboard", "--host", "0.0.0.0", "--port", "9119"]
+    # Bind to localhost only — Hermes refuses 0.0.0.0 (dashboard exposes
+    # API keys without auth). caddy reverse-proxies hermes.local → :9119
+    # in the same netns, so external access still works via caddy.
+    command: ["hermes", "dashboard", "--host", "127.0.0.1", "--port", "9119"]
     volumes:
       - ./data/hermes:/root/.hermes
       - ./data/claude:/root/.claude
