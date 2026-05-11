@@ -20,7 +20,9 @@
 }
 
 hermes.local:80 {
-    reverse_proxy localhost:9119
+    # Explicit 127.0.0.1 — `localhost` resolves to ::1 in this container
+    # but hermes binds IPv4 only.
+    reverse_proxy 127.0.0.1:9119
 }
 
 # add-site appends private vhosts below this line.
