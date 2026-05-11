@@ -468,6 +468,7 @@ install -m 755 "$BIN/gnar-services-status"  /usr/local/bin/gnar-services-status
 install -m 755 "$BIN/gnar-claude-stats"     /usr/local/bin/gnar-claude-stats
 install -m 755 "$BIN/gnar-hermes-status"    /usr/local/bin/gnar-hermes-status
 install -m 755 "$BIN/gnar-project-init"     /usr/local/bin/gnar-project-init
+install -m 755 "$BIN/gnar-bootstrap"        /usr/local/bin/gnar-bootstrap
 
 # Default project root for Hermes-managed work. Owned by the user so
 # `gnar-project-init` doesn't need sudo to create new projects under it.
@@ -546,36 +547,16 @@ echo "  2. ssh in, run: tmux"
 echo "  3. add-site myapp 3000   # reverse proxy a service"
 echo "  4. gnar-help             # full reference"
 echo
-echo "Container stack (caddy + tailscale + hermes-gateway + hermes-dashboard):"
-echo "  systemctl status gnar-stack             # build status (one-time on first boot)"
-echo "  cd /srv/stack && docker compose ps      # individual services"
+echo "After this reboot, run:"
 echo
-echo "Interactive first-boot setup (run on the host):"
-echo "  # 1. Tailscale: either fill TS_AUTHKEY in /srv/stack/.env, or:"
-echo "  cd /srv/stack && docker compose exec tailscale tailscale up"
+echo "  gnar-bootstrap"
 echo
-echo "  # 2. Claude Code subscription auth (used as a subprocess by the agent):"
-echo "  cd /srv/stack && docker compose exec hermes-gateway claude   # /login, /exit"
+echo "It walks tailscale auth → claude login → hermes brain auth →"
+echo "Telegram setup → optional gh + cloudflared. Idempotent — re-run"
+echo "any time and it skips steps that are already done."
 echo
-echo "  # 3. Hermes orchestrator brain auth (Anthropic OAuth, OpenAI-Codex, or api-key):"
-echo "  cd /srv/stack && docker compose exec hermes-gateway hermes auth add anthropic --type oauth"
-echo "  cd /srv/stack && docker compose exec hermes-gateway hermes gateway setup"
-echo "  cd /srv/stack && docker compose restart hermes-gateway hermes-dashboard"
-echo
-echo "  Dashboard: http://<tailnet-ip> (caddy reverse-proxies hermes.local → :9119)"
-echo
-echo "Optional, for agent capabilities:"
-echo "  # GitHub API (issues, PRs, releases — git push works without this):"
-echo "  cd /srv/stack && docker compose exec hermes-gateway gh auth login"
-echo
-echo "  # Cloudflare Tunnel (public ingress to caddy):"
-echo "  # 1. Create a tunnel + token in dashboard → Networks → Tunnels"
-echo "  # 2. Set CLOUDFLARED_TOKEN in /srv/stack/.env"
-echo "  # 3. cd /srv/stack && docker compose --profile cloudflared up -d"
-echo
-echo "Per-project bootstrap (run once for each repo Hermes should operate on):"
+echo "Per-project (run once per repo Hermes should operate on):"
 echo "  gnar-project-init /srv/projects/<name> \"<one-line description>\""
-echo "  cd /srv/projects/<name> && git init    # if not already a repo"
 if [ "$ROOT_FS" = "btrfs" ]; then
     echo
     echo "Btrfs detected — Snapper is enabled. Useful commands:"

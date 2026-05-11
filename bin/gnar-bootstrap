@@ -1,0 +1,216 @@
+#!/bin/bash
+# GNAR — interactive post-install: tailscale up, claude /login, hermes
+# brain auth, telegram setup, optional gh + cloudflared. Idempotent.
+#
+# Run once after `sudo reboot` from setup.sh. Re-runnable any time —
+# steps already complete are skipped automatically.
+
+set -uo pipefail
+
+STACK=/srv/stack
+# Use arrays so word-splitting is intentional.
+COMPOSE=(docker compose -f "$STACK/docker-compose.yml")
+EXEC_GW=("${COMPOSE[@]}" exec -T hermes-gateway)
+EXEC_GW_TTY=("${COMPOSE[@]}" exec hermes-gateway)
+EXEC_TS=("${COMPOSE[@]}" exec -T tailscale)
+EXEC_TS_TTY=("${COMPOSE[@]}" exec tailscale)
+
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+RED='\033[0;31m'
+DIM='\033[2m'
+NC='\033[0m'
+
+step()  { printf "\n${GREEN}━━━ %s ━━━${NC}\n" "$1"; }
+ok()    { printf "${GREEN}✓${NC} %s\n" "$1"; }
+skip()  { printf "${DIM}↩ %s${NC}\n" "$1"; }
+warn()  { printf "${YELLOW}!${NC} %s\n" "$1"; }
+fail()  { printf "${RED}✗${NC} %s\n" "$1"; }
+
+ask() {
+    local prompt=$1
+    local default=${2:-Y}
+    local yn
+    if [ "$default" = "Y" ]; then
+        read -r -p "$prompt [Y/n] " yn
+        case "$yn" in [Nn]*) return 1 ;; *) return 0 ;; esac
+    else
+        read -r -p "$prompt [y/N] " yn
+        case "$yn" in [Yy]*) return 0 ;; *) return 1 ;; esac
+    fi
+}
+
+# ---------------------------------------------------------------------------
+# Preflight
+# ---------------------------------------------------------------------------
+step "Preflight"
+
+if [ ! -d "$STACK" ]; then
+    fail "$STACK not found — run setup.sh first."
+    exit 1
+fi
+
+if ! systemctl is-active --quiet gnar-stack; then
+    warn "gnar-stack.service inactive. Starting it now (image build can take ~10 min on first run)..."
+    sudo systemctl start gnar-stack
+fi
+
+# Wait for compose services to be up (poll for ~2 min before giving up).
+for i in $(seq 1 24); do
+    if "${COMPOSE[@]}" ps --status running 2>/dev/null | grep -q gnar-tailscale; then
+        ok "Stack is up"
+        break
+    fi
+    [ "$i" = 24 ] && { fail "Stack not running after 2 minutes. Check: sudo journalctl -fu gnar-stack"; exit 1; }
+    [ "$i" = 1 ]  && printf '%s' "${DIM}Waiting for containers"
+    printf "."
+    sleep 5
+done
+echo
+
+# ---------------------------------------------------------------------------
+# Tailscale
+# ---------------------------------------------------------------------------
+step "Tailscale"
+
+if "${EXEC_TS[@]}" tailscale status 2>/dev/null | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+'; then
+    TS_IP=$("${EXEC_TS[@]}" tailscale ip -4 2>/dev/null | tr -d '\r')
+    ok "Already authenticated ($TS_IP)"
+else
+    warn "Not authenticated yet."
+    echo "  A browser URL will print — open it on your laptop and approve the device."
+    if ask "Run tailscale up now?"; then
+        "${EXEC_TS_TTY[@]}" tailscale up
+        TS_IP=$("${EXEC_TS[@]}" tailscale ip -4 2>/dev/null | tr -d '\r')
+        ok "Tailnet IP: $TS_IP"
+    else
+        skip "Tailscale — re-run gnar-bootstrap later."
+    fi
+fi
+
+# ---------------------------------------------------------------------------
+# Claude Code subscription auth
+# ---------------------------------------------------------------------------
+step "Claude Code subscription"
+
+if "${EXEC_GW[@]}" test -f /root/.claude/.credentials.json 2>/dev/null || \
+   "${EXEC_GW[@]}" test -f /root/.claude/auth.json 2>/dev/null; then
+    ok "Already authenticated"
+else
+    warn "Claude isn't logged in. The agent uses claude as a subprocess tool."
+    echo "  Inside the claude prompt: type ${GREEN}/login${NC}, finish browser flow, then ${GREEN}/exit${NC}."
+    if ask "Run claude now?"; then
+        "${EXEC_GW_TTY[@]}" claude
+    else
+        skip "Claude — re-run gnar-bootstrap later."
+    fi
+fi
+
+# ---------------------------------------------------------------------------
+# Hermes brain auth
+# ---------------------------------------------------------------------------
+step "Hermes brain provider"
+
+if "${EXEC_GW[@]}" hermes auth list 2>/dev/null | grep -vE '^(No |Provider|$)' | grep -q .; then
+    PROVIDERS=$("${EXEC_GW[@]}" hermes auth list 2>/dev/null | tail -n +2 | awk '{print $1}' | sort -u | tr '\n' ' ')
+    ok "Already configured ($PROVIDERS)"
+else
+    warn "No Hermes brain provider yet. Pick one:"
+    echo "    1) anthropic — OAuth, uses your Claude subscription (recommended if you have one)"
+    echo "    2) openai-codex — OAuth, uses your ChatGPT subscription"
+    echo "    3) anthropic-key — API key (metered, no subscription)"
+    echo "    4) openai-key — API key (metered, no subscription)"
+    echo "    5) openrouter — API key, supports many models including free tiers"
+    echo "    s) skip — set up later"
+    read -r -p "Choice [1-5/s]: " choice
+    case "$choice" in
+        1) "${EXEC_GW_TTY[@]}" hermes auth add anthropic --type oauth --no-browser ;;
+        2) "${EXEC_GW_TTY[@]}" hermes auth add openai-codex --type oauth --no-browser ;;
+        3) "${EXEC_GW_TTY[@]}" hermes auth add anthropic --type api-key ;;
+        4) "${EXEC_GW_TTY[@]}" hermes auth add openai --type api-key ;;
+        5) "${EXEC_GW_TTY[@]}" hermes auth add openrouter --type api-key ;;
+        *) skip "Hermes brain — re-run gnar-bootstrap later." ;;
+    esac
+fi
+
+# ---------------------------------------------------------------------------
+# Telegram gateway
+# ---------------------------------------------------------------------------
+step "Telegram gateway"
+
+if "${EXEC_GW[@]}" test -f /root/.hermes/gateway.toml 2>/dev/null && \
+   "${EXEC_GW[@]}" grep -q '\[telegram\]' /root/.hermes/gateway.toml 2>/dev/null; then
+    ok "Already configured"
+else
+    warn "Telegram bot not set up yet."
+    cat <<'EOF'
+  In Telegram on your phone, do TWO things first:
+    1. Message @BotFather, /newbot, save the HTTP token it prints.
+    2. Message @userinfobot, save the numeric user ID it replies with.
+  The wizard will ask for both.
+EOF
+    if ask "Run hermes gateway setup now?"; then
+        "${EXEC_GW_TTY[@]}" hermes gateway setup
+    else
+        skip "Telegram gateway — re-run gnar-bootstrap later."
+    fi
+fi
+
+# ---------------------------------------------------------------------------
+# Optional: GitHub CLI
+# ---------------------------------------------------------------------------
+step "GitHub CLI (optional)"
+
+if "${EXEC_GW[@]}" gh auth status 2>&1 | grep -q 'Logged in to github.com'; then
+    ok "gh already authenticated"
+elif ask "Authenticate gh now (lets the agent open PRs / read issues)?" N; then
+    "${EXEC_GW_TTY[@]}" gh auth login
+else
+    skip "gh — git push still works without it; run later if you want the API."
+fi
+
+# ---------------------------------------------------------------------------
+# Optional: Cloudflare Tunnel
+# ---------------------------------------------------------------------------
+step "Cloudflare Tunnel (optional)"
+
+CF_TOKEN=$(sudo awk -F= '/^CLOUDFLARED_TOKEN=/{print $2}' "$STACK/.env" 2>/dev/null | tr -d '"' | tr -d "'")
+if [ -n "${CF_TOKEN:-}" ]; then
+    if "${COMPOSE[@]}" ps cloudflared 2>/dev/null | grep -q running; then
+        ok "Tunnel connector already running"
+    else
+        warn "CLOUDFLARED_TOKEN is set; starting the connector."
+        sudo "${COMPOSE[@]}" --profile cloudflared up -d
+        ok "cloudflared up. Add public sites with: add-public-site <host> <port>"
+    fi
+else
+    skip "Set CLOUDFLARED_TOKEN in /srv/stack/.env and re-run gnar-bootstrap to enable."
+fi
+
+# ---------------------------------------------------------------------------
+# Restart hermes services so the new auth + gateway config are picked up
+# ---------------------------------------------------------------------------
+step "Restarting hermes services"
+sudo "${COMPOSE[@]}" restart hermes-gateway hermes-dashboard 2>/dev/null || true
+ok "Done."
+
+# ---------------------------------------------------------------------------
+# Summary
+# ---------------------------------------------------------------------------
+step "Where things are"
+
+TS_IP=${TS_IP:-$("${EXEC_TS[@]}" tailscale ip -4 2>/dev/null | tr -d '\r')}
+[ -n "$TS_IP" ] || TS_IP='<run tailscale up first>'
+
+cat <<EOF
+  Dashboard      http://$TS_IP (Caddy → hermes.local:80 → :9119 internally)
+  Bot            message the bot you registered with /help
+  Stack logs     sudo journalctl -fu gnar-stack
+                 cd $STACK && docker compose logs -f hermes-gateway
+  Add a site     add-site <name> <port>           # private, tailnet
+                 add-public-site <host> <port>    # public, via cloudflared
+  New project    gnar-project-init /srv/projects/<name> "<desc>"
+
+If something's off, re-run \`gnar-bootstrap\` — it skips steps that are
+already done and re-prompts the ones that aren't.
+EOF
