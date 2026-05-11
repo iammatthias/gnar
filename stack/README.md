@@ -79,23 +79,46 @@ docker compose exec caddy caddy reload
 
 The `add-site myapp 3000` zsh helper does this for you.
 
-## Public ingress via Cloudflare Tunnel (optional)
+## Two listeners: private vs public
 
-Cloudflared is in the compose file but disabled by default (behind the
-`cloudflared` profile). To enable it, create a tunnel + connector token
-in the Cloudflare Zero Trust dashboard, paste it into `/srv/stack/.env`
-as `CLOUDFLARED_TOKEN=...`, route the tunnel's public hostname to
-`http://localhost:80` in the dashboard, then:
+Caddy listens on two separate ports inside the tailscale netns:
 
-```
-cd /srv/stack
-docker compose --profile cloudflared up -d
-```
+| Port  | Listener  | Reached by             | Helper            |
+|-------|-----------|------------------------|-------------------|
+| 80    | private   | tailnet                | `add-site`        |
+| 8080  | public    | cloudflared tunnel     | `add-public-site` |
 
-Cloudflared runs in the tailscale netns alongside caddy. The tunnel
-delivers traffic to `localhost:80` (caddy), which dispatches by hostname
-per the Caddyfile. So you get one tunnel that fronts every site `add-site`
-adds.
+The split is intentional. Cloudflared only ever delivers traffic to
+`localhost:8080`, so it physically can't reach the dashboard or any
+other private vhost — the dashboard isn't on that listener.
+
+## Public sites via Cloudflare Tunnel (optional)
+
+The cloudflared service is in the compose file but disabled (behind the
+`cloudflared` profile). To turn it on:
+
+1. **Create a tunnel.** Cloudflare Zero Trust dashboard → Networks →
+   Tunnels → Create a tunnel. Save the connector token.
+2. **Configure routes.** In that tunnel's "Public Hostnames" tab, add
+   each public hostname (e.g. `myapp.example.com`) and route each to
+   `http://localhost:8080`. They all share the same single route on
+   the tunnel side — caddy distinguishes them by Host header.
+3. **Set the token.** In `/srv/stack/.env`, set
+   `CLOUDFLARED_TOKEN=...`.
+4. **Start the connector.**
+   ```
+   cd /srv/stack
+   docker compose --profile cloudflared up -d
+   ```
+5. **Publish a site.** From a shell on the box:
+   ```
+   add-public-site myapp.example.com 3000
+   ```
+   That writes a vhost block to the Caddyfile and reloads caddy. The
+   site is now live at `https://myapp.example.com`.
+
+One tunnel covers every site you publish — `add-public-site` per
+hostname.
 
 ## Agent has git + gh + cloudflared
 
