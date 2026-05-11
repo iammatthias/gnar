@@ -66,19 +66,23 @@ services:
       - /srv/projects:/srv/projects:rw
       # So the agent can `docker ps` etc. on the host docker.
       - /var/run/docker.sock:/var/run/docker.sock
-      # Git: share the host user's SSH keys + gitconfig so `git push` Just
-      # Works. Read-only so the agent can't mutate host credentials.
-      # USER_HOME is set in .env at setup.sh time (because compose may be
-      # invoked by systemd as root, where $HOME would be /root, not the
-      # gnar user's home — leading docker to auto-create empty dirs at
-      # /root/.ssh / /root/.gitconfig that then break git in the container).
+      # Git/SSH: share the host user's SSH keys so `git push` over SSH
+      # works as the gnar user. .ssh is a DIRECTORY so a bind-mount is
+      # fine; .gitconfig has to live elsewhere because single-file binds
+      # break rename() (git + gh write by rename).
+      # USER_HOME is set in .env by setup.sh — without it $HOME would
+      # be /root when compose runs from the gnar-stack systemd unit.
       - ${USER_HOME:-/root}/.ssh:/root/.ssh:ro
-      - ${USER_HOME:-/root}/.gitconfig:/root/.gitconfig:ro
       # gh CLI auth + cloudflared cert (created by interactive `gh auth login`
       # / `cloudflared tunnel login` from inside the container). Both persist
       # across rebuilds via this bind mount.
       - ./data/agent-tools:/root/.config
     # host.docker.internal inherited from the tailscale service via netns.
+    environment:
+      # Point git's "global config" at the persisted .config directory
+      # (mounted from ./data/agent-tools). gh and git both write here;
+      # no single-file bind mount, so rename() works.
+      GIT_CONFIG_GLOBAL: /root/.config/git/config
     restart: unless-stopped
 
   # Web UI for the kanban board + session inspector.

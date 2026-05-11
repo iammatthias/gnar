@@ -399,8 +399,9 @@ install -d -o "$REAL_USER" -g "$REAL_USER" \
     /srv/stack/data/claude \
     /srv/stack/data/agent-tools
 
-# ~/.gitconfig must exist on host or the read-only bind mount into the
-# hermes container fails. Drop a stub if missing — user can edit later.
+# ~/.gitconfig on the host: the agent container doesn't bind to this file
+# directly any more (single-file binds break rename()), but it's still
+# useful for the host user. Drop a stub if missing.
 if [ ! -f "$REAL_HOME/.gitconfig" ]; then
     cat > "$REAL_HOME/.gitconfig" <<EOF
 # Edit user.name + user.email to your identity.
@@ -411,6 +412,15 @@ if [ ! -f "$REAL_HOME/.gitconfig" ]; then
     defaultBranch = main
 EOF
     chown "$REAL_USER:$REAL_USER" "$REAL_HOME/.gitconfig"
+fi
+
+# Seed the agent's git config (lives at /srv/stack/data/agent-tools/git/config,
+# pointed at by GIT_CONFIG_GLOBAL in the hermes container). gh + git inside
+# the container write here, surviving compose down/up.
+install -d -o "$REAL_USER" -g "$REAL_USER" /srv/stack/data/agent-tools/git
+if [ ! -s /srv/stack/data/agent-tools/git/config ] && [ -s "$REAL_HOME/.gitconfig" ]; then
+    cp "$REAL_HOME/.gitconfig" /srv/stack/data/agent-tools/git/config
+    chown "$REAL_USER:$REAL_USER" /srv/stack/data/agent-tools/git/config
 fi
 
 # systemd unit that runs `docker compose up -d --build` at boot.
