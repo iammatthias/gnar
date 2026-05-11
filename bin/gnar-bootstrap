@@ -8,11 +8,18 @@
 set -uo pipefail
 
 STACK=/srv/stack
-# Use arrays so word-splitting is intentional.
 COMPOSE=(docker compose -f "$STACK/docker-compose.yml")
+
+# For non-interactive reads (state checks), use `compose exec -T`.
 EXEC_GW=("${COMPOSE[@]}" exec -T hermes-gateway)
-EXEC_GW_TTY=("${COMPOSE[@]}" exec hermes-gateway)
 EXEC_TS=("${COMPOSE[@]}" exec -T tailscale)
+
+# For interactive flows, use raw `docker exec -it <container-name>`.
+# `docker compose exec` without -T is supposed to allocate a TTY, but in
+# practice (especially inside scripts) it often doesn't pass through stdin
+# correctly. Raw `docker exec -it` is more reliable.
+EXEC_GW_IT=(docker exec -it gnar-hermes-gateway)
+EXEC_TS_IT=(docker exec -it gnar-tailscale)
 
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
@@ -20,11 +27,12 @@ RED='\033[0;31m'
 DIM='\033[2m'
 NC='\033[0m'
 
-step()  { printf "\n${GREEN}━━━ %s ━━━${NC}\n" "$1"; }
-ok()    { printf "${GREEN}✓${NC} %s\n" "$1"; }
-skip()  { printf "${DIM}↩ %s${NC}\n" "$1"; }
-warn()  { printf "${YELLOW}!${NC} %s\n" "$1"; }
-fail()  { printf "${RED}✗${NC} %s\n" "$1"; }
+step()  { printf "\n%b━━━ %s ━━━%b\n" "$GREEN" "$1" "$NC"; }
+ok()    { printf "%b✓%b %s\n" "$GREEN" "$NC" "$1"; }
+skip()  { printf "%b↩ %s%b\n" "$DIM" "$1" "$NC"; }
+warn()  { printf "%b!%b %s\n" "$YELLOW" "$NC" "$1"; }
+fail()  { printf "%b✗%b %s\n" "$RED" "$NC" "$1"; }
+info()  { printf "  %s\n" "$1"; }
 
 ask() {
     local prompt=$1
@@ -76,22 +84,25 @@ TS_IP=$("${EXEC_TS[@]}" tailscale ip -4 2>/dev/null | tr -d '\r')
 if [ -n "$TS_IP" ]; then
     ok "Already authenticated ($TS_IP)"
 else
-    # Pull TS_HOSTNAME from .env so we re-apply the same flags the container's
-    # auto-`tailscale up` used at startup (otherwise tailscale rejects the
-    # call with "changing settings requires mentioning all non-default flags").
+    # Read TS_HOSTNAME from .env so we use the same flags the container's
+    # startup `tailscale up` was invoked with (otherwise tailscale rejects
+    # the call with "changing settings requires mentioning all non-default
+    # flags").
     TS_HOSTNAME=$(sudo awk -F= '/^TS_HOSTNAME=/{print $2}' "$STACK/.env" 2>/dev/null \
         | tr -d "\"' ")
     : "${TS_HOSTNAME:=gnar}"
 
     warn "Tailscale isn't authenticated yet."
-    echo "  A login URL will print below — open it on your laptop and approve the device."
-    echo "  This command will block until you complete the browser flow."
+    info "A login URL will print below — open it on your laptop and approve the device."
+    info "This blocks until you finish in the browser."
     echo
-    # Interactive exec (no -T) so tailscale can both print the URL and block
-    # waiting for auth. --reset clears any prior settings from the container's
-    # startup `tailscale up`, so we don't get "non-default flags" errors.
-    "${COMPOSE[@]}" exec tailscale tailscale up --reset \
-        --hostname="$TS_HOSTNAME" --ssh
+    # Use raw `docker exec -it` (compose exec's TTY pass-through is flaky
+    # from inside scripts). Flags match what tailscale's "changing settings"
+    # error tells us to use, so we don't re-trip on it.
+    "${EXEC_TS_IT[@]}" tailscale up \
+        --accept-dns=false \
+        --hostname="$TS_HOSTNAME" \
+        --ssh
 
     TS_IP=$("${EXEC_TS[@]}" tailscale ip -4 2>/dev/null | tr -d '\r')
     if [ -n "$TS_IP" ]; then
@@ -111,9 +122,9 @@ if "${EXEC_GW[@]}" test -f /root/.claude/.credentials.json 2>/dev/null || \
     ok "Already authenticated"
 else
     warn "Claude isn't logged in. The agent uses claude as a subprocess tool."
-    echo "  Inside the claude prompt: type ${GREEN}/login${NC}, finish browser flow, then ${GREEN}/exit${NC}."
+    info "Inside the claude prompt: type /login, finish browser flow, then /exit."
     if ask "Run claude now?"; then
-        "${EXEC_GW_TTY[@]}" claude
+        "${EXEC_GW_IT[@]}" claude
     else
         skip "Claude — re-run gnar-bootstrap later."
     fi
@@ -129,19 +140,19 @@ if "${EXEC_GW[@]}" hermes auth list 2>/dev/null | grep -vE '^(No |Provider|$)' |
     ok "Already configured ($PROVIDERS)"
 else
     warn "No Hermes brain provider yet. Pick one:"
-    echo "    1) anthropic — OAuth, uses your Claude subscription (recommended if you have one)"
-    echo "    2) openai-codex — OAuth, uses your ChatGPT subscription"
-    echo "    3) anthropic-key — API key (metered, no subscription)"
-    echo "    4) openai-key — API key (metered, no subscription)"
-    echo "    5) openrouter — API key, supports many models including free tiers"
-    echo "    s) skip — set up later"
+    info "1) anthropic — OAuth, uses your Claude subscription (recommended if you have one)"
+    info "2) openai-codex — OAuth, uses your ChatGPT subscription"
+    info "3) anthropic-key — API key (metered, no subscription)"
+    info "4) openai-key — API key (metered, no subscription)"
+    info "5) openrouter — API key, supports many models including free tiers"
+    info "s) skip — set up later"
     read -r -p "Choice [1-5/s]: " choice
     case "$choice" in
-        1) "${EXEC_GW_TTY[@]}" hermes auth add anthropic --type oauth --no-browser ;;
-        2) "${EXEC_GW_TTY[@]}" hermes auth add openai-codex --type oauth --no-browser ;;
-        3) "${EXEC_GW_TTY[@]}" hermes auth add anthropic --type api-key ;;
-        4) "${EXEC_GW_TTY[@]}" hermes auth add openai --type api-key ;;
-        5) "${EXEC_GW_TTY[@]}" hermes auth add openrouter --type api-key ;;
+        1) "${EXEC_GW_IT[@]}" hermes auth add anthropic --type oauth --no-browser ;;
+        2) "${EXEC_GW_IT[@]}" hermes auth add openai-codex --type oauth --no-browser ;;
+        3) "${EXEC_GW_IT[@]}" hermes auth add anthropic --type api-key ;;
+        4) "${EXEC_GW_IT[@]}" hermes auth add openai --type api-key ;;
+        5) "${EXEC_GW_IT[@]}" hermes auth add openrouter --type api-key ;;
         *) skip "Hermes brain — re-run gnar-bootstrap later." ;;
     esac
 fi
@@ -156,14 +167,12 @@ if "${EXEC_GW[@]}" test -f /root/.hermes/gateway.toml 2>/dev/null && \
     ok "Already configured"
 else
     warn "Telegram bot not set up yet."
-    cat <<'EOF'
-  In Telegram on your phone, do TWO things first:
-    1. Message @BotFather, /newbot, save the HTTP token it prints.
-    2. Message @userinfobot, save the numeric user ID it replies with.
-  The wizard will ask for both.
-EOF
+    info "In Telegram on your phone, do TWO things first:"
+    info "  1. Message @BotFather, /newbot, save the HTTP token it prints."
+    info "  2. Message @userinfobot, save the numeric user ID it replies with."
+    info "The wizard will ask for both."
     if ask "Run hermes gateway setup now?"; then
-        "${EXEC_GW_TTY[@]}" hermes gateway setup
+        "${EXEC_GW_IT[@]}" hermes gateway setup
     else
         skip "Telegram gateway — re-run gnar-bootstrap later."
     fi
@@ -177,7 +186,7 @@ step "GitHub CLI (optional)"
 if "${EXEC_GW[@]}" gh auth status 2>&1 | grep -q 'Logged in to github.com'; then
     ok "gh already authenticated"
 elif ask "Authenticate gh now (lets the agent open PRs / read issues)?" N; then
-    "${EXEC_GW_TTY[@]}" gh auth login
+    "${EXEC_GW_IT[@]}" gh auth login
 else
     skip "gh — git push still works without it; run later if you want the API."
 fi
@@ -222,7 +231,7 @@ cat <<EOF
                  cd $STACK && docker compose logs -f hermes-gateway
   Add a site     add-site <name> <port>           # private, tailnet
                  add-public-site <host> <port>    # public, via cloudflared
-  New project    gnar-project-init /srv/projects/<name> "<desc>"
+  New project    ask Hermes — "set up a new project at /srv/projects/<name>"
 
 If something's off, re-run \`gnar-bootstrap\` — it skips steps that are
 already done and re-prompts the ones that aren't.
