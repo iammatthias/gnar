@@ -144,7 +144,7 @@ sudo -u "$REAL_USER" rm -rf "$REAL_HOME/.oh-my-zsh" || true
 rm -f /usr/local/bin/gnar-info /usr/local/bin/gnar-update /usr/local/bin/gnar-help \
       /usr/local/bin/gnar-dashboard /usr/local/bin/gnar-services-status \
       /usr/local/bin/gnar-claude-stats /usr/local/bin/gnar-hermes-status \
-      /usr/local/bin/gnar-project-init
+      /usr/local/bin/gnar-project-init /usr/local/bin/gnar-bootstrap
 
 echo
 echo -e "${GREEN}GNAR configuration removed.${NC}"

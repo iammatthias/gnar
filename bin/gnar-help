@@ -16,6 +16,10 @@ Core
                               Bootstrap a project for Hermes:
                               chainlink init + CLAUDE.md template +
                               register in ~/.hermes/MEMORY.md
+  gnar-bootstrap              Interactive post-install wizard:
+                              tailscale + claude + hermes brain auth +
+                              Telegram bot + optional gh / cloudflared.
+                              Idempotent — re-run any time.
 
 System info / status
   ff, nf                      fastfetch
