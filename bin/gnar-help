@@ -13,9 +13,9 @@ Core
   gnar-hermes-status          Hermes auth + kanban + cron (one-shot)
   gnar-claude-stats           Claude Code session + token stats (one-shot)
   gnar-project-init <path> [desc]
-                              Bootstrap a project for Hermes:
-                              chainlink init + CLAUDE.md template +
-                              register in ~/.hermes/MEMORY.md
+                              Manual project bootstrap (rare — usually
+                              ask Hermes "set up a project at /srv/..."
+                              and it'll use the init-project skill).
   gnar-bootstrap              Interactive post-install wizard:
                               tailscale + claude + hermes brain auth +
                               Telegram bot + optional gh / cloudflared.

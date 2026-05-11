@@ -555,8 +555,8 @@ echo "It walks tailscale auth → claude login → hermes brain auth →"
 echo "Telegram setup → optional gh + cloudflared. Idempotent — re-run"
 echo "any time and it skips steps that are already done."
 echo
-echo "Per-project (run once per repo Hermes should operate on):"
-echo "  gnar-project-init /srv/projects/<name> \"<one-line description>\""
+echo "From there, talk to your bot. Hermes can set up new projects,"
+echo "deploy sites, manage docker, etc. — the agent calls its own tools."
 if [ "$ROOT_FS" = "btrfs" ]; then
     echo
     echo "Btrfs detected — Snapper is enabled. Useful commands:"
