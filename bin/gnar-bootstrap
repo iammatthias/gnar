@@ -138,6 +138,18 @@ step "Hermes brain provider"
 if "${EXEC_GW[@]}" hermes auth list 2>/dev/null | grep -vE '^(No |Provider|$)' | grep -q .; then
     PROVIDERS=$("${EXEC_GW[@]}" hermes auth list 2>/dev/null | tail -n +2 | awk '{print $1}' | sort -u | tr '\n' ' ')
     ok "Already configured ($PROVIDERS)"
+    # Auth is set, but Hermes also needs an active model. Check + prompt.
+    CURRENT_MODEL=$("${EXEC_GW[@]}" hermes config get model 2>/dev/null | tail -1 | tr -d '\r ')
+    if [ -z "$CURRENT_MODEL" ] || [ "$CURRENT_MODEL" = "null" ] || [ "$CURRENT_MODEL" = "None" ]; then
+        warn "No active model set — the bot will reject inference requests."
+        if ask "Pick a model now (interactive)?"; then
+            "${EXEC_GW_IT[@]}" hermes model
+        else
+            skip "Model — re-run gnar-bootstrap or use /model in Telegram."
+        fi
+    else
+        ok "Model: $CURRENT_MODEL"
+    fi
 else
     warn "No Hermes brain provider yet. Pick one:"
     info "1) anthropic — OAuth, uses your Claude subscription (recommended if you have one)"
