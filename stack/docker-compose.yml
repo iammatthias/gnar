@@ -20,6 +20,11 @@ services:
     cap_add:
       - NET_ADMIN
       - NET_RAW
+    # `extra_hosts` MUST live on the netns owner. Sibling containers
+    # using `network_mode: service:tailscale` share /etc/hosts, so this
+    # propagates automatically.
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     restart: unless-stopped
 
   # Reverse proxy for everything served from the box. Edits to ./Caddyfile
@@ -33,9 +38,8 @@ services:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
       - ./data/caddy/data:/data
       - ./data/caddy/config:/config
-    extra_hosts:
-      # So `reverse_proxy host.docker.internal:3000` reaches host services.
-      - "host.docker.internal:host-gateway"
+    # host.docker.internal resolution comes from the tailscale service
+    # — containers sharing its netns inherit /etc/hosts.
     restart: unless-stopped
 
   # Hermes orchestrator: Telegram bot + agent brain. Calls the bundled
@@ -70,8 +74,7 @@ services:
       # / `cloudflared tunnel login` from inside the container). Both persist
       # across rebuilds via this bind mount.
       - ./data/agent-tools:/root/.config
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
+    # host.docker.internal inherited from the tailscale service via netns.
     restart: unless-stopped
 
   # Web UI for the kanban board + session inspector.
