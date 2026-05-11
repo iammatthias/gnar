@@ -227,6 +227,17 @@ fi
 # Docker
 # -----------------------------------------------------------------------------
 echo -e "${GREEN}Configuring Docker...${NC}"
+# Give every container working public DNS. The Arch host runs
+# systemd-resolved which points /etc/resolv.conf at 127.0.0.53 — that
+# doesn't translate inside containers, leaving them unable to resolve
+# api.anthropic.com etc. Set explicit upstream resolvers at the daemon
+# level so every container inherits them.
+install -d /etc/docker
+cat > /etc/docker/daemon.json <<'EOF'
+{
+  "dns": ["1.1.1.1", "1.0.0.1", "8.8.8.8"]
+}
+EOF
 systemctl enable docker
 # pacman -Syu earlier may have upgraded the kernel; iptables modules in the
 # running kernel won't match until reboot. Don't let that abort the bootstrap.
