@@ -21,7 +21,12 @@
 :80 {
     # Explicit 127.0.0.1 — `localhost` resolves to ::1 inside this
     # container but hermes binds IPv4 only.
-    reverse_proxy 127.0.0.1:9119
+    # header_up Host: hermes dashboard rejects requests whose Host header
+    # doesn't match its bound address. Rewrite Host so it sees 127.0.0.1
+    # regardless of what tailnet hostname the laptop used to reach caddy.
+    reverse_proxy 127.0.0.1:9119 {
+        header_up Host 127.0.0.1:9119
+    }
 }
 
 # add-site appends private vhosts below this line.
