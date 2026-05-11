@@ -39,11 +39,14 @@ It is a single-tenant home server intended for remote development over SSH.
 - **chainlink** — per-project issue tracker, also bundled in the
   hermes image. Run `chainlink init` inside a project before pointing
   the agent at it.
-- **gnar-project-init `<path>` [`<desc>`]** — one-shot bootstrap for a
-  new project: runs `chainlink init`, drops a starter `CLAUDE.md`,
-  registers the project in `/srv/stack/data/hermes/MEMORY.md`. Default
-  project root is `/srv/projects` (bind-mounted into the agent
-  container at the same path).
+- **New projects** — message the bot: "set up a new project at
+  /srv/projects/foo, it's a FastAPI + Postgres backend." Hermes uses
+  the `init-project` skill to mkdir, `chainlink init`, drop a CLAUDE.md
+  template, and register the project in MEMORY.md. Default project
+  root is `/srv/projects` (bind-mounted into the agent container at the
+  same path).
+  - For setting up a project without Hermes (rare): `gnar-project-init
+    <path> [<description>]` on the host.
 
 ### Web / proxy + agent stack
 The network ingress + agent layer runs as a docker-compose stack at
