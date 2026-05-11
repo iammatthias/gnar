@@ -44,12 +44,13 @@ RUN npm install -g @anthropic-ai/claude-code \
  && npm cache clean --force
 
 # Hermes — install via uv from upstream (matches the spec's manual path).
-# fastapi + uvicorn are required by the `hermes dashboard` subcommand but
-# aren't pulled in by the base install, so we add them explicitly.
+# Extras the base install doesn't pull but specific subcommands need:
+#   - fastapi + uvicorn : `hermes dashboard` web UI
+#   - python-telegram-bot: the Telegram gateway adapter
 RUN git clone --depth=1 https://github.com/NousResearch/hermes-agent.git /opt/hermes-agent \
  && cd /opt/hermes-agent \
  && uv venv --python 3.11 \
- && uv pip install -e . fastapi uvicorn \
+ && uv pip install -e . fastapi uvicorn python-telegram-bot \
  && ln -sf /opt/hermes-agent/.venv/bin/hermes /usr/local/bin/hermes
 
 # Default workdir + state location.
