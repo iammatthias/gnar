@@ -62,7 +62,7 @@ for i in $(seq 1 24); do
         break
     fi
     [ "$i" = 24 ] && { fail "Stack not running after 2 minutes. Check: sudo journalctl -fu gnar-stack"; exit 1; }
-    [ "$i" = 1 ]  && printf '%s' "${DIM}Waiting for containers"
+    [ "$i" = 1 ]  && printf "%bWaiting for containers" "$DIM"
     printf "."
     sleep 5
 done
@@ -73,18 +73,34 @@ echo
 # ---------------------------------------------------------------------------
 step "Tailscale"
 
-if "${EXEC_TS[@]}" tailscale status 2>/dev/null | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+'; then
-    TS_IP=$("${EXEC_TS[@]}" tailscale ip -4 2>/dev/null | tr -d '\r')
+TS_IP=$("${EXEC_TS[@]}" tailscale ip -4 2>/dev/null | tr -d '\r')
+if [ -n "$TS_IP" ]; then
     ok "Already authenticated ($TS_IP)"
 else
-    warn "Not authenticated yet."
-    echo "  A browser URL will print — open it on your laptop and approve the device."
-    if ask "Run tailscale up now?"; then
-        "${EXEC_TS_TTY[@]}" tailscale up
-        TS_IP=$("${EXEC_TS[@]}" tailscale ip -4 2>/dev/null | tr -d '\r')
-        ok "Tailnet IP: $TS_IP"
+    warn "Tailscale isn't authenticated yet."
+    # The tailscale container ran `tailscale up` at start with TS_EXTRA_ARGS
+    # (typically --hostname=gnar --ssh). The auth URL was printed in its logs.
+    AUTH_URL=$("${COMPOSE[@]}" logs tailscale 2>/dev/null \
+        | grep -oE 'https://login\.tailscale\.com/a/[a-zA-Z0-9]+' | tail -1)
+    if [ -n "$AUTH_URL" ]; then
+        echo "  Open this URL on your laptop and approve the device:"
+        echo
+        printf "    ${GREEN}%s${NC}\n" "$AUTH_URL"
+        echo
+        echo "  Polling for completion. Ctrl-C to skip and continue."
+        # Poll for ~3 min for the IP to appear after auth.
+        for _ in $(seq 1 36); do
+            TS_IP=$("${EXEC_TS[@]}" tailscale ip -4 2>/dev/null | tr -d '\r')
+            [ -n "$TS_IP" ] && break
+            sleep 5
+        done
+        if [ -n "$TS_IP" ]; then ok "Tailnet IP: $TS_IP"
+        else                     warn "Still not authenticated. Skipping; re-run gnar-bootstrap later."
+        fi
     else
-        skip "Tailscale — re-run gnar-bootstrap later."
+        warn "Couldn't find an auth URL in the tailscale logs."
+        echo "  Either run \`docker compose logs tailscale\` manually,"
+        echo "  or re-issue auth with: docker compose exec tailscale tailscale up --reset --hostname=gnar --ssh"
     fi
 fi
 
