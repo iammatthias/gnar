@@ -76,30 +76,28 @@ TS_IP=$("${EXEC_TS[@]}" tailscale ip -4 2>/dev/null | tr -d '\r')
 if [ -n "$TS_IP" ]; then
     ok "Already authenticated ($TS_IP)"
 else
+    # Pull TS_HOSTNAME from .env so we re-apply the same flags the container's
+    # auto-`tailscale up` used at startup (otherwise tailscale rejects the
+    # call with "changing settings requires mentioning all non-default flags").
+    TS_HOSTNAME=$(sudo awk -F= '/^TS_HOSTNAME=/{print $2}' "$STACK/.env" 2>/dev/null \
+        | tr -d "\"' ")
+    : "${TS_HOSTNAME:=gnar}"
+
     warn "Tailscale isn't authenticated yet."
-    # The tailscale container ran `tailscale up` at start with TS_EXTRA_ARGS
-    # (typically --hostname=gnar --ssh). The auth URL was printed in its logs.
-    AUTH_URL=$("${COMPOSE[@]}" logs tailscale 2>/dev/null \
-        | grep -oE 'https://login\.tailscale\.com/a/[a-zA-Z0-9]+' | tail -1)
-    if [ -n "$AUTH_URL" ]; then
-        echo "  Open this URL on your laptop and approve the device:"
-        echo
-        printf "    ${GREEN}%s${NC}\n" "$AUTH_URL"
-        echo
-        echo "  Polling for completion. Ctrl-C to skip and continue."
-        # Poll for ~3 min for the IP to appear after auth.
-        for _ in $(seq 1 36); do
-            TS_IP=$("${EXEC_TS[@]}" tailscale ip -4 2>/dev/null | tr -d '\r')
-            [ -n "$TS_IP" ] && break
-            sleep 5
-        done
-        if [ -n "$TS_IP" ]; then ok "Tailnet IP: $TS_IP"
-        else                     warn "Still not authenticated. Skipping; re-run gnar-bootstrap later."
-        fi
+    echo "  A login URL will print below — open it on your laptop and approve the device."
+    echo "  This command will block until you complete the browser flow."
+    echo
+    # Interactive exec (no -T) so tailscale can both print the URL and block
+    # waiting for auth. --reset clears any prior settings from the container's
+    # startup `tailscale up`, so we don't get "non-default flags" errors.
+    "${COMPOSE[@]}" exec tailscale tailscale up --reset \
+        --hostname="$TS_HOSTNAME" --ssh
+
+    TS_IP=$("${EXEC_TS[@]}" tailscale ip -4 2>/dev/null | tr -d '\r')
+    if [ -n "$TS_IP" ]; then
+        ok "Authenticated. Tailnet IP: $TS_IP"
     else
-        warn "Couldn't find an auth URL in the tailscale logs."
-        echo "  Either run \`docker compose logs tailscale\` manually,"
-        echo "  or re-issue auth with: docker compose exec tailscale tailscale up --reset --hostname=gnar --ssh"
+        warn "Tailscale auth didn't complete. Re-run gnar-bootstrap."
     fi
 fi
 
