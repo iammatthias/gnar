@@ -68,8 +68,12 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock
       # Git: share the host user's SSH keys + gitconfig so `git push` Just
       # Works. Read-only so the agent can't mutate host credentials.
-      - ${HOME}/.ssh:/root/.ssh:ro
-      - ${HOME}/.gitconfig:/root/.gitconfig:ro
+      # USER_HOME is set in .env at setup.sh time (because compose may be
+      # invoked by systemd as root, where $HOME would be /root, not the
+      # gnar user's home — leading docker to auto-create empty dirs at
+      # /root/.ssh / /root/.gitconfig that then break git in the container).
+      - ${USER_HOME:-/root}/.ssh:/root/.ssh:ro
+      - ${USER_HOME:-/root}/.gitconfig:/root/.gitconfig:ro
       # gh CLI auth + cloudflared cert (created by interactive `gh auth login`
       # / `cloudflared tunnel login` from inside the container). Both persist
       # across rebuilds via this bind mount.

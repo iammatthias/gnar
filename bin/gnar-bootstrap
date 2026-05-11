@@ -186,7 +186,12 @@ step "GitHub CLI (optional)"
 if "${EXEC_GW[@]}" gh auth status 2>&1 | grep -q 'Logged in to github.com'; then
     ok "gh already authenticated"
 elif ask "Authenticate gh now (lets the agent open PRs / read issues)?" N; then
-    "${EXEC_GW_IT[@]}" gh auth login
+    # Pre-set the answers gh would otherwise prompt for, so all you have
+    # to do is copy the device code + open the URL.
+    "${EXEC_GW_IT[@]}" gh auth login \
+        --hostname github.com \
+        --git-protocol https \
+        --web
 else
     skip "gh — git push still works without it; run later if you want the API."
 fi

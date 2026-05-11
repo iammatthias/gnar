@@ -378,6 +378,15 @@ if [ ! -f /srv/stack/.env ]; then
     chown "$REAL_USER:$REAL_USER" /srv/stack/.env
 fi
 
+# Write the user's actual home dir into .env so docker compose binds
+# /home/<user>/.ssh + .gitconfig (not /root/...) even when started by a
+# root systemd unit. Replace any existing USER_HOME= line, append if new.
+if grep -q '^USER_HOME=' /srv/stack/.env; then
+    sed -i "s|^USER_HOME=.*|USER_HOME=$REAL_HOME|" /srv/stack/.env
+else
+    echo "USER_HOME=$REAL_HOME" >> /srv/stack/.env
+fi
+
 # Bind-mount target dirs (created with the right ownership before
 # docker auto-creates them with root).
 install -d -o "$REAL_USER" -g "$REAL_USER" \
