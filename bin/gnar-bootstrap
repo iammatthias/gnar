@@ -13,7 +13,6 @@ COMPOSE=(docker compose -f "$STACK/docker-compose.yml")
 EXEC_GW=("${COMPOSE[@]}" exec -T hermes-gateway)
 EXEC_GW_TTY=("${COMPOSE[@]}" exec hermes-gateway)
 EXEC_TS=("${COMPOSE[@]}" exec -T tailscale)
-EXEC_TS_TTY=("${COMPOSE[@]}" exec tailscale)
 
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
