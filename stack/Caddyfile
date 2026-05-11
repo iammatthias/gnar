@@ -15,13 +15,12 @@
 # PRIVATE — tailnet only
 # =============================================================================
 
+# Default site on the tailnet — any hostname pointing at the box that
+# doesn't match a more-specific block below lands on the Hermes dashboard.
+# Hit http://<tailnet-ip> or http://<box>.<tailnet>.ts.net to reach it.
 :80 {
-    respond "GNAR (tailnet)"
-}
-
-hermes.local:80 {
-    # Explicit 127.0.0.1 — `localhost` resolves to ::1 in this container
-    # but hermes binds IPv4 only.
+    # Explicit 127.0.0.1 — `localhost` resolves to ::1 inside this
+    # container but hermes binds IPv4 only.
     reverse_proxy 127.0.0.1:9119
 }
 
