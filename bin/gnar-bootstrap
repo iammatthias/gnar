@@ -162,8 +162,12 @@ fi
 # ---------------------------------------------------------------------------
 step "Telegram gateway"
 
-if "${EXEC_GW[@]}" test -f /root/.hermes/gateway.toml 2>/dev/null && \
-   "${EXEC_GW[@]}" grep -q '\[telegram\]' /root/.hermes/gateway.toml 2>/dev/null; then
+# Hermes' gateway-setup writes its config under /root/.hermes, but the
+# exact filename varies (gateway.toml, gateways/telegram.toml, settings/...,
+# etc.). Detect by grepping the whole dir for a telegram reference.
+if "${EXEC_GW[@]}" sh -c \
+    'grep -rsIl -E "(\[telegram\]|telegram_token|telegram-bot|bot_token)" /root/.hermes 2>/dev/null | head -1' \
+    | grep -q .; then
     ok "Already configured"
 else
     warn "Telegram bot not set up yet."
