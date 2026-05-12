@@ -112,16 +112,26 @@ services:
     restart: unless-stopped
 
   # Cloudflare Tunnel — public ingress to caddy without opening host ports.
-  # Disabled by default. To enable: create a tunnel in the Cloudflare
-  # dashboard (Zero Trust → Networks → Tunnels), copy the connector token
-  # into /srv/stack/.env as CLOUDFLARED_TOKEN, then `docker compose up -d
-  # cloudflared`. Route the tunnel's public hostname to localhost:80 in
-  # the dashboard; caddy then handles vhost routing per-hostname.
+  # Disabled by default (profile-gated). Set up via CLI (no dashboard
+  # needed):
+  #
+  #   cd ~/gnar && ./scripts/cloudflared-setup.sh
+  #
+  # That script handles `tunnel login` (one browser click), tunnel
+  # creation, DNS routing for $PREVIEW_APEX + *.$PREVIEW_APEX, and
+  # writes config.yml + credentials into ./data/cloudflared/. Then:
+  #
+  #   cd /srv/stack && docker compose --profile cloudflared up -d
+  #
+  # All state (cert.pem, <tunnel-id>.json, config.yml) lives at
+  # /srv/stack/data/cloudflared/ and persists across rebuilds.
   cloudflared:
     image: cloudflare/cloudflared:latest
     container_name: gnar-cloudflared
     network_mode: service:tailscale
     depends_on: [tailscale, caddy]
-    command: tunnel --no-autoupdate run --token ${CLOUDFLARED_TOKEN:-}
+    command: tunnel --config /etc/cloudflared/config.yml --no-autoupdate run
+    volumes:
+      - ./data/cloudflared:/etc/cloudflared:ro
     profiles: ["cloudflared"]
     restart: unless-stopped
