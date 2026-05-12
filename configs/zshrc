@@ -394,10 +394,15 @@ add-public-site() {
     fi
 }
 
-# --- Preview vhost on the *.$PREVIEW_APEX wildcard -------------------------
-# Convention: every preview gets <name>.$PREVIEW_APEX, fronted by the
-# cloudflared connector. The apex comes from /srv/stack/.env so this repo
-# stays generic.
+# --- Preview vhost on the *.$PREVIEW_APEX wildcard (tailnet-private) -------
+# Convention: every preview gets <name>.$PREVIEW_APEX, served by caddy with
+# a real LE wildcard cert (DNS-01 via Cloudflare). Tailnet-private because
+# *.$PREVIEW_APEX DNS resolves to this box's tailnet IP.
+#
+# Each preview is one fragment file under /srv/stack/preview-handles/<name>.caddy
+# imported into the wildcard HTTPS block in /srv/stack/Caddyfile.
+GNAR_PREVIEW_HANDLES=/srv/stack/preview-handles
+
 _gnar_preview_apex() {
     local apex
     apex=$(awk -F= '/^PREVIEW_APEX=/{print $2}' /srv/stack/.env 2>/dev/null \
@@ -412,7 +417,7 @@ add-preview-site() {
         echo "Examples:"
         echo "  add-preview-site hello /srv/projects/hello-world"
         echo "  add-preview-site myapp 3000"
-        echo "Visible at: https://<name>.$apex (public via cloudflared)"
+        echo "Visible at: https://<name>.$apex (tailnet-private)"
         echo "PREVIEW_APEX is read from /srv/stack/.env."
         return 1
     fi
@@ -422,28 +427,77 @@ add-preview-site() {
     local apex
     apex=$(_gnar_preview_apex)
     local host="$name.$apex"
+    local handle_file="$GNAR_PREVIEW_HANDLES/$name.caddy"
+    local backup_file=""
 
-    # Drop any existing block for this hostname.
-    if sudo grep -q "^http://$host:8080 {" "$GNAR_CADDYFILE" 2>/dev/null; then
-        sudo sed -i "/^http:\/\/$host:8080 {/,/^}/d" "$GNAR_CADDYFILE"
+    sudo mkdir -p "$GNAR_PREVIEW_HANDLES"
+    if sudo test -f "$handle_file"; then
+        backup_file="$handle_file.backup.$(date +%Y%m%d_%H%M%S)"
+        sudo cp "$handle_file" "$backup_file"
     fi
 
-    local block
     if [[ "$target" =~ ^[0-9]+$ ]]; then
-        block=$(printf '\n# preview: %s\nhttp://%s:8080 {\n    reverse_proxy host.docker.internal:%s\n}' \
-            "$name" "$host" "$target")
-        _gnar_caddy_append PREVIEW-SITES "$block" \
-            && echo "Preview: https://$host → host:$target"
+        sudo tee "$handle_file" > /dev/null <<EOF
+# preview: $name → host:$target
+@$name host $host
+handle @$name {
+    reverse_proxy host.docker.internal:$target
+}
+EOF
     else
         if [ ! -d "$target" ]; then
             echo "Directory $target does not exist"
             return 1
         fi
-        block=$(printf '\n# preview static: %s\nhttp://%s:8080 {\n    root * %s\n    file_server\n}' \
-            "$name" "$host" "$target")
-        _gnar_caddy_append PREVIEW-SITES "$block" \
-            && echo "Preview static: https://$host → $target"
+        sudo tee "$handle_file" > /dev/null <<EOF
+# preview static: $name → $target
+@$name host $host
+handle @$name {
+    root * $target
+    file_server
+}
+EOF
     fi
+
+    if eval "sudo $GNAR_CADDY_RELOAD"; then
+        echo "Preview: https://$host → $target"
+        [ -n "$backup_file" ] && sudo rm -f "$backup_file"
+        return 0
+    else
+        echo "Caddy reload failed — rolling back"
+        if [ -n "$backup_file" ]; then
+            sudo mv "$backup_file" "$handle_file"
+        else
+            sudo rm -f "$handle_file"
+        fi
+        return 1
+    fi
+}
+
+remove-preview-site() {
+    if [ -z "$1" ]; then
+        echo "Usage: remove-preview-site <name>"
+        return 1
+    fi
+    local handle_file="$GNAR_PREVIEW_HANDLES/$1.caddy"
+    if ! sudo test -f "$handle_file"; then
+        echo "No preview at $handle_file"
+        return 1
+    fi
+    sudo rm -f "$handle_file"
+    eval "sudo $GNAR_CADDY_RELOAD" && echo "Removed preview: $1"
+}
+
+list-preview-sites() {
+    local apex; apex=$(_gnar_preview_apex)
+    if ! sudo test -d "$GNAR_PREVIEW_HANDLES"; then
+        echo "No previews."
+        return
+    fi
+    for f in $(sudo find "$GNAR_PREVIEW_HANDLES" -maxdepth 1 -name '*.caddy' 2>/dev/null); do
+        local name; name=$(basename "$f" .caddy)
+        printf "  https://%s.%s\n" "$name" "$apex"
+    done
 }
 
 list-sites() {
@@ -468,12 +522,11 @@ remove-site() {
 
     local name=$1
     local backup="$GNAR_CADDYFILE.backup.$(date +%Y%m%d_%H%M%S)"
-    local apex; apex=$(_gnar_preview_apex)
     sudo cp "$GNAR_CADDYFILE" "$backup"
     sudo sed -i "/^$name\.local:80 {/,/^}/d" "$GNAR_CADDYFILE"
     sudo sed -i "/^http:\/\/$name:8080 {/,/^}/d" "$GNAR_CADDYFILE"
-    # Preview block on the $PREVIEW_APEX wildcard.
-    sudo sed -i "/^http:\/\/$name\.$apex:8080 {/,/^}/d" "$GNAR_CADDYFILE"
+    # Note: preview subdomains live in /srv/stack/preview-handles/<name>.caddy,
+    # not in the Caddyfile. Use `remove-preview-site` for those.
 
     if eval "sudo $GNAR_CADDY_RELOAD" 2>/dev/null; then
         echo "Removed $name from Caddy"

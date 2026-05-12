@@ -122,25 +122,25 @@ Highlights:
   and a restart loop. If you must change network state, ask first.
 - Don't reach for Tailscale **Services** (`svc:foo` hostnames,
   `tailscale serve --service=...`) or spin up per-site tailscale
-  sidecars. Both work but add admin friction. Previews here go
-  through Cloudflare instead — see below.
+  sidecars. Both work but add admin friction.
 - Don't hand-roll subpath routing (`handle_path /<name>*` in the
   shared caddy). Each preview gets its own subdomain on the
   preview apex.
 - **Preview sites use `add-preview-site <name> <port-or-dir>`**
-  (zsh function from the user shell). It writes a vhost into
-  `/srv/stack/Caddyfile` for `<name>.$PREVIEW_APEX` and reloads
-  caddy. `$PREVIEW_APEX` is the user-owned domain set in
-  `/srv/stack/.env` (e.g. `previews.example.com`); read it from
-  there if you need the actual value. The cloudflared connector
-  (compose profile `cloudflared`) fronts the same apex + wildcard
-  and terminates TLS at Cloudflare, so the resulting URL is
-  `https://<name>.$PREVIEW_APEX` — public, real cert, no extra
-  wiring on the box.
-- A future tailnet-only path is gated on Tailscale enabling the
-  `dns-subdomain-resolve` nodeAttr for this tailnet (control-plane
-  feature, currently denied). If it ever lights up we can revisit;
-  until then, previews are Cloudflare-fronted.
+  (zsh function). It writes one fragment file at
+  `/srv/stack/preview-handles/<name>.caddy` (imported into the
+  wildcard HTTPS site block in `/srv/stack/Caddyfile`) and reloads
+  caddy. The URL is `https://<name>.$PREVIEW_APEX` —
+  **tailnet-private**: DNS for `*.$PREVIEW_APEX` points at this
+  box's tailnet IP, so off-tailnet clients can't reach it. Caddy
+  serves a real LE wildcard cert obtained via ACME DNS-01 against
+  Cloudflare. `$PREVIEW_APEX` lives in `/srv/stack/.env`; read it
+  from there if you need the actual value.
+- For an **opt-in public preview** (someone off-tailnet needs the
+  URL), the cloudflared connector + `add-public-site <hostname>
+  <port-or-dir>` handles it. That writes onto caddy's `:8080`
+  listener which the tunnel fronts. Don't use it by default —
+  previews are tailnet-private unless asked.
 - Don't modify `/srv/stack/docker-compose.yml` or `/srv/stack/Caddyfile`
   by hand inside a single agent turn; the user iterates the source-of-
   truth in `~/gnar/stack/` and copies into `/srv/stack/`. If you want

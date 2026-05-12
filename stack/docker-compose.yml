@@ -30,15 +30,23 @@ services:
   # Reverse proxy for everything served from the box. Edits to ./Caddyfile
   # take effect with `docker compose exec caddy caddy reload`.
   caddy:
-    image: caddy:latest
+    # Custom build — adds the caddy-dns/cloudflare module so caddy can
+    # do ACME DNS-01 against Cloudflare (required for LE wildcard certs
+    # on *.$PREVIEW_APEX).
+    build:
+      context: ./caddy
+      dockerfile: Dockerfile
+    image: gnar-caddy:latest
     container_name: gnar-caddy
     network_mode: service:tailscale
     depends_on: [tailscale]
     environment:
-      # Caddy substitutes {$PREVIEW_APEX} in Caddyfile at config-load time.
-      # Default mirrors .env.example so the file still parses if the host
-      # .env hasn't been customized yet.
+      # Caddy substitutes {$PREVIEW_APEX} and {env.CF_API_TOKEN} in the
+      # Caddyfile at config-load / cert-issuance time. Defaults mirror
+      # .env.example so the file still parses if .env hasn't been
+      # customized yet.
       PREVIEW_APEX: ${PREVIEW_APEX:-previews.example.com}
+      CF_API_TOKEN: ${CF_API_TOKEN:-}
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
       - ./data/caddy/data:/data
@@ -48,6 +56,10 @@ services:
       # Project files — so `add-preview-site hello /srv/projects/foo`
       # can serve straight out of the project's own dir without copying.
       - /srv/projects:/srv/projects:ro
+      # Per-preview caddy fragments — one .caddy file per preview,
+      # written by `add-preview-site` and imported into the wildcard
+      # HTTPS block at config-load time.
+      - ./preview-handles:/etc/caddy/preview-handles:ro
     # host.docker.internal resolution comes from the tailscale service
     # — containers sharing its netns inherit /etc/hosts.
     restart: unless-stopped
