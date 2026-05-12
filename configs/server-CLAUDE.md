@@ -121,21 +121,26 @@ Highlights:
   Tags that aren't pre-approved in the tailnet ACL cause auth rejection
   and a restart loop. If you must change network state, ask first.
 - Don't reach for Tailscale **Services** (`svc:foo` hostnames,
-  `tailscale serve --service=...`). That feature *does* require
-  tag-based identity, an ACL grant, and admin approval — overkill
-  for previewing a static site, and the user can't always edit the
-  tailnet ACL.
+  `tailscale serve --service=...`) or spin up per-site tailscale
+  sidecars. Both work but add admin friction. Previews here go
+  through Cloudflare instead — see below.
 - Don't hand-roll subpath routing (`handle_path /<name>*` in the
-  shared caddy). The convention here is **one tailnet hostname per
-  preview site**.
-- **Preview sites use `gnar-preview-site <name> <site_dir>`.** It
-  scaffolds `/srv/preview-sites/<name>/` with its own tailscale +
-  caddy containers, runs `tailscale serve` so the node's MagicDNS
-  name terminates TLS, and yields `https://<name>.<tailnet>.ts.net`.
-  No tags, no ACL edits — each preview is just a normal tailnet
-  device. The user must hand you a fresh TS_AUTHKEY (generated at
-  https://login.tailscale.com/admin/settings/keys, reusable +
-  ephemeral both fine); don't try to fabricate one.
+  shared caddy). Each preview gets its own subdomain on the
+  preview apex.
+- **Preview sites use `add-preview-site <name> <port-or-dir>`**
+  (zsh function from the user shell). It writes a vhost into
+  `/srv/stack/Caddyfile` for `<name>.$PREVIEW_APEX` and reloads
+  caddy. `$PREVIEW_APEX` is the user-owned domain set in
+  `/srv/stack/.env` (e.g. `previews.example.com`); read it from
+  there if you need the actual value. The cloudflared connector
+  (compose profile `cloudflared`) fronts the same apex + wildcard
+  and terminates TLS at Cloudflare, so the resulting URL is
+  `https://<name>.$PREVIEW_APEX` — public, real cert, no extra
+  wiring on the box.
+- A future tailnet-only path is gated on Tailscale enabling the
+  `dns-subdomain-resolve` nodeAttr for this tailnet (control-plane
+  feature, currently denied). If it ever lights up we can revisit;
+  until then, previews are Cloudflare-fronted.
 - Don't modify `/srv/stack/docker-compose.yml` or `/srv/stack/Caddyfile`
   by hand inside a single agent turn; the user iterates the source-of-
   truth in `~/gnar/stack/` and copies into `/srv/stack/`. If you want

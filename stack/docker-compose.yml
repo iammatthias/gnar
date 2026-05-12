@@ -34,10 +34,20 @@ services:
     container_name: gnar-caddy
     network_mode: service:tailscale
     depends_on: [tailscale]
+    environment:
+      # Caddy substitutes {$PREVIEW_APEX} in Caddyfile at config-load time.
+      # Default mirrors .env.example so the file still parses if the host
+      # .env hasn't been customized yet.
+      PREVIEW_APEX: ${PREVIEW_APEX:-previews.example.com}
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
       - ./data/caddy/data:/data
       - ./data/caddy/config:/config
+      # Static "online" homepage served at the preview apex.
+      - ./homepage:/srv/homepage:ro
+      # Project files — so `add-preview-site hello /srv/projects/foo`
+      # can serve straight out of the project's own dir without copying.
+      - /srv/projects:/srv/projects:ro
     # host.docker.internal resolution comes from the tailscale service
     # — containers sharing its netns inherit /etc/hosts.
     restart: unless-stopped
