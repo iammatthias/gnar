@@ -120,15 +120,25 @@ Highlights:
   `--advertise-routes=...`, etc.) without explicit user instruction.
   Tags that aren't pre-approved in the tailnet ACL cause auth rejection
   and a restart loop. If you must change network state, ask first.
-- Don't reach for Tailscale Services (`svc:foo` hostnames,
-  `tailscale serve --service=...`) for site deployments. They require
-  per-service ACL edits in the tailnet admin (which you can't access)
-  and are the wrong tool for "give a site its own clean URL." The
-  current convention on this box is **subpath routing**: every preview
-  site is `https://gnar.tailcf0ef1.ts.net/<name>/`, served via a
-  `handle_path /<name>*` block in /srv/stack/Caddyfile. If the user
-  wants real hostnames they'll move that site to a public domain via
-  cloudflared.
+- Don't reach for Tailscale **Services** (`svc:foo` hostnames,
+  `tailscale serve --service=...`). That feature *does* require
+  tag-based identity, an ACL grant, and admin approval of the host
+  advertisement — overkill for previewing a static site. **Plain
+  `tailscale serve` is fine**, but only serves under *this node's*
+  hostname (one MagicDNS name per node).
+  Two patterns are supported on this box for clean preview URLs, in
+  order of preference:
+  1. **Subpath routing** (default, lowest-friction): every preview is
+     `https://gnar.tailcf0ef1.ts.net/<name>/`, via a `handle_path
+     /<name>*` block appended to `/srv/stack/Caddyfile`. Use this
+     unless the user explicitly asks for a hostname.
+  2. **Per-site tailscale sidecar** (when the user wants a real
+     hostname like `hello.tailcf0ef1.ts.net`): add another
+     `tailscale` service to docker-compose with its own
+     `TS_HOSTNAME` + `TS_AUTHKEY`, and a sibling caddy/static-server
+     that uses `network_mode: service:tailscale-<name>`. No ACL or
+     tag changes required — each sidecar is just another tailnet
+     device. Ask the user first; this adds a container per site.
 - Don't modify `/srv/stack/docker-compose.yml` or `/srv/stack/Caddyfile`
   by hand inside a single agent turn; the user iterates the source-of-
   truth in `~/gnar/stack/` and copies into `/srv/stack/`. If you want
