@@ -53,9 +53,11 @@ cf() {
         "$IMG" "$@"
 }
 
-# Same, but with a TTY so the login URL streams to the user.
-cf_tty() {
-    sudo docker run --rm -it \
+# Login flow — same as `cf` but with stdout unbuffered so the URL streams
+# to the caller as soon as cloudflared prints it. No -t (TTY) so the
+# script works fine over a non-interactive SSH session too.
+cf_login() {
+    sudo docker run --rm -i \
         --network=host \
         -v "$DATA":/root/.cloudflared \
         "$IMG" "$@"
@@ -73,7 +75,7 @@ else
     info "A URL will print below — open it in your browser and authorize"
     info "the zone for $PREVIEW_APEX. cloudflared blocks until you finish."
     echo
-    cf_tty tunnel login
+    cf_login tunnel login
     if sudo test -f "$DATA/cert.pem"; then
         ok "Logged in."
     else
