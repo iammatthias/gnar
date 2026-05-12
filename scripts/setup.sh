@@ -499,6 +499,7 @@ install -m 755 "$BIN/gnar-claude-stats"     /usr/local/bin/gnar-claude-stats
 install -m 755 "$BIN/gnar-hermes-status"    /usr/local/bin/gnar-hermes-status
 install -m 755 "$BIN/gnar-project-init"     /usr/local/bin/gnar-project-init
 install -m 755 "$BIN/gnar-bootstrap"        /usr/local/bin/gnar-bootstrap
+install -m 755 "$BIN/gnar-preview-site"     /usr/local/bin/gnar-preview-site
 
 # Default project root for Hermes-managed work. Owned by the user so
 # `gnar-project-init` doesn't need sudo to create new projects under it.

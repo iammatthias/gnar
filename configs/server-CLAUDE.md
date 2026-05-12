@@ -122,23 +122,20 @@ Highlights:
   and a restart loop. If you must change network state, ask first.
 - Don't reach for Tailscale **Services** (`svc:foo` hostnames,
   `tailscale serve --service=...`). That feature *does* require
-  tag-based identity, an ACL grant, and admin approval of the host
-  advertisement — overkill for previewing a static site. **Plain
-  `tailscale serve` is fine**, but only serves under *this node's*
-  hostname (one MagicDNS name per node).
-  Two patterns are supported on this box for clean preview URLs, in
-  order of preference:
-  1. **Subpath routing** (default, lowest-friction): every preview is
-     `https://gnar.tailcf0ef1.ts.net/<name>/`, via a `handle_path
-     /<name>*` block appended to `/srv/stack/Caddyfile`. Use this
-     unless the user explicitly asks for a hostname.
-  2. **Per-site tailscale sidecar** (when the user wants a real
-     hostname like `hello.tailcf0ef1.ts.net`): add another
-     `tailscale` service to docker-compose with its own
-     `TS_HOSTNAME` + `TS_AUTHKEY`, and a sibling caddy/static-server
-     that uses `network_mode: service:tailscale-<name>`. No ACL or
-     tag changes required — each sidecar is just another tailnet
-     device. Ask the user first; this adds a container per site.
+  tag-based identity, an ACL grant, and admin approval — overkill
+  for previewing a static site, and the user can't always edit the
+  tailnet ACL.
+- Don't hand-roll subpath routing (`handle_path /<name>*` in the
+  shared caddy). The convention here is **one tailnet hostname per
+  preview site**.
+- **Preview sites use `gnar-preview-site <name> <site_dir>`.** It
+  scaffolds `/srv/preview-sites/<name>/` with its own tailscale +
+  caddy containers, runs `tailscale serve` so the node's MagicDNS
+  name terminates TLS, and yields `https://<name>.<tailnet>.ts.net`.
+  No tags, no ACL edits — each preview is just a normal tailnet
+  device. The user must hand you a fresh TS_AUTHKEY (generated at
+  https://login.tailscale.com/admin/settings/keys, reusable +
+  ephemeral both fine); don't try to fabricate one.
 - Don't modify `/srv/stack/docker-compose.yml` or `/srv/stack/Caddyfile`
   by hand inside a single agent turn; the user iterates the source-of-
   truth in `~/gnar/stack/` and copies into `/srv/stack/`. If you want
