@@ -1,34 +1,38 @@
-# GNAR — Caddy configuration. Two distinct listeners:
+# GNAR — Caddy configuration. Three listeners:
 #
-#   :80   — PRIVATE. Reached over the tailnet (caddy lives in the
+#   :80   — PRIVATE HTTP. Reached over the tailnet (caddy lives in the
 #           tailscale container's netns). Dashboard + internal services.
 #
-#   :8080 — PUBLIC. Reached by the cloudflared connector, which routes
-#           public hostnames here. TLS terminates at Cloudflare; this
-#           listener is plain HTTP. The apex `{$PREVIEW_APEX}` and any
-#           preview subdomain `*.{$PREVIEW_APEX}` both arrive here.
+#   :443  — PRIVATE HTTPS. Reached over the tailnet on
+#           {$PREVIEW_APEX} and *.{$PREVIEW_APEX}. Real LE wildcard cert
+#           issued via ACME DNS-01 against Cloudflare. Tailnet-private
+#           because DNS for *.$PREVIEW_APEX points at this box's
+#           tailnet IP (CGNAT — not routable outside the tailnet).
 #
-# `{$PREVIEW_APEX}` is substituted at config-load time from the env var
-# of the same name, set by docker-compose from /srv/stack/.env.
+#   :8080 — PUBLIC HTTP. Reached by the cloudflared connector (opt-in
+#           per-site via `add-public-site`). TLS terminates at the CF
+#           edge; this listener is plain HTTP.
+#
+# `{$PREVIEW_APEX}` and `{env.CF_API_TOKEN}` are substituted at
+# config-load / cert-issuance time from env vars set by docker-compose
+# from /srv/stack/.env.
 #
 # Edits land via:
 #   docker compose -f /srv/stack/docker-compose.yml exec caddy caddy reload
-# `add-site` (private), `add-public-site` (public arbitrary host), and
-# `add-preview-site` (public preview-apex subdomain) all do this for you.
+# `add-site` (private :80), `add-public-site` (cloudflared :8080), and
+# `add-preview-site` (private HTTPS subdomain) all do this for you.
 
 # =============================================================================
-# PRIVATE — tailnet only
+# PRIVATE — tailnet only (HTTP, :80)
 # =============================================================================
 
-# Default site on the tailnet — any hostname pointing at the box that
-# doesn't match a more-specific block below lands on the Hermes dashboard.
-# Hit http://<tailnet-ip> or http://<box>.<tailnet>.ts.net to reach it.
+# Default site on :80 — any hostname pointing at the box that doesn't
+# match a more-specific block below lands on the Hermes dashboard.
 :80 {
     # Explicit 127.0.0.1 — `localhost` resolves to ::1 inside this
     # container but hermes binds IPv4 only.
-    # header_up Host: hermes dashboard rejects requests whose Host header
-    # doesn't match its bound address. Rewrite Host so it sees 127.0.0.1
-    # regardless of what tailnet hostname the laptop used to reach caddy.
+    # header_up Host: hermes dashboard rejects requests whose Host
+    # header doesn't match its bound address.
     reverse_proxy 127.0.0.1:9119 {
         header_up Host 127.0.0.1:9119
     }
@@ -38,26 +42,45 @@
 # -------- PRIVATE-SITES --------
 
 # =============================================================================
-# PUBLIC — cloudflared tunnel target
+# PRIVATE — tailnet only (HTTPS wildcard, :443)
 # =============================================================================
+#
+# All preview subdomains share one site block + one wildcard cert. Each
+# preview's per-hostname behavior lives as a separate .caddy file under
+# /srv/stack/preview-handles/, imported below. add-preview-site writes
+# these files and reloads caddy.
 
-# Apex: serves a tiny static "online" homepage. Files live at
-# /srv/stack/homepage on the host (mounted into the container at
-# /srv/homepage).
-http://{$PREVIEW_APEX}:8080 {
-    root * /srv/homepage
-    file_server
+{$PREVIEW_APEX}, *.{$PREVIEW_APEX} {
+    tls {
+        dns cloudflare {env.CF_API_TOKEN}
+    }
+
+    # Apex: serve the static "online" homepage.
+    @apex host {$PREVIEW_APEX}
+    handle @apex {
+        root * /srv/homepage
+        file_server
+    }
+
+    # Per-preview handlers. Each file under preview-handles/ defines:
+    #   @<name> host <name>.{$PREVIEW_APEX}
+    #   handle @<name> { root * /srv/projects/<dir>; file_server }
+    # The glob matches zero files cleanly on a fresh install.
+    import /etc/caddy/preview-handles/*.caddy
+
+    # Fallback for any subdomain that doesn't have a matching handle.
+    handle {
+        respond 404
+    }
 }
 
-# Catch-all on :8080 — anything that arrives via the tunnel without a
-# matching vhost gets a 404. Preview subdomains override this with
-# more-specific blocks added below by `add-preview-site`.
+# =============================================================================
+# PUBLIC — cloudflared tunnel target (opt-in via add-public-site)
+# =============================================================================
+
 http://:8080 {
     respond 404
 }
 
-# add-public-site appends arbitrary public vhosts below this line.
+# add-public-site appends public vhosts below this line.
 # -------- PUBLIC-SITES --------
-
-# add-preview-site appends *.{$PREVIEW_APEX} preview vhosts below this line.
-# -------- PREVIEW-SITES --------
