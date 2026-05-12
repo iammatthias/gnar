@@ -4,12 +4,17 @@
 #           tailscale container's netns). Dashboard + internal services.
 #
 #   :8080 — PUBLIC. Reached by the cloudflared connector, which routes
-#           public hostnames here. Anything in this section is on the
-#           public internet.
+#           public hostnames here. TLS terminates at Cloudflare; this
+#           listener is plain HTTP. The apex `{$PREVIEW_APEX}` and any
+#           preview subdomain `*.{$PREVIEW_APEX}` both arrive here.
+#
+# `{$PREVIEW_APEX}` is substituted at config-load time from the env var
+# of the same name, set by docker-compose from /srv/stack/.env.
 #
 # Edits land via:
 #   docker compose -f /srv/stack/docker-compose.yml exec caddy caddy reload
-# `add-site` (private) and `add-public-site` (public) do this for you.
+# `add-site` (private), `add-public-site` (public arbitrary host), and
+# `add-preview-site` (public preview-apex subdomain) all do this for you.
 
 # =============================================================================
 # PRIVATE — tailnet only
@@ -36,11 +41,23 @@
 # PUBLIC — cloudflared tunnel target
 # =============================================================================
 
+# Apex: serves a tiny static "online" homepage. Files live at
+# /srv/stack/homepage on the host (mounted into the container at
+# /srv/homepage).
+http://{$PREVIEW_APEX}:8080 {
+    root * /srv/homepage
+    file_server
+}
+
+# Catch-all on :8080 — anything that arrives via the tunnel without a
+# matching vhost gets a 404. Preview subdomains override this with
+# more-specific blocks added below by `add-preview-site`.
 http://:8080 {
-    # Default: refuse anything we don't explicitly route.
-    # Public hostnames are added per-vhost below.
     respond 404
 }
 
-# add-public-site appends public vhosts below this line.
+# add-public-site appends arbitrary public vhosts below this line.
 # -------- PUBLIC-SITES --------
+
+# add-preview-site appends *.{$PREVIEW_APEX} preview vhosts below this line.
+# -------- PREVIEW-SITES --------
