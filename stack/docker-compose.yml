@@ -130,6 +130,11 @@ services:
     container_name: gnar-cloudflared
     network_mode: service:tailscale
     depends_on: [tailscale, caddy]
+    # Image defaults to USER=nonroot, but the credentials JSON written by
+    # cloudflared-setup.sh lands as 400 root:root (cloudflared's own
+    # convention — secret material). Run the connector as root so it can
+    # read its own credentials file.
+    user: "0:0"
     command: tunnel --config /etc/cloudflared/config.yml --no-autoupdate run
     volumes:
       - ./data/cloudflared:/etc/cloudflared:ro
