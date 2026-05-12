@@ -114,6 +114,17 @@ Highlights:
 - Project scaffold: `create-react-hono <name>` (React + Hono boilerplate
   in `~/projects/<name>`)
 
+## Don't do
+
+- Don't change tailscale prefs (`tailscale up --advertise-tags=...`,
+  `--advertise-routes=...`, etc.) without explicit user instruction.
+  Tags that aren't pre-approved in the tailnet ACL cause auth rejection
+  and a restart loop. If you must change network state, ask first.
+- Don't modify `/srv/stack/docker-compose.yml` or `/srv/stack/Caddyfile`
+  by hand inside a single agent turn; the user iterates the source-of-
+  truth in `~/gnar/stack/` and copies into `/srv/stack/`. If you want
+  to change stack config, edit the repo and tell the user to pull.
+
 ## Conventions
 
 - New web services should live under `~/projects/<name>` and be exposed
