@@ -108,11 +108,13 @@ fi
 # ---------------------------------------------------------------------------
 step "DNS routes"
 # ---------------------------------------------------------------------------
+# --overwrite-dns: if a CNAME already exists for this host (e.g. from
+# a previous tunnel that got re-created), point it at the new tunnel
+# instead of bailing. Idempotent across tunnel rebuilds.
 for host in "$PREVIEW_APEX" "*.$PREVIEW_APEX"; do
-    if cf tunnel route dns "$CLOUDFLARED_TUNNEL_NAME" "$host" 2>&1 | tee /tmp/cf-dns.out | grep -qiE '(added|propagated|created)'; then
+    if cf tunnel route dns --overwrite-dns "$CLOUDFLARED_TUNNEL_NAME" "$host" 2>&1 \
+        | tee /tmp/cf-dns.out | grep -qiE '(added|propagated|created|configured to route)'; then
         ok "$host → $CLOUDFLARED_TUNNEL_NAME"
-    elif grep -qiE '(already exists|with the same name exists)' /tmp/cf-dns.out; then
-        ok "$host already routed"
     else
         warn "$host routing returned an unexpected result:"
         sed 's/^/    /' /tmp/cf-dns.out
