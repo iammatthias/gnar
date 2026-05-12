@@ -120,6 +120,15 @@ Highlights:
   `--advertise-routes=...`, etc.) without explicit user instruction.
   Tags that aren't pre-approved in the tailnet ACL cause auth rejection
   and a restart loop. If you must change network state, ask first.
+- Don't reach for Tailscale Services (`svc:foo` hostnames,
+  `tailscale serve --service=...`) for site deployments. They require
+  per-service ACL edits in the tailnet admin (which you can't access)
+  and are the wrong tool for "give a site its own clean URL." The
+  current convention on this box is **subpath routing**: every preview
+  site is `https://gnar.tailcf0ef1.ts.net/<name>/`, served via a
+  `handle_path /<name>*` block in /srv/stack/Caddyfile. If the user
+  wants real hostnames they'll move that site to a public domain via
+  cloudflared.
 - Don't modify `/srv/stack/docker-compose.yml` or `/srv/stack/Caddyfile`
   by hand inside a single agent turn; the user iterates the source-of-
   truth in `~/gnar/stack/` and copies into `/srv/stack/`. If you want
