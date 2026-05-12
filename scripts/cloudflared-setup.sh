@@ -49,6 +49,7 @@ info()  { printf "  %s\n" "$1"; }
 cf() {
     sudo docker run --rm -i \
         --network=host \
+        --user 0:0 \
         -v "$DATA":/root/.cloudflared \
         "$IMG" "$@"
 }
@@ -59,6 +60,7 @@ cf() {
 cf_login() {
     sudo docker run --rm -i \
         --network=host \
+        --user 0:0 \
         -v "$DATA":/root/.cloudflared \
         "$IMG" "$@"
 }
