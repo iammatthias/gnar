@@ -294,7 +294,9 @@ alias edit="nvim"
 #   :8080 — public vhosts (Cloudflare Tunnel target). Use add-public-site.
 
 GNAR_CADDYFILE=/srv/stack/Caddyfile
-GNAR_CADDY_RELOAD='cd /srv/stack && docker compose exec -T caddy caddy reload --config /etc/caddy/Caddyfile'
+# Use -f to point compose at the file directly so `sudo $GNAR_CADDY_RELOAD`
+# is a single command — `sudo cd ...` fails because cd is a shell builtin.
+GNAR_CADDY_RELOAD='docker compose -f /srv/stack/docker-compose.yml exec -T caddy caddy reload --config /etc/caddy/Caddyfile'
 
 # Append text right after a marker line and reload caddy. Rolls back on
 # invalid config.
