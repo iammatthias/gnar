@@ -45,18 +45,43 @@ fi
 echo
 printf '\033[1;36m═══ Caddy sites ═══\033[0m\n'
 CADDYFILE=/srv/stack/Caddyfile
+PREVIEW_HANDLES=/srv/stack/preview-handles
+
+# Three site flavors, each stored differently:
+#   private  — `<name>.local:80 {` blocks in the Caddyfile (add-site)
+#   public   — `http://<host>:8080 {` blocks in the Caddyfile (add-public-site)
+#   preview  — fragment files under preview-handles/, NOT in the Caddyfile
+#              (add-preview-site); imported into the wildcard HTTPS block.
+sites=()
+
 if [ -f "$CADDYFILE" ]; then
-    grep -E '^[a-zA-Z0-9._-]+(\.local)?(:[0-9]+)? \{' "$CADDYFILE" 2>/dev/null \
-        | sed 's/ {//' \
-        | while read -r site; do
-            host="${site%:*}"
-            port="${site##*:}"
-            [ "$host" = "$port" ] && port=80
-            # caddy is in the tailscale netns; reach it via tailscale's ip
-            # or simply skip the curl probe since "site listed" is the
-            # signal we want here. Probing requires tailnet routing.
-            printf '  '; dot ok; printf ' %s\n' "$site"
-        done
-else
+    while read -r host; do
+        [ -n "$host" ] && sites+=("http://$host")
+    done < <(grep -E '^[a-zA-Z0-9.-]+\.local:80 \{' "$CADDYFILE" 2>/dev/null \
+        | sed 's/:80 {$//')
+    while read -r host; do
+        [ -n "$host" ] && sites+=("https://$host (public)")
+    done < <(grep -E '^http://[a-zA-Z0-9.-]+:8080 \{' "$CADDYFILE" 2>/dev/null \
+        | sed 's|^http://||;s|:8080 {$||')
+fi
+
+if [ -d "$PREVIEW_HANDLES" ]; then
+    apex=$(awk -F= '/^PREVIEW_APEX=/{print $2}' /srv/stack/.env 2>/dev/null \
+        | tr -d "\"' ")
+    apex=${apex:-previews.example.com}
+    for f in "$PREVIEW_HANDLES"/*.caddy; do
+        [ -e "$f" ] || continue
+        name=$(basename "$f" .caddy)
+        sites+=("https://$name.$apex (preview)")
+    done
+fi
+
+if [ ! -f "$CADDYFILE" ]; then
     echo "  (no $CADDYFILE)"
+elif [ ${#sites[@]} -eq 0 ]; then
+    echo '  (none)'
+else
+    for site in "${sites[@]}"; do
+        printf '  '; dot ok; printf ' %s\n' "$site"
+    done
 fi
