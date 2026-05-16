@@ -1,0 +1,38 @@
+#!/bin/bash
+# gnar-deploy <project> — pull the latest commit for a project under
+# ~/projects/<project> and rebuild its Docker stack. Named volumes survive
+# the rebuild, so data is preserved.
+#
+#   gnar-deploy farfield
+set -euo pipefail
+
+name="${1:-}"
+if [ -z "$name" ]; then
+    echo "usage: gnar-deploy <project>"
+    echo "  git-pulls ~/projects/<project> and rebuilds its docker compose stack"
+    exit 1
+fi
+
+dir="$HOME/projects/$name"
+if [ ! -d "$dir/.git" ]; then
+    echo "gnar-deploy: $dir is not a git checkout" >&2
+    exit 1
+fi
+
+# The compose file lives at the repo root or in a deploy/ subdir.
+if [ -f "$dir/deploy/docker-compose.yml" ]; then
+    compose_dir="$dir/deploy"
+elif [ -f "$dir/docker-compose.yml" ]; then
+    compose_dir="$dir"
+else
+    echo "gnar-deploy: no docker-compose.yml found under $name" >&2
+    exit 1
+fi
+
+echo "==> $name: git pull"
+git -C "$dir" pull --ff-only
+
+echo "==> $name: docker compose up -d --build"
+cd "$compose_dir"
+docker compose up -d --build
+docker compose ps --format 'table {{.Name}}\t{{.Status}}'

@@ -97,6 +97,7 @@ Stack lifecycle is `cd /srv/stack && docker compose <cmd>`. The
 
 - `gnar-info`   — fastfetch system report
 - `gnar-update` — `pacman -Syu` + cache clean
+- `gnar-deploy <project>` — git-pull + rebuild a `~/projects/<project>` stack
 - `gnar-help`   — full alias / function reference
 
 ## Useful shell shortcuts
