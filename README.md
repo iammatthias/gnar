@@ -13,7 +13,7 @@ personal home-server bootstrap, not a minimal TTY distribution.
 
 ## What You Get
 
-- **Kiosk Dashboard** - Mango (Wayland WM) + foot auto-launches `gnar-dashboard` (4-pane TUI: btop + services + containers + Claude metrics) on an attached display (no-op when headless)
+- **Kiosk Dashboard** - Mango (Wayland WM) + foot auto-launches `gnar-dashboard` (4-pane TUI: full-width btop + services/caddy + docker + Hermes) on an attached display (no-op when headless)
 - **Spaceship Prompt** - Beautiful, fast, and customizable Zsh prompt
 - **Zsh with Essential Plugins** - Autosuggestions, syntax highlighting, completions
 - **Tmux as Default** - Tiling terminal multiplexer with vim keybindings
