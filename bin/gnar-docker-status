@@ -7,8 +7,11 @@
 set -uo pipefail
 
 printf '\033[1;36m═══ Docker ═══\033[0m\n'
+# Names + status only — the full {{.Ports}} string (dual IPv4/IPv6 maps)
+# wraps and clutters a narrow pane. Per-site URLs already live in the
+# services+caddy pane.
 if systemctl is-active --quiet docker; then
-    docker ps --format 'table {{.Names}}\t{{.Status}}\t{{.Ports}}' 2>/dev/null \
+    docker ps --format 'table {{.Names}}\t{{.Status}}' 2>/dev/null \
         | sed 's/^/  /' \
         || echo '  (unable to list containers)'
 else
