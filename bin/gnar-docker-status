@@ -1,0 +1,28 @@
+#!/bin/bash
+# GNAR — docker containers + pm2 processes, formatted for the dashboard pane.
+#
+# A dedicated helper (mirroring gnar-services-status / gnar-hermes-status)
+# rather than an inline command string — the latter was fragile to quote
+# inside tmux and silently killed its pane.
+set -uo pipefail
+
+printf '\033[1;36m═══ Docker ═══\033[0m\n'
+if systemctl is-active --quiet docker; then
+    docker ps --format 'table {{.Names}}\t{{.Status}}\t{{.Ports}}' 2>/dev/null \
+        | sed 's/^/  /' \
+        || echo '  (unable to list containers)'
+else
+    echo '  (docker inactive)'
+fi
+
+echo
+printf '\033[1;36m═══ pm2 ═══\033[0m\n'
+if command -v pm2 >/dev/null 2>&1; then
+    if pm2 pid >/dev/null 2>&1; then
+        pm2 list --no-color 2>/dev/null | sed 's/^/  /'
+    else
+        echo '  (pm2 daemon not running — no managed processes)'
+    fi
+else
+    echo '  (pm2 not installed)'
+fi

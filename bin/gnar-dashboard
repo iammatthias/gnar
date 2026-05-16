@@ -1,14 +1,20 @@
 #!/bin/bash
 # GNAR — multi-pane tmux dashboard.
 #
-# Layout:
-#   ┌────────────────────┬────────────────────┐
-#   │  btop              │  services + caddy  │
-#   │  (system)          │  (gnar-services)   │
-#   ├────────────────────┼────────────────────┤
-#   │  docker / pm2      │  Hermes            │
-#   │                    │  (gnar-hermes)     │
-#   └────────────────────┴────────────────────┘
+# Layout — btop spans the full width up top (it wants the room: core grid,
+# mem/disk/net/proc side by side), three status panes across the bottom:
+#
+#   ┌─────────────────────────────────────────────────────┐
+#   │  btop  — system monitor (full width, ~60% height)    │
+#   ├──────────────────┬─────────────────┬─────────────────┤
+#   │ services + caddy │  docker + pm2   │  Hermes         │
+#   │ (gnar-services)  │ (gnar-docker)   │  (gnar-hermes)  │
+#   └──────────────────┴─────────────────┴─────────────────┘
+#
+# Each bottom pane gets ~1/3 of a wide kiosk display — generous enough that
+# nothing truncates. Panes self-refresh with a plain loop rather than
+# `watch`: `watch -c` miscounts ANSI colour codes and clips coloured lines
+# mid-word, and `while :;` keeps a pane alive even if its command errors.
 #
 # `gnar-claude-stats` still exists as a one-shot — run it manually if you
 # want a snapshot of Claude Code activity. Hermes is the day-to-day signal.
@@ -26,18 +32,22 @@ if tmux has-session -t "$SESSION" 2>/dev/null; then
     exec tmux attach -t "$SESSION"
 fi
 
-DOCKER_PMTWO_CMD='clear; echo "─── docker ───"; \
-    if systemctl is-active --quiet docker; then \
-        docker ps --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}" 2>/dev/null || echo "(unable to list containers)"; \
-    else echo "(docker inactive)"; fi; \
-    echo; echo "─── pm2 ───"; \
-    if command -v pm2 >/dev/null; then pm2 list --no-color 2>/dev/null || echo "(pm2 not started)"; else echo "(pm2 not installed)"; fi'
+# Build a self-refreshing pane command: clear + run + sleep, forever.
+# `while :;` (not `while cmd`) means a transient command failure never
+# tears the pane down.
+loop() {  # loop <interval-seconds> <command>
+    printf 'while :; do clear; %s; sleep %s; done' "$2" "$1"
+}
 
-tmux new-session  -d -s "$SESSION" -n main 'btop'
-tmux split-window -h -t "$SESSION:main"   "watch -n 30 -t -c 'gnar-services-status'"
-tmux split-window -v -t "$SESSION:main.0" "watch -n  5 -t -c \"$DOCKER_PMTWO_CMD\""
-tmux split-window -v -t "$SESSION:main.1" "watch -n 30 -t -c 'gnar-hermes-status'"
-tmux select-layout -t "$SESSION:main" tiled
+# Top: btop, full width.
+tmux new-session -d -s "$SESSION" -n main 'btop'
+
+# Carve the bottom ~40% off as one pane, then split it into thirds.
+tmux split-window -v -t "$SESSION:main"   -l 40% "$(loop 30 gnar-services-status)"
+tmux split-window -h -t "$SESSION:main.1" -l 66% "$(loop 10 gnar-docker-status)"
+tmux split-window -h -t "$SESSION:main.2" -l 50% "$(loop 30 gnar-hermes-status)"
+
+tmux select-pane  -t "$SESSION:main.0"
 tmux set-option   -t "$SESSION" status off
 tmux set-option   -t "$SESSION" mouse on
 

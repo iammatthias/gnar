@@ -63,17 +63,16 @@ GNAR is headless by default, but `setup.sh` also installs **Mango**
 (Wayland WM, AUR `mangowm-git`) + `foot` and configures `getty@tty1`
 to auto-log the user in. When a display is plugged into the box, on
 next login `~/.zprofile` exec's `mango`, which fullscreens
-`gnar-dashboard` — a 4-pane tmux session:
+`gnar-dashboard` — a 4-pane tmux session. btop spans the full width up
+top; three status panes share the bottom row:
 
 ```
-┌────────────────────┬────────────────────┐
-│  btop              │  services + caddy  │
-│  (system load)     │  (health + sites)  │
-├────────────────────┼────────────────────┤
-│  docker / pm2      │  Claude Code       │
-│  (containers,      │  (active agents,   │
-│   processes)       │   token burn)      │
-└────────────────────┴────────────────────┘
+┌─────────────────────────────────────────────────────┐
+│  btop  — system load (full width)                    │
+├──────────────────┬─────────────────┬─────────────────┤
+│ services + caddy │  docker + pm2   │  Hermes         │
+│ (health + sites) │  (containers)   │  (agents, kanban)│
+└──────────────────┴─────────────────┴─────────────────┘
 ```
 
 You can also run `gnar-dashboard` from any shell — it attaches the
@@ -83,6 +82,8 @@ The dashboard helpers are stand-alone too:
 
 ```bash
 gnar-services-status   # Caddy sites + service health (one-shot)
+gnar-docker-status     # docker containers + pm2 processes
+gnar-hermes-status     # Hermes containers, auth, kanban, cron
 gnar-claude-stats      # Claude Code sessions + token usage
 ```
 
