@@ -42,12 +42,16 @@ loop() {  # loop <interval-seconds> <command>
 # Top: btop, full width.
 tmux new-session -d -s "$SESSION" -n main 'btop'
 
-# Carve the bottom ~40% off as one pane, then split it into thirds.
-tmux split-window -v -t "$SESSION:main"   -l 40% "$(loop 30 gnar-services-status)"
-tmux split-window -h -t "$SESSION:main.1" -l 66% "$(loop 10 gnar-docker-status)"
-tmux split-window -h -t "$SESSION:main.2" -l 50% "$(loop 30 gnar-hermes-status)"
+# Each split-window targets the window's *active* pane, and the freshly
+# created pane becomes active — so the chain below carves the bottom 40%
+# off btop, then halves that strip twice into thirds. Targeting the
+# active pane (rather than .0/.1) keeps this correct under any
+# `pane-base-index`.
+tmux split-window -v -t "$SESSION:main" -l 40% "$(loop 30 gnar-services-status)"
+tmux split-window -h -t "$SESSION:main" -l 66% "$(loop 10 gnar-docker-status)"
+tmux split-window -h -t "$SESSION:main" -l 50% "$(loop 30 gnar-hermes-status)"
 
-tmux select-pane  -t "$SESSION:main.0"
+tmux select-pane  -t "$SESSION:main.{top-left}"
 tmux set-option   -t "$SESSION" status off
 tmux set-option   -t "$SESSION" mouse on
 
