@@ -63,17 +63,22 @@ GNAR is headless by default, but `setup.sh` also installs **Mango**
 (Wayland WM, AUR `mangowm-git`) + `foot` and configures `getty@tty1`
 to auto-log the user in. When a display is plugged into the box, on
 next login `~/.zprofile` exec's `mango`, which fullscreens
-`gnar-dashboard` — a 4-pane tmux session. btop spans the full width up
-top; three status panes share the bottom row:
+`gnar-dashboard` — a two-pane tmux session: btop up top, a unified
+status board below.
 
 ```
 ┌─────────────────────────────────────────────────────┐
-│  btop  — system load (full width)                    │
-├──────────────────┬─────────────────┬─────────────────┤
-│ services + caddy │  docker + pm2   │  Hermes         │
-│ (health + sites) │  (containers)   │  (agents, kanban)│
-└──────────────────┴─────────────────┴─────────────────┘
+│  btop  — system monitor (full width)                 │
+├─────────────────────────────────────────────────────┤
+│  gnar-status-board                                   │
+│  HOST SERVICES   CONTAINERS      CADDY SITES          │
+│  HERMES  gateway up · kanban · cron                   │
+└─────────────────────────────────────────────────────┘
 ```
+
+The lower pane is a single renderer (`gnar-status-board`) — host
+services, containers and Caddy sites in three aligned columns plus a
+Hermes summary line. One grid, no pane seams.
 
 You can also run `gnar-dashboard` from any shell — it attaches the
 same session if it already exists, or builds it.
@@ -81,6 +86,7 @@ same session if it already exists, or builds it.
 The dashboard helpers are stand-alone too:
 
 ```bash
+gnar-status-board      # the unified dashboard board (one-shot)
 gnar-services-status   # Caddy sites + service health (one-shot)
 gnar-docker-status     # docker containers + pm2 processes
 gnar-hermes-status     # Hermes containers, auth, kanban, cron
