@@ -1,0 +1,147 @@
+#!/bin/bash
+# GNAR — unified status board: the kiosk dashboard's lower pane.
+#
+# One renderer laying host services, containers and Caddy sites into
+# three aligned columns, with a Hermes summary line beneath. btop owns
+# the upper pane. A grid — rather than three stacked lists in three
+# tmux panes — so a wide display reads at a glance instead of feeling
+# cramped, and there are no pane seams to clash.
+#
+# Self-refreshes from gnar-dashboard's pane loop; also runs one-shot.
+# Columns size to the terminal width, so it adapts to any pane size.
+
+set -uo pipefail
+
+RST=$'\033[0m'; BOLD=$'\033[1m'; DIM=$'\033[2m'
+CYAN=$'\033[36m'; GREEN=$'\033[32m'; RED=$'\033[31m'; YEL=$'\033[33m'
+US=$'\x1f'   # field separator inside gathered entries
+
+dotcolor() {
+    case "$1" in
+        active|running|ok|up)             printf '%s' "$GREEN" ;;
+        inactive|failed|exited|dead|down) printf '%s' "$RED" ;;
+        *)                                printf '%s' "$YEL" ;;
+    esac
+}
+
+# Hermes lives in the container stack — summarise it in one line.
+hermes_summary() {
+    local cf=/srv/stack/docker-compose.yml
+    if [ ! -f "$cf" ]; then
+        printf '%s(stack not deployed)%s' "$DIM" "$RST"
+        return
+    fi
+    local C="docker compose -f $cf"
+    local state
+    state=$($C ps --format '{{.Service}} {{.State}}' 2>/dev/null \
+            | awk '$1=="hermes-gateway"{print $2}')
+    if [ "${state:-}" != running ]; then
+        printf '%s●%s gateway %s' "$RED" "$RST" "${state:-down}"
+        return
+    fi
+    printf '%s●%s gateway up' "$GREEN" "$RST"
+    # Best-effort detail — the in-container hermes CLI may not answer.
+    local E="$C exec -T hermes-gateway" k cr
+    k=$($E hermes kanban list 2>/dev/null | grep -c '[^[:space:]]' || true)
+    cr=$($E hermes cron list 2>/dev/null | grep -c '[^[:space:]]' || true)
+    [ "${k:-0}" -gt 0 ] 2>/dev/null  && printf '%s   kanban %s%s' "$DIM" "$k"  "$RST"
+    [ "${cr:-0}" -gt 0 ] 2>/dev/null && printf '%s   cron %s%s'   "$DIM" "$cr" "$RST"
+}
+
+# --- geometry — three columns sized to the terminal ------------------------
+cols=$(tput cols 2>/dev/null || echo 120)
+margin=2
+gap=4
+colw=$(( (cols - margin - gap * 2) / 3 ))
+[ "$colw" -lt 26 ] && colw=26
+metaw=9
+namew=$(( colw - 2 - metaw ))
+
+# --- gather: host services -------------------------------------------------
+c1=()
+for s in docker postgresql valkey fail2ban ufw gnar-stack; do
+    st=$(systemctl is-active "$s" 2>/dev/null || true)
+    st=${st:-unknown}
+    c1+=( "${st}${US}${s}${US}${st}" )
+done
+
+# --- gather: containers ----------------------------------------------------
+c2=()
+if systemctl is-active --quiet docker; then
+    while IFS=$'\t' read -r name status; do
+        [ -z "$name" ] && continue
+        status=${status#Up }       # "Up 3 days" -> "3 days"
+        status=${status%% (*}      # drop "(healthy)" etc.
+        c2+=( "running${US}${name}${US}${status}" )
+    done < <(docker ps --format '{{.Names}}\t{{.Status}}' 2>/dev/null | sort)
+fi
+[ ${#c2[@]} -eq 0 ] && c2=( "down${US}(no containers)${US}" )
+
+# --- gather: caddy sites ---------------------------------------------------
+c3=()
+CADDYFILE=/srv/stack/Caddyfile
+PREVIEW_HANDLES=/srv/stack/preview-handles
+if [ -f "$CADDYFILE" ]; then
+    while read -r h; do
+        [ -n "$h" ] && c3+=( "ok${US}${h}${US}private" )
+    done < <(grep -E '^[a-zA-Z0-9.-]+\.local:80 \{' "$CADDYFILE" 2>/dev/null \
+             | sed 's/:80 {$//')
+    while read -r h; do
+        [ -n "$h" ] && c3+=( "ok${US}${h}${US}public" )
+    done < <(grep -E '^http://[a-zA-Z0-9.-]+:8080 \{' "$CADDYFILE" 2>/dev/null \
+             | sed 's|^http://||;s|:8080 {$||')
+fi
+if [ -d "$PREVIEW_HANDLES" ]; then
+    apex=$(awk -F= '/^PREVIEW_APEX=/{print $2}' /srv/stack/.env 2>/dev/null \
+           | tr -d "\"' ")
+    apex=${apex:-previews.example.com}
+    for f in "$PREVIEW_HANDLES"/*.caddy; do
+        [ -e "$f" ] || continue
+        c3+=( "ok${US}$(basename "$f" .caddy).${apex}${US}preview" )
+    done
+fi
+[ ${#c3[@]} -eq 0 ] && c3=( "unknown${US}(no sites)${US}" )
+
+# --- render ----------------------------------------------------------------
+pad() { printf '%*s' "$1" ''; }
+
+header() { printf '%s%s%-*s%s' "$BOLD" "$CYAN" "$colw" "$1" "$RST"; }
+
+rendercell() {  # rendercell <entry-or-empty>
+    local entry=$1
+    if [ -z "$entry" ]; then pad "$colw"; return; fi
+    local state=${entry%%"${US}"*}
+    local rest=${entry#*"${US}"}
+    local name=${rest%%"${US}"*}
+    local meta=${rest#*"${US}"}
+    printf '%s●%s %-*s%s%-*s%s' \
+        "$(dotcolor "$state")" "$RST" \
+        "$namew" "${name:0:namew}" \
+        "$DIM" "$metaw" "${meta:0:metaw}" "$RST"
+}
+
+row() {  # row <entry1> <entry2> <entry3>
+    pad "$margin"
+    rendercell "${1:-}"; pad "$gap"
+    rendercell "${2:-}"; pad "$gap"
+    rendercell "${3:-}"
+    printf '\n'
+}
+
+n=${#c1[@]}
+[ ${#c2[@]} -gt "$n" ] && n=${#c2[@]}
+[ ${#c3[@]} -gt "$n" ] && n=${#c3[@]}
+
+echo
+pad "$margin"; header "HOST SERVICES"; pad "$gap"
+header "CONTAINERS"; pad "$gap"; header "CADDY SITES"
+printf '\n\n'
+
+for ((i = 0; i < n; i++)); do
+    row "${c1[i]:-}" "${c2[i]:-}" "${c3[i]:-}"
+done
+
+echo
+pad "$margin"; printf '%s%sHERMES%s   ' "$BOLD" "$CYAN" "$RST"
+hermes_summary
+printf '\n'

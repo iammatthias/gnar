@@ -1,25 +1,22 @@
 #!/bin/bash
-# GNAR — multi-pane tmux dashboard.
+# GNAR — kiosk tmux dashboard.
 #
-# Layout — btop spans the full width up top (it wants the room: core grid,
-# mem/disk/net/proc side by side), three status panes across the bottom:
+# Two panes, full width:
 #
 #   ┌─────────────────────────────────────────────────────┐
-#   │  btop  — system monitor (full width, ~60% height)    │
-#   ├──────────────────┬─────────────────┬─────────────────┤
-#   │ services + caddy │  docker + pm2   │  Hermes         │
-#   │ (gnar-services)  │ (gnar-docker)   │  (gnar-hermes)  │
-#   └──────────────────┴─────────────────┴─────────────────┘
+#   │  btop  — system monitor                              │
+#   ├─────────────────────────────────────────────────────┤
+#   │  gnar-status-board — services · containers · sites   │
+#   │                      · Hermes (one grid, no seams)   │
+#   └─────────────────────────────────────────────────────┘
 #
-# Each bottom pane gets ~1/3 of a wide kiosk display — generous enough that
-# nothing truncates. Panes self-refresh with a plain loop rather than
-# `watch`: `watch -c` miscounts ANSI colour codes and clips coloured lines
-# mid-word, and `while :;` keeps a pane alive even if its command errors.
+# The lower pane is a single renderer (gnar-status-board) rather than a
+# row of per-topic panes — one grid, aligned columns, no pane seams.
 #
 # `gnar-claude-stats` still exists as a one-shot — run it manually if you
 # want a snapshot of Claude Code activity. Hermes is the day-to-day signal.
 #
-# Auto-attaches if the session already exists. Hyprland's `exec-once`
+# Auto-attaches if the session already exists. Mango's `exec-once`
 # launches `foot -e gnar-dashboard`, so on display attach this is your
 # kiosk view. Run from any shell to attach manually.
 
@@ -39,17 +36,9 @@ loop() {  # loop <interval-seconds> <command>
     printf 'while :; do clear; %s; sleep %s; done' "$2" "$1"
 }
 
-# Top: btop, full width.
+# Top: btop. Bottom ~32%: the status board.
 tmux new-session -d -s "$SESSION" -n main 'btop'
-
-# Each split-window targets the window's *active* pane, and the freshly
-# created pane becomes active — so the chain below carves the bottom 40%
-# off btop, then halves that strip twice into thirds. Targeting the
-# active pane (rather than .0/.1) keeps this correct under any
-# `pane-base-index`.
-tmux split-window -v -t "$SESSION:main" -l 40% "$(loop 30 gnar-services-status)"
-tmux split-window -h -t "$SESSION:main" -l 66% "$(loop 10 gnar-docker-status)"
-tmux split-window -h -t "$SESSION:main" -l 50% "$(loop 30 gnar-hermes-status)"
+tmux split-window -v -t "$SESSION:main" -l 32% "$(loop 30 gnar-status-board)"
 
 tmux select-pane  -t "$SESSION:main.{top-left}"
 tmux set-option   -t "$SESSION" status off
