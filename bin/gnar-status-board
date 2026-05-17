@@ -61,14 +61,25 @@ hermes_summary() {
     [ "${cr:-0}" -gt 0 ] 2>/dev/null && printf '%s   cron %s%s'   "$DIM" "$cr" "$RST"
 }
 
-# --- geometry — three columns sized to the terminal ------------------------
+# --- geometry --------------------------------------------------------------
+# Three fixed-width columns with a generous gap between them, the whole
+# block centred. Columns stay a compact, readable width on a wide kiosk
+# display (rather than stretching to fill, which strands the status
+# value far from its name) and shrink to fit a narrow terminal.
 cols=$(tput cols 2>/dev/null || echo 120)
-margin=2
-gap=4
-colw=$(( (cols - margin - gap * 2) / 3 ))
-[ "$colw" -lt 26 ] && colw=26
 metaw=9
-namew=$(( colw - 2 - metaw ))
+gapmin=3; gapmax=24
+cellw=40                                          # preferred column width
+maxcell=$(( (cols - 4 - 2 * gapmin) / 3 ))
+[ "$cellw" -gt "$maxcell" ] && cellw=$maxcell
+[ "$cellw" -lt 22 ] && cellw=22
+namew=$(( cellw - 2 - metaw ))
+[ "$namew" -lt 8 ] && namew=8
+gap=$(( (cols - 4 - 3 * cellw) / 2 ))
+[ "$gap" -gt "$gapmax" ] && gap=$gapmax
+[ "$gap" -lt "$gapmin" ] && gap=$gapmin
+leftpad=$(( (cols - (3 * cellw + 2 * gap)) / 2 ))
+[ "$leftpad" -lt 2 ] && leftpad=2
 
 # --- gather: host services -------------------------------------------------
 c1=()
@@ -118,11 +129,11 @@ fi
 # --- render ----------------------------------------------------------------
 pad() { printf '%*s' "$1" ''; }
 
-header() { printf '%s%s%-*s%s' "$BOLD" "$CYAN" "$colw" "$1" "$RST"; }
+header() { printf '%s%s%-*s%s' "$BOLD" "$CYAN" "$cellw" "$1" "$RST"; }
 
 rendercell() {  # rendercell <entry-or-empty>
     local entry=$1
-    if [ -z "$entry" ]; then pad "$colw"; return; fi
+    if [ -z "$entry" ]; then pad "$cellw"; return; fi
     local state=${entry%%"${US}"*}
     local rest=${entry#*"${US}"}
     local name=${rest%%"${US}"*}
@@ -134,7 +145,7 @@ rendercell() {  # rendercell <entry-or-empty>
 }
 
 row() {  # row <entry1> <entry2> <entry3>
-    pad "$margin"
+    pad "$leftpad"
     rendercell "${1:-}"; pad "$gap"
     rendercell "${2:-}"; pad "$gap"
     rendercell "${3:-}"
@@ -146,7 +157,7 @@ n=${#c1[@]}
 [ ${#c3[@]} -gt "$n" ] && n=${#c3[@]}
 
 echo
-pad "$margin"; header "HOST SERVICES"; pad "$gap"
+pad "$leftpad"; header "HOST SERVICES"; pad "$gap"
 header "CONTAINERS"; pad "$gap"; header "CADDY SITES"
 printf '\n\n'
 
@@ -155,6 +166,6 @@ for ((i = 0; i < n; i++)); do
 done
 
 echo
-pad "$margin"; printf '%s%sHERMES%s   ' "$BOLD" "$CYAN" "$RST"
+pad "$leftpad"; printf '%s%sHERMES%s   ' "$BOLD" "$CYAN" "$RST"
 hermes_summary
 printf '\n'
