@@ -517,6 +517,9 @@ install -m 644 -o "$REAL_USER" -g "$REAL_USER" \
 install -d -o "$REAL_USER" -g "$REAL_USER" "$REAL_HOME/.config/foot"
 install -m 644 -o "$REAL_USER" -g "$REAL_USER" \
     "$CONFIGS/foot.ini" "$REAL_HOME/.config/foot/foot.ini"
+install -d -o "$REAL_USER" -g "$REAL_USER" "$REAL_HOME/.config/btop"
+install -m 644 -o "$REAL_USER" -g "$REAL_USER" \
+    "$CONFIGS/btop.conf" "$REAL_HOME/.config/btop/btop.conf"
 install -m 644 -o "$REAL_USER" -g "$REAL_USER" \
     "$CONFIGS/zprofile" "$REAL_HOME/.zprofile"
 
