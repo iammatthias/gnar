@@ -24,6 +24,19 @@ dotcolor() {
     esac
 }
 
+# "3 days" -> "3d", "31 minutes" -> "31m". Leaves unparseable forms
+# ("About a minute") as-is.
+compact_age() {
+    local num=${1%% *} unit=${1#* }
+    case "$unit" in
+        sec*)  unit=s  ;; min*)  unit=m ;; hour*) unit=h ;;
+        day*)  unit=d  ;; week*) unit=w ;; month*) unit=mo ;;
+        year*) unit=y  ;;
+        *)     printf '%s' "$1"; return ;;
+    esac
+    printf '%s%s' "$num" "$unit"
+}
+
 # Hermes lives in the container stack — summarise it in one line.
 hermes_summary() {
     local cf=/srv/stack/docker-compose.yml
@@ -72,7 +85,7 @@ if systemctl is-active --quiet docker; then
         [ -z "$name" ] && continue
         status=${status#Up }       # "Up 3 days" -> "3 days"
         status=${status%% (*}      # drop "(healthy)" etc.
-        c2+=( "running${US}${name}${US}${status}" )
+        c2+=( "running${US}${name}${US}$(compact_age "$status")" )
     done < <(docker ps --format '{{.Names}}\t{{.Status}}' 2>/dev/null | sort)
 fi
 [ ${#c2[@]} -eq 0 ] && c2=( "down${US}(no containers)${US}" )
