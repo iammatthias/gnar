@@ -86,6 +86,10 @@ services:
       # Project files. Same path on host + container so paths match what
       # the user (and the rest of gnar — `gnar-deploy`, `cdp`, etc.) uses.
       - /home/iam/projects:/home/iam/projects:rw
+      # gnar helper scripts (gnar-deploy, gnar-project-init, gnar-preview-site,
+      # ...). Mounted read-only so `git pull` on the host immediately reflects
+      # inside the container; PATH is prepended below.
+      - ${USER_HOME:-/root}/gnar/bin:/opt/gnar-bin:ro
       # So the agent can `docker ps` etc. on the host docker.
       - /var/run/docker.sock:/var/run/docker.sock
       # Git/SSH: share the host user's SSH keys so `git push` over SSH
@@ -105,6 +109,11 @@ services:
       # (mounted from ./data/agent-tools). gh and git both write here;
       # no single-file bind mount, so rename() works.
       GIT_CONFIG_GLOBAL: /root/.config/git/config
+      # gnar-deploy and friends look here for project checkouts. $HOME is
+      # /root inside the container, but the bind-mount lives at /home/iam.
+      GNAR_PROJECTS: /home/iam/projects
+      # Prepend the bind-mounted gnar bin so `gnar-deploy` etc. are on PATH.
+      PATH: /opt/gnar-bin:/root/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
     restart: unless-stopped
 
   # Web UI for the kanban board + session inspector.
