@@ -1,19 +1,22 @@
 #!/bin/bash
 # gnar-deploy <project> — pull the latest commit for a project under
-# ~/projects/<project> and rebuild its Docker stack. Named volumes survive
-# the rebuild, so data is preserved.
+# $GNAR_PROJECTS/<project> (default ~/projects) and rebuild its Docker
+# stack. Named volumes survive the rebuild, so data is preserved.
 #
 #   gnar-deploy farfield
+#
+# GNAR_PROJECTS lets the script work inside the hermes-gateway container,
+# where $HOME=/root but the projects bind-mount lives at /home/iam/projects.
 set -euo pipefail
 
 name="${1:-}"
 if [ -z "$name" ]; then
     echo "usage: gnar-deploy <project>"
-    echo "  git-pulls ~/projects/<project> and rebuilds its docker compose stack"
+    echo "  git-pulls \$GNAR_PROJECTS/<project> (default ~/projects) and rebuilds its docker compose stack"
     exit 1
 fi
 
-dir="$HOME/projects/$name"
+dir="${GNAR_PROJECTS:-$HOME/projects}/$name"
 if [ ! -d "$dir/.git" ]; then
     echo "gnar-deploy: $dir is not a git checkout" >&2
     exit 1
