@@ -38,10 +38,11 @@ ENV PATH=/root/.cargo/bin:/root/.local/bin:$PATH
 # chainlink — per-project issue tracker
 # (https://github.com/dollspace-gay/chainlink). The crate is published as
 # `chainlink-tracker`; the binary it produces is `chainlink`. Install to
-# /usr/local so the binary survives `rustup self uninstall` (which wipes
-# /root/.cargo/bin).
+# /usr/local so the binary survives the rustup teardown afterwards.
+# Arch's rustup disables `rustup self uninstall`, so we go through pacman.
 RUN cargo install --root /usr/local chainlink-tracker \
- && rustup self uninstall -y
+ && pacman -Rns --noconfirm rustup \
+ && rm -rf /root/.cargo /root/.rustup
 
 # Claude Code (used as a subprocess tool by the claude-with-chainlink skill).
 RUN npm install -g @anthropic-ai/claude-code \
