@@ -28,6 +28,12 @@
 
 # Default site on :80 — any hostname pointing at the box that doesn't
 # match a more-specific block below lands on the Hermes dashboard.
+{
+	log default {
+		level DEBUG
+	}
+}
+
 :80 {
     # Explicit 127.0.0.1 — `localhost` resolves to ::1 inside this
     # container but hermes binds IPv4 only.
@@ -84,3 +90,28 @@ http://:8080 {
 
 # add-public-site appends public vhosts below this line.
 # -------- PUBLIC-SITES --------
+
+# public: calendar.example.com
+http://calendar.example.com:8080 {
+    reverse_proxy host.docker.internal:8792
+}
+
+# public: content.example.com
+http://content.example.com:8080 {
+    reverse_proxy host.docker.internal:8787
+}
+
+# public: feed.example.com
+http://feed.example.com:8080 {
+    reverse_proxy host.docker.internal:8788
+}
+
+# public: blobs.example.com
+http://blobs.example.com:8080 {
+    reverse_proxy host.docker.internal:8789
+}
+
+# public: example.com
+http://example.com:8080 {
+    reverse_proxy host.docker.internal:8790
+}

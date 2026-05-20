@@ -123,32 +123,17 @@ services:
       - ./skills:/root/.hermes/skills/gnar:ro
     restart: unless-stopped
 
-  # Cloudflare Tunnel — public ingress to caddy without opening host ports.
-  # Disabled by default (profile-gated). Set up via CLI (no dashboard
-  # needed):
-  #
-  #   cd ~/gnar && ./scripts/cloudflared-setup.sh
-  #
-  # That script handles `tunnel login` (one browser click), tunnel
-  # creation, DNS routing for $PREVIEW_APEX + *.$PREVIEW_APEX, and
-  # writes config.yml + credentials into ./data/cloudflared/. Then:
-  #
-  #   cd /srv/stack && docker compose --profile cloudflared up -d
-  #
-  # All state (cert.pem, <tunnel-id>.json, config.yml) lives at
-  # /srv/stack/data/cloudflared/ and persists across rebuilds.
+  # Cloudflare Tunnel connector — always on. Token-managed: the tunnel and
+  # its public hostnames are configured in the Cloudflare Zero Trust
+  # dashboard; the connector authenticates with CLOUDFLARED_TOKEN (set in
+  # /srv/stack/.env). No cert.pem / config.yml needed. Not profile-gated,
+  # so the boot `docker compose up -d --remove-orphans` keeps it alive.
   cloudflared:
     image: cloudflare/cloudflared:latest
     container_name: gnar-cloudflared
     network_mode: service:tailscale
     depends_on: [tailscale, caddy]
-    # Image defaults to USER=nonroot, but the credentials JSON written by
-    # cloudflared-setup.sh lands as 400 root:root (cloudflared's own
-    # convention — secret material). Run the connector as root so it can
-    # read its own credentials file.
-    user: "0:0"
-    command: tunnel --config /etc/cloudflared/config.yml --no-autoupdate run
-    volumes:
-      - ./data/cloudflared:/etc/cloudflared:ro
-    profiles: ["cloudflared"]
+    command: tunnel --no-autoupdate run
+    environment:
+      - TUNNEL_TOKEN=${CLOUDFLARED_TOKEN}
     restart: unless-stopped
