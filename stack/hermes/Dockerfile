@@ -35,9 +35,10 @@ RUN pacman -Syu --noconfirm \
 RUN rustup default stable
 ENV PATH=/root/.cargo/bin:/root/.local/bin:$PATH
 
-# chainlink — per-project issue tracker.
-RUN cargo install --git https://github.com/dollspace-gay/chainlink chainlink \
- && rustup self uninstall -y || true
+# chainlink — per-project issue tracker. Install to /usr/local so the
+# binary survives `rustup self uninstall` (which wipes /root/.cargo/bin).
+RUN cargo install --root /usr/local --git https://github.com/dollspace-gay/chainlink chainlink \
+ && rustup self uninstall -y
 
 # Claude Code (used as a subprocess tool by the claude-with-chainlink skill).
 RUN npm install -g @anthropic-ai/claude-code \
