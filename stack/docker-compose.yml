@@ -84,8 +84,8 @@ services:
       # `git pull && docker compose restart hermes-gateway`.
       - ./skills:/root/.hermes/skills/gnar:ro
       # Project files. Same path on host + container so paths match what
-      # the user types from the Telegram bot.
-      - /srv/projects:/srv/projects:rw
+      # the user (and the rest of gnar — `gnar-deploy`, `cdp`, etc.) uses.
+      - /home/iam/projects:/home/iam/projects:rw
       # So the agent can `docker ps` etc. on the host docker.
       - /var/run/docker.sock:/var/run/docker.sock
       # Git/SSH: share the host user's SSH keys so `git push` over SSH
