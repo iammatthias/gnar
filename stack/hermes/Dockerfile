@@ -35,9 +35,12 @@ RUN pacman -Syu --noconfirm \
 RUN rustup default stable
 ENV PATH=/root/.cargo/bin:/root/.local/bin:$PATH
 
-# chainlink — per-project issue tracker. Install to /usr/local so the
-# binary survives `rustup self uninstall` (which wipes /root/.cargo/bin).
-RUN cargo install --root /usr/local --git https://github.com/dollspace-gay/chainlink chainlink \
+# chainlink — per-project issue tracker
+# (https://github.com/dollspace-gay/chainlink). The crate is published as
+# `chainlink-tracker`; the binary it produces is `chainlink`. Install to
+# /usr/local so the binary survives `rustup self uninstall` (which wipes
+# /root/.cargo/bin).
+RUN cargo install --root /usr/local chainlink-tracker \
  && rustup self uninstall -y
 
 # Claude Code (used as a subprocess tool by the claude-with-chainlink skill).
