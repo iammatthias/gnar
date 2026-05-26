@@ -24,6 +24,7 @@ RUN pacman -Syu --noconfirm \
       python python-pip uv \
       nodejs npm \
       rustup \
+      go \
       docker docker-compose \
       jq yq \
       github-cli \
@@ -62,5 +63,9 @@ RUN git clone --depth=1 https://github.com/NousResearch/hermes-agent.git /opt/he
 WORKDIR /root
 RUN mkdir -p /root/.hermes /root/.claude
 
-ENTRYPOINT []
+# Entrypoint configures the agent's git identity from gh on boot (see script).
+COPY docker-entrypoint.sh /usr/local/bin/gnar-hermes-entrypoint
+RUN chmod +x /usr/local/bin/gnar-hermes-entrypoint
+
+ENTRYPOINT ["/usr/local/bin/gnar-hermes-entrypoint"]
 CMD ["hermes", "--help"]
