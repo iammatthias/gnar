@@ -25,6 +25,14 @@ services:
     # propagates automatically.
     extra_hosts:
       - "host.docker.internal:host-gateway"
+    # Published host ports also MUST live on the netns owner — sibling
+    # containers can't publish their own. 8642 is the Hermes OpenAI-compatible
+    # API server (run by hermes-gateway; enable via API_SERVER_* in
+    # data/hermes/.env). Reachable on the LAN at http://<host>:8642 for
+    # non-tailnet clients (e.g. an ESP32 dashboard). Docker's publish bypasses
+    # UFW, so the API_SERVER_KEY bearer token is the access control.
+    ports:
+      - "8642:8642"
     restart: unless-stopped
 
   # Reverse proxy for everything served from the box. Edits to ./Caddyfile
