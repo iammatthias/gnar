@@ -109,3 +109,14 @@ http://blobs.example.com:8080 {
 http://example.com:8080 {
     reverse_proxy host.docker.internal:8790
 }
+
+# public: bookmarks.example.com
+http://bookmarks.example.com:8080 {
+    reverse_proxy host.docker.internal:8793
+}
+
+
+# public: qr.example.com
+http://qr.example.com:8080 {
+    reverse_proxy host.docker.internal:8794
+}
