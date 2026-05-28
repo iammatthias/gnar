@@ -88,6 +88,10 @@ services:
       - ./data/hermes:/root/.hermes
       # Persistent ~/.claude (subscription auth, project session transcripts).
       - ./data/claude:/root/.claude
+      # Backup target for the nightly `hermes backup` cron. Kept OUTSIDE
+      # ~/.hermes so a full backup (which zips ~/.hermes) doesn't nest the
+      # previous archives. Written by ~/.hermes/scripts/backup.sh.
+      - ./data/backups:/root/backups
       # Skills shipped with the repo, mounted read-only so updates land via
       # `git pull && docker compose restart hermes-gateway`.
       - ./skills:/root/.hermes/skills/gnar:ro
