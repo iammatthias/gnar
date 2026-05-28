@@ -28,12 +28,6 @@
 
 # Default site on :80 — any hostname pointing at the box that doesn't
 # match a more-specific block below lands on the Hermes dashboard.
-{
-	log default {
-		level DEBUG
-	}
-}
-
 :80 {
     # Explicit 127.0.0.1 — `localhost` resolves to ::1 inside this
     # container but hermes binds IPv4 only.
