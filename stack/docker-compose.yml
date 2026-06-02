@@ -109,7 +109,7 @@ services:
       - ./skills:/root/.hermes/skills/gnar:ro
       # Project files. Same path on host + container so paths match what
       # the user (and the rest of gnar — `gnar-deploy`, `cdp`, etc.) uses.
-      - /home/iam/projects:/home/iam/projects:rw
+      - ${USER_HOME:-/root}/projects:${USER_HOME:-/root}/projects:rw
       # gnar helper scripts (gnar-deploy, gnar-project-init, gnar-preview-site,
       # ...). Mounted read-only so `git pull` on the host immediately reflects
       # inside the container; PATH is prepended below.
@@ -135,7 +135,7 @@ services:
       GIT_CONFIG_GLOBAL: /root/.config/git/config
       # gnar-deploy and friends look here for project checkouts. $HOME is
       # /root inside the container, but the bind-mount lives at /home/iam.
-      GNAR_PROJECTS: /home/iam/projects
+      GNAR_PROJECTS: ${USER_HOME:-/root}/projects
       # Prepend the bind-mounted gnar bin so `gnar-deploy` etc. are on PATH.
       PATH: /opt/gnar-bin:/root/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
       # The gateway runs as root, but the `claude-with-chainlink` skill shells

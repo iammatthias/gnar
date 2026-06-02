@@ -27,3 +27,8 @@ tmp/
 
 # Claude agent workspace state
 .claude/
+.gstack/
+
+# Secrets — never commit a real env file; stack/.env.example is the template
+.env
+**/.env

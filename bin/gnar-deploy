@@ -3,10 +3,10 @@
 # $GNAR_PROJECTS/<project> (default ~/projects) and rebuild its Docker
 # stack. Named volumes survive the rebuild, so data is preserved.
 #
-#   gnar-deploy farfield
+#   gnar-deploy myapp
 #
 # GNAR_PROJECTS lets the script work inside the hermes-gateway container,
-# where $HOME=/root but the projects bind-mount lives at /home/iam/projects.
+# where $HOME=/root but the projects bind-mount lives at $USER_HOME/projects.
 set -euo pipefail
 
 name="${1:-}"
