@@ -59,6 +59,17 @@ RUN git clone --depth=1 https://github.com/NousResearch/hermes-agent.git /opt/he
  && uv pip install -e . fastapi uvicorn python-telegram-bot \
  && ln -sf /opt/hermes-agent/.venv/bin/hermes /usr/local/bin/hermes
 
+# Let the dashboard serve the Hermes desktop app over the tailnet.
+# Upstream's dashboard is localhost-only: an ephemeral per-start session token
+# (injected into its SPA) plus a localhost-only CORS regex. Make both honor an
+# env override so a remote client can authenticate with a pinned token and an
+# allowed origin. Defaults to upstream behavior when the env vars are unset.
+# `grep -q` fails the build if upstream ever renames the lines we patch.
+RUN sed -i 's|_SESSION_TOKEN = secrets.token_urlsafe(32)|_SESSION_TOKEN = os.environ.get("HERMES_DASHBOARD_TOKEN") or secrets.token_urlsafe(32)|' /opt/hermes-agent/hermes_cli/web_server.py \
+ && sed -i 's|allow_origin_regex=r"|allow_origin_regex=os.environ.get("HERMES_DASHBOARD_CORS_REGEX") or r"|' /opt/hermes-agent/hermes_cli/web_server.py \
+ && grep -q 'os.environ.get("HERMES_DASHBOARD_TOKEN")' /opt/hermes-agent/hermes_cli/web_server.py \
+ && grep -q 'os.environ.get("HERMES_DASHBOARD_CORS_REGEX")' /opt/hermes-agent/hermes_cli/web_server.py
+
 # Default workdir + state location.
 WORKDIR /root
 RUN mkdir -p /root/.hermes /root/.claude
