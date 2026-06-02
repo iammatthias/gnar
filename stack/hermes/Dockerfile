@@ -67,8 +67,10 @@ RUN git clone --depth=1 https://github.com/NousResearch/hermes-agent.git /opt/he
 # `grep -q` fails the build if upstream ever renames the lines we patch.
 RUN sed -i 's|_SESSION_TOKEN = secrets.token_urlsafe(32)|_SESSION_TOKEN = os.environ.get("HERMES_DASHBOARD_TOKEN") or secrets.token_urlsafe(32)|' /opt/hermes-agent/hermes_cli/web_server.py \
  && sed -i 's|allow_origin_regex=r"|allow_origin_regex=os.environ.get("HERMES_DASHBOARD_CORS_REGEX") or r"|' /opt/hermes-agent/hermes_cli/web_server.py \
+ && sed -i 's|if path.startswith("/api/") and path not in _PUBLIC_API_PATHS:|if request.method != "OPTIONS" and path.startswith("/api/") and path not in _PUBLIC_API_PATHS:|' /opt/hermes-agent/hermes_cli/web_server.py \
  && grep -q 'os.environ.get("HERMES_DASHBOARD_TOKEN")' /opt/hermes-agent/hermes_cli/web_server.py \
- && grep -q 'os.environ.get("HERMES_DASHBOARD_CORS_REGEX")' /opt/hermes-agent/hermes_cli/web_server.py
+ && grep -q 'os.environ.get("HERMES_DASHBOARD_CORS_REGEX")' /opt/hermes-agent/hermes_cli/web_server.py \
+ && grep -q 'request.method != "OPTIONS"' /opt/hermes-agent/hermes_cli/web_server.py
 
 # Default workdir + state location.
 WORKDIR /root
