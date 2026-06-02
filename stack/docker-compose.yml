@@ -168,6 +168,9 @@ services:
       # patch). Both empty by default = upstream localhost-only behavior.
       HERMES_DASHBOARD_TOKEN: ${HERMES_DASHBOARD_TOKEN:-}
       HERMES_DASHBOARD_CORS_REGEX: ${HERMES_DASHBOARD_CORS_REGEX:-}
+      # Enable the embedded chat sidecar (/api/ws); the desktop app's live
+      # connection uses it. Upstream leaves it off unless --tui / this flag.
+      HERMES_DASHBOARD_TUI: "1"
     restart: unless-stopped
 
   # Cloudflare Tunnel connector — always on. Token-managed: the tunnel and
