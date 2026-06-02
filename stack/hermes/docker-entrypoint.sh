@@ -31,4 +31,21 @@ configure_git_identity() {
 
 configure_git_identity || true
 
+# Claude Code keeps its config/auth at /root/.claude.json, which lives in
+# /root — NOT inside the bind-mounted /root/.claude directory. A container
+# recreate (e.g. `docker compose up -d --build`) therefore wipes it, after
+# which `claude` refuses to start and every delegated coding task silently
+# fails — sending the orchestrator back to hand-editing repos itself. Claude
+# writes timestamped backups into the (persistent) /root/.claude/backups/
+# dir, so restore the newest one when the live file is missing. Never fatal.
+restore_claude_config() {
+    [ -f /root/.claude.json ] && return 0
+    latest="$(ls -1t /root/.claude/backups/.claude.json.backup.* 2>/dev/null | head -1)"
+    [ -n "$latest" ] || return 0
+    cp "$latest" /root/.claude.json 2>/dev/null \
+        && echo "[entrypoint] restored /root/.claude.json from $(basename "$latest")"
+}
+
+restore_claude_config || true
+
 exec "$@"
