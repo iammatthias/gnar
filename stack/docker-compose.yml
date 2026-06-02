@@ -138,6 +138,13 @@ services:
       GNAR_PROJECTS: /home/iam/projects
       # Prepend the bind-mounted gnar bin so `gnar-deploy` etc. are on PATH.
       PATH: /opt/gnar-bin:/root/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+      # The gateway runs as root, but the `claude-with-chainlink` skill shells
+      # out to `claude -p --permission-mode bypassPermissions`, which Claude
+      # Code refuses under root ("--dangerously-skip-permissions cannot be used
+      # with root/sudo privileges"). Without this, every delegated coding task
+      # fails and the orchestrator falls back to hand-editing repos itself.
+      # This container IS a sandbox, so opt into the documented escape hatch.
+      IS_SANDBOX: "1"
     restart: unless-stopped
 
   # Web UI for the kanban board + session inspector.
