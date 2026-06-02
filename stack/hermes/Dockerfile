@@ -59,6 +59,11 @@ RUN git clone --depth=1 https://github.com/NousResearch/hermes-agent.git /opt/he
  && uv pip install -e . fastapi uvicorn python-telegram-bot \
  && ln -sf /opt/hermes-agent/.venv/bin/hermes /usr/local/bin/hermes
 
+# The dashboard's live connection (used by the web UI and the Hermes desktop
+# app) is a WebSocket at /api/ws; uvicorn needs a ws backend to serve it. The
+# base `uvicorn` install omits one, so add it explicitly.
+RUN cd /opt/hermes-agent && uv pip install websockets
+
 # Let the dashboard serve the Hermes desktop app over the tailnet.
 # Upstream's dashboard is localhost-only: an ephemeral per-start session token
 # (injected into its SPA) plus a localhost-only CORS regex. Make both honor an
