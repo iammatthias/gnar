@@ -53,8 +53,16 @@ RUN npm install -g @anthropic-ai/claude-code \
 # Extras the base install doesn't pull but specific subcommands need:
 #   - fastapi + uvicorn : `hermes dashboard` web UI
 #   - python-telegram-bot: the Telegram gateway adapter
-RUN git clone --depth=1 https://github.com/NousResearch/hermes-agent.git /opt/hermes-agent \
- && cd /opt/hermes-agent \
+# Pinned hermes-agent release for reproducible builds. Bump HERMES_REF to
+# update (changing it busts this layer's cache). The dashboard patches below
+# assert the exact lines they touch still exist, so the build fails loudly if
+# an upgrade moved them rather than silently shipping an unpatched dashboard.
+ARG HERMES_REF=v2026.5.29.2
+RUN mkdir -p /opt/hermes-agent && cd /opt/hermes-agent \
+ && git init -q \
+ && git remote add origin https://github.com/NousResearch/hermes-agent.git \
+ && git fetch -q --depth 1 origin "refs/tags/${HERMES_REF}" \
+ && git checkout -q FETCH_HEAD \
  && uv venv --python 3.11 \
  && uv pip install -e . fastapi uvicorn python-telegram-bot \
  && ln -sf /opt/hermes-agent/.venv/bin/hermes /usr/local/bin/hermes
