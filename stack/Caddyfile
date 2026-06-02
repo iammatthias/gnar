@@ -120,3 +120,8 @@ http://bookmarks.example.com:8080 {
 http://qr.example.com:8080 {
     reverse_proxy host.docker.internal:8794
 }
+
+# public: bard.example.com
+http://bard.example.com:8080 {
+    reverse_proxy host.docker.internal:8795
+}
