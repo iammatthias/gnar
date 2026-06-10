@@ -99,11 +99,14 @@ struct Prev {
 struct Host {
     cpu: VecDeque<f64>, // total %
     cpu_cur: f64,
-    cores: Vec<f64>, // per-core %, latest sample
+    cores: Vec<f64>,                // per-core %, latest sample
+    cores_hist: Vec<VecDeque<f64>>, // per-core history (tile mode)
     temp_c: Option<f64>,
     mem_used: VecDeque<f64>, // MiB
     mem_cur: f64,
     mem_total: f64,
+    mem_avail: f64,
+    mem_cache: f64,
     swap_used: f64,
     swap_total: f64,
     iface: String,
@@ -111,13 +114,20 @@ struct Host {
     tx: VecDeque<f64>,
     rx_cur: f64,
     tx_cur: f64,
+    rx_total: u64, // bytes since boot
+    tx_total: u64,
+    tcp_inuse: u64,
+    tcp_tw: u64,
     io_r: VecDeque<f64>, // bytes/sec
     io_w: VecDeque<f64>,
     io_r_cur: f64,
     io_w_cur: f64,
+    io_r_total: u64, // bytes since boot
+    io_w_total: u64,
     uptime: u64,
     hostname: String,
     load: f64,
+    load_hist: VecDeque<f64>,
     ncpu: usize,
     prev_cpu: Option<(Vec<(u64, u64)>, (u64, u64))>, // per-core + total (busy, total)
     prev_net: Option<(Instant, u64, u64)>,
@@ -128,15 +138,19 @@ struct Host {
 struct App {
     host: Host,
     containers: BTreeMap<String, Series>,
+    containers_total: usize,
     services: Vec<(String, String)>,
     sites: Vec<(String, String)>,
-    procs: Vec<String>,
+    procs_cpu: Vec<String>,
+    procs_mem: Vec<String>,
     disk_pct: u8,
     disk_detail: String,
     images: usize,
+    prune_next: String,
     kanban: usize,
     cron: usize,
     backup_age_h: Option<u64>,
+    backup_size_mb: u64,
     docker_err: Option<String>,
     clock: String,
 }
@@ -229,7 +243,8 @@ fn read_cpu_stat() -> Option<(Vec<(u64, u64)>, (u64, u64))> {
     Some((cores, agg?))
 }
 
-fn meminfo() -> Option<(f64, f64, f64, f64)> {
+/// (used, total, available, buff+cache, swap_used, swap_total) in MiB.
+fn meminfo() -> Option<(f64, f64, f64, f64, f64, f64)> {
     let s = fs::read_to_string("/proc/meminfo").ok()?;
     let get = |k: &str| {
         s.lines()
@@ -240,9 +255,10 @@ fn meminfo() -> Option<(f64, f64, f64, f64)> {
     };
     let total = get("MemTotal:")?;
     let avail = get("MemAvailable:")?;
+    let cache = get("Buffers:").unwrap_or(0.0) + get("Cached:").unwrap_or(0.0);
     let st = get("SwapTotal:").unwrap_or(0.0);
     let sf = get("SwapFree:").unwrap_or(0.0);
-    Some((total - avail, total, st - sf, st))
+    Some((total - avail, total, avail, cache, st - sf, st))
 }
 
 /// Interface holding the default route — bridge/veth traffic would
@@ -331,13 +347,21 @@ fn sample_host(h: &mut Host) {
                 .zip(pcores.iter())
                 .map(|(c, p)| pct(*c, *p))
                 .collect();
+            if h.cores_hist.len() != h.cores.len() {
+                h.cores_hist = vec![VecDeque::new(); h.cores.len()];
+            }
+            for (i, p) in h.cores.iter().enumerate() {
+                push(&mut h.cores_hist[i], *p);
+            }
         }
         h.ncpu = cores.len().max(1);
         h.prev_cpu = Some((cores, agg));
     }
-    if let Some((used, total, sused, stotal)) = meminfo() {
+    if let Some((used, total, avail, cache, sused, stotal)) = meminfo() {
         h.mem_cur = used;
         h.mem_total = total;
+        h.mem_avail = avail;
+        h.mem_cache = cache;
         h.swap_used = sused;
         h.swap_total = stotal;
         push(&mut h.mem_used, used);
@@ -356,7 +380,16 @@ fn sample_host(h: &mut Host) {
                 push(&mut h.tx, h.tx_cur);
             }
         }
+        h.rx_total = rx;
+        h.tx_total = tx;
         h.prev_net = Some((now, rx, tx));
+    }
+    if let Ok(s) = fs::read_to_string("/proc/net/sockstat") {
+        if let Some(l) = s.lines().find(|l| l.starts_with("TCP:")) {
+            let f: Vec<&str> = l.split_whitespace().collect();
+            h.tcp_inuse = f.get(2).and_then(|v| v.parse().ok()).unwrap_or(0);
+            h.tcp_tw = f.get(6).and_then(|v| v.parse().ok()).unwrap_or(0);
+        }
     }
     if let Some((r, w)) = disk_io_bytes() {
         if let Some((at, pr, pw)) = h.prev_io {
@@ -368,6 +401,8 @@ fn sample_host(h: &mut Host) {
                 push(&mut h.io_w, h.io_w_cur);
             }
         }
+        h.io_r_total = r;
+        h.io_w_total = w;
         h.prev_io = Some((now, r, w));
     }
     if let Ok(s) = fs::read_to_string("/proc/uptime") {
@@ -375,6 +410,7 @@ fn sample_host(h: &mut Host) {
     }
     if let Ok(s) = fs::read_to_string("/proc/loadavg") {
         h.load = s.split_whitespace().next().and_then(|v| v.parse().ok()).unwrap_or(0.0);
+        push(&mut h.load_hist, h.load);
     }
     if h.hostname.is_empty() {
         h.hostname = fs::read_to_string("/etc/hostname").map(|s| s.trim().to_string()).unwrap_or_default();
@@ -485,10 +521,16 @@ fn status_loop(app: Arc<Mutex<App>>, with_hermes: bool) {
             .collect();
 
         let sites = caddy_sites();
-        let backup_age_h = backup_age_hours();
+        let backup = backup_info();
         let (disk_pct, disk_detail) = disk_usage();
-        let procs = top_procs();
+        let procs_cpu = top_procs("-pcpu", 10);
+        let procs_mem = top_procs("-pmem", 8);
+        let prune_next = prune_timer_next();
         let images = docker_get("/images/json")
+            .ok()
+            .and_then(|v| v.as_array().map(|a| a.len()))
+            .unwrap_or(0);
+        let containers_total = docker_get("/containers/json?all=1")
             .ok()
             .and_then(|v| v.as_array().map(|a| a.len()))
             .unwrap_or(0);
@@ -505,11 +547,15 @@ fn status_loop(app: Arc<Mutex<App>>, with_hermes: bool) {
             let mut a = app.lock().unwrap();
             a.services = services;
             a.sites = sites;
-            a.procs = procs;
-            a.backup_age_h = backup_age_h;
+            a.procs_cpu = procs_cpu;
+            a.procs_mem = procs_mem;
+            a.backup_age_h = backup.map(|(age, _)| age);
+            a.backup_size_mb = backup.map(|(_, size)| size).unwrap_or(0);
             a.disk_pct = disk_pct;
             a.disk_detail = disk_detail;
             a.images = images;
+            a.containers_total = containers_total;
+            a.prune_next = prune_next;
             if let Some((k, c)) = hermes {
                 a.kanban = k;
                 a.cron = c;
@@ -548,17 +594,33 @@ fn hermes_count(what: &str) -> usize {
         .unwrap_or(0)
 }
 
-fn top_procs() -> Vec<String> {
+fn top_procs(sort: &str, n: usize) -> Vec<String> {
     Command::new("ps")
-        .args(["-eo", "pcpu,pmem,comm", "--sort=-pcpu", "--no-headers"])
+        .args(["-eo", "pcpu,pmem,comm", &format!("--sort={sort}"), "--no-headers"])
         .output()
         .ok()
         .map(|o| {
             String::from_utf8_lossy(&o.stdout)
                 .lines()
-                .take(10)
+                .take(n)
                 .map(|l| l.trim().to_string())
                 .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// "Mon 2026-06-15" from the prune timer's next elapse, or "".
+fn prune_timer_next() -> String {
+    Command::new("systemctl")
+        .args(["show", "gnar-docker-prune.timer", "-p", "NextElapseUSecRealtime", "--value"])
+        .output()
+        .ok()
+        .map(|o| {
+            String::from_utf8_lossy(&o.stdout)
+                .split_whitespace()
+                .take(2)
+                .collect::<Vec<_>>()
+                .join(" ")
         })
         .unwrap_or_default()
 }
@@ -604,8 +666,9 @@ fn caddy_sites() -> Vec<(String, String)> {
     out
 }
 
-fn backup_age_hours() -> Option<u64> {
-    let newest = fs::read_dir(format!("{STACK}/data/backups"))
+/// (age in hours, size in MB) of the newest hermes backup archive.
+fn backup_info() -> Option<(u64, u64)> {
+    let (mtime, size) = fs::read_dir(format!("{STACK}/data/backups"))
         .ok()?
         .flatten()
         .filter(|e| {
@@ -613,12 +676,13 @@ fn backup_age_hours() -> Option<u64> {
             let n = n.to_string_lossy();
             n.starts_with("hermes-backup-") && n.ends_with(".zip")
         })
-        .filter_map(|e| e.metadata().ok()?.modified().ok())
-        .max()?;
-    SystemTime::now()
-        .duration_since(newest)
-        .ok()
-        .map(|d| d.as_secs() / 3600)
+        .filter_map(|e| {
+            let m = e.metadata().ok()?;
+            Some((m.modified().ok()?, m.len()))
+        })
+        .max_by_key(|(t, _)| *t)?;
+    let age = SystemTime::now().duration_since(mtime).ok()?.as_secs() / 3600;
+    Some((age, size / 1_000_000))
 }
 
 fn disk_usage() -> (u8, String) {
@@ -771,6 +835,60 @@ fn human_rate(rate: Option<f64>) -> String {
     }
 }
 
+fn human_size(bytes: f64) -> String {
+    if bytes < 1048576.0 {
+        format!("{:.0}K", bytes / 1024.0)
+    } else if bytes < 1073741824.0 {
+        format!("{:.1}M", bytes / 1048576.0)
+    } else if bytes < 1099511627776.0 {
+        format!("{:.1}G", bytes / 1073741824.0)
+    } else {
+        format!("{:.2}T", bytes / 1099511627776.0)
+    }
+}
+
+/// "label ▓▓▓░░░ value" breakdown row (tile-mode MEM panel).
+fn gauge_line(label: &'static str, frac: f64, value: String, color: Color, width: usize) -> Line<'static> {
+    let frac = if frac.is_finite() { frac.clamp(0.0, 1.0) } else { 0.0 };
+    let barw = width.saturating_sub(24).clamp(8, 40);
+    let filled = (frac * barw as f64).round() as usize;
+    Line::from(vec![
+        Span::styled(format!("{label:<7}"), dim()),
+        Span::styled("▓".repeat(filled), Style::new().fg(color)),
+        Span::styled("░".repeat(barw - filled), Style::new().fg(C_BORDER)),
+        Span::raw(format!(" {value}")),
+    ])
+}
+
+/// "TOP CPU/MEM" process table (tile-mode CPU + MEM panels). `by_mem`
+/// picks which column gets the heat color.
+fn proc_lines(title: &'static str, procs: &[String], n: usize, by_mem: bool) -> Vec<Line<'static>> {
+    let mut lines = vec![
+        Line::default(),
+        Line::styled(title, accent(C_BLUE)),
+        Line::styled(format!("{:>5} {:>5}  {}", "CPU%", "MEM%", "COMMAND"), dim()),
+    ];
+    for p in procs.iter().take(n) {
+        let f: Vec<&str> = p.split_whitespace().collect();
+        if f.len() < 3 {
+            continue;
+        }
+        let cpu: f64 = f[0].parse().unwrap_or(0.0);
+        let mem: f64 = f[1].parse().unwrap_or(0.0);
+        let (cpu_style, mem_style) = if by_mem {
+            (dim(), Style::new().fg(heat(mem / 25.0)))
+        } else {
+            (Style::new().fg(heat(cpu / 50.0)), dim())
+        };
+        lines.push(Line::from(vec![
+            Span::styled(format!("{:>5}", f[0]), cpu_style),
+            Span::styled(format!(" {:>5}", f[1]), mem_style),
+            Span::styled(format!("  {}", f[2..].join(" ")), Style::new().fg(C_FG)),
+        ]));
+    }
+    lines
+}
+
 fn human_uptime(secs: u64) -> String {
     let d = secs / 86400;
     let h = secs % 86400 / 3600;
@@ -801,7 +919,7 @@ fn ui(frame: &mut Frame, app: &App, mode: Mode) {
         Mode::Net => render_net(frame, area, app),
         Mode::Disk => render_disk(frame, area, app),
         Mode::Containers => render_containers(frame, area, app),
-        Mode::Status => render_status(frame, area, app),
+        Mode::Status => render_status(frame, area, app, true),
     }
 }
 
@@ -837,7 +955,7 @@ fn ui_full(frame: &mut Frame, app: &App) {
 
     let [cont_a, stat_a] = Layout::horizontal([Constraint::Percentage(62), Constraint::Percentage(38)]).areas(lower);
     render_containers(frame, cont_a, app);
-    render_status(frame, stat_a, app);
+    render_status(frame, stat_a, app, false);
 }
 
 fn render_cpu(frame: &mut Frame, cpu_a: Rect, app: &App) {
@@ -850,7 +968,54 @@ fn render_cpu(frame: &mut Frame, cpu_a: Rect, app: &App) {
     ]);
     let cpu_inner = cpu_block.inner(cpu_a);
     frame.render_widget(cpu_block, cpu_a);
-    if cpu_inner.height > 1 {
+    if cpu_inner.height >= 20 && !h.cores_hist.is_empty() {
+        // Tile mode: graph + per-core sparkline grid + load + top procs.
+        let ncores = h.cores_hist.len();
+        let half = ncores.div_ceil(2);
+        let nprocs = app.procs_cpu.len().min(6) as u16;
+        let [graph_a, cores_a, load_a, procs_a] = Layout::vertical([
+            Constraint::Min(5),
+            Constraint::Length(half as u16 + 1),
+            Constraint::Length(1),
+            Constraint::Length(nprocs + 3),
+        ])
+        .areas(cpu_inner);
+        frame.render_widget(
+            Paragraph::new(graph_lines(&h.cpu, graph_a.width as usize, graph_a.height as usize, 100.0, heat)),
+            graph_a,
+        );
+        let csw = ((cores_a.width as usize).saturating_sub(2 * 9 + 3) / 2).clamp(8, 32);
+        let seg = |i: usize| -> Vec<Span<'static>> {
+            let cur = h.cores.get(i).copied().unwrap_or(0.0);
+            let t = (cur / 100.0).clamp(0.0, 1.0);
+            vec![
+                Span::styled(format!("c{i:<2} "), dim()),
+                Span::styled(spark(&h.cores_hist[i], csw, 5.0, 1.0), Style::new().fg(heat(t))),
+                Span::styled(format!(" {cur:3.0}%"), Style::new().fg(heat(t))),
+            ]
+        };
+        let mut core_lines = vec![Line::default()];
+        for r in 0..half {
+            let mut spans = seg(r);
+            if r + half < ncores {
+                spans.push(Span::raw("   "));
+                spans.extend(seg(r + half));
+            }
+            core_lines.push(Line::from(spans));
+        }
+        frame.render_widget(Paragraph::new(core_lines), cores_a);
+        let loadc = heat(h.load / h.ncpu.max(1) as f64);
+        frame.render_widget(
+            Paragraph::new(Line::from(vec![
+                Span::styled("load ", dim()),
+                Span::styled(spark(&h.load_hist, 24, h.ncpu as f64, 1.0), Style::new().fg(loadc)),
+                Span::styled(format!(" {:.2}", h.load), Style::new().fg(loadc)),
+                Span::styled(format!("/{}", h.ncpu), dim()),
+            ])),
+            load_a,
+        );
+        frame.render_widget(Paragraph::new(proc_lines("TOP CPU", &app.procs_cpu, 6, false)), procs_a);
+    } else if cpu_inner.height > 1 {
         let graph = Rect { height: cpu_inner.height - 1, ..cpu_inner };
         frame.render_widget(
             Paragraph::new(graph_lines(&h.cpu, graph.width as usize, graph.height as usize, 100.0, heat)),
@@ -879,7 +1044,45 @@ fn render_mem(frame: &mut Frame, mem_a: Rect, app: &App) {
     ]);
     let mem_inner = mem_block.inner(mem_a);
     frame.render_widget(mem_block, mem_a);
-    if mem_inner.height > 1 {
+    if mem_inner.height >= 20 {
+        // Tile mode: graph + breakdown gauges + top procs by memory.
+        let nprocs = app.procs_mem.len().min(6) as u16;
+        let [graph_a, brk_a, procs_a] = Layout::vertical([
+            Constraint::Min(5),
+            Constraint::Length(6),
+            Constraint::Length(nprocs + 3),
+        ])
+        .areas(mem_inner);
+        frame.render_widget(
+            Paragraph::new(graph_lines(
+                &h.mem_used,
+                graph_a.width as usize,
+                graph_a.height as usize,
+                h.mem_total.max(1.0),
+                |t| lerp(BLUE_RGB, MAGENTA_RGB, t),
+            )),
+            graph_a,
+        );
+        let w = brk_a.width as usize;
+        let total = h.mem_total.max(1.0);
+        frame.render_widget(
+            Paragraph::new(vec![
+                Line::default(),
+                gauge_line("used", h.mem_cur / total, human_mem(h.mem_cur).trim().to_string(), C_MAGENTA, w),
+                gauge_line("avail", h.mem_avail / total, human_mem(h.mem_avail).trim().to_string(), C_GREEN, w),
+                gauge_line("cache", h.mem_cache / total, human_mem(h.mem_cache).trim().to_string(), C_BLUE, w),
+                gauge_line(
+                    "swap",
+                    if h.swap_total > 0.0 { h.swap_used / h.swap_total } else { 0.0 },
+                    format!("{} / {}", human_mem(h.swap_used).trim(), human_mem(h.swap_total).trim()),
+                    C_YELLOW,
+                    w,
+                ),
+            ]),
+            brk_a,
+        );
+        frame.render_widget(Paragraph::new(proc_lines("TOP MEM", &app.procs_mem, 6, true)), procs_a);
+    } else if mem_inner.height > 1 {
         let graph = Rect { height: mem_inner.height - 1, ..mem_inner };
         frame.render_widget(
             Paragraph::new(graph_lines(
@@ -917,8 +1120,15 @@ fn render_net(frame: &mut Frame, net_a: Rect, app: &App) {
     ]);
     let net_inner = net_block.inner(net_a);
     frame.render_widget(net_block, net_a);
+    // Tile mode gets a totals/sockets footer under the graphs.
+    let (body, footer) = if net_inner.height >= 14 {
+        let [b, f] = Layout::vertical([Constraint::Min(4), Constraint::Length(2)]).areas(net_inner);
+        (b, Some(f))
+    } else {
+        (net_inner, None)
+    };
     let [rx_a, tx_a] =
-        Layout::vertical([Constraint::Percentage(50), Constraint::Percentage(50)]).areas(net_inner);
+        Layout::vertical([Constraint::Percentage(50), Constraint::Percentage(50)]).areas(body);
     for (area, arrow, hue, cur, series) in [
         (rx_a, '↓', CYAN_RGB, h.rx_cur, &h.rx),
         (tx_a, '↑', MAGENTA_RGB, h.tx_cur, &h.tx),
@@ -939,6 +1149,24 @@ fn render_net(frame: &mut Frame, net_a: Rect, app: &App) {
             graph_a,
         );
     }
+    if let Some(f) = footer {
+        frame.render_widget(
+            Paragraph::new(vec![
+                Line::default(),
+                Line::from(vec![
+                    Span::styled("Σ ", dim()),
+                    Span::styled(format!("↓ {}", human_size(h.rx_total as f64)), Style::new().fg(C_CYAN)),
+                    Span::styled(" · ", dim()),
+                    Span::styled(format!("↑ {}", human_size(h.tx_total as f64)), Style::new().fg(C_MAGENTA)),
+                    Span::styled(
+                        format!("      tcp {} estab · {} timewait", h.tcp_inuse, h.tcp_tw),
+                        dim(),
+                    ),
+                ]),
+            ]),
+            f,
+        );
+    }
 }
 
 fn render_disk(frame: &mut Frame, disk_a: Rect, app: &App) {
@@ -951,8 +1179,30 @@ fn render_disk(frame: &mut Frame, disk_a: Rect, app: &App) {
     ]);
     let disk_inner = disk_block.inner(disk_a);
     frame.render_widget(disk_block, disk_a);
+    // Tile mode gets a lifetime-IO footer under the graphs.
+    let (body, footer) = if disk_inner.height >= 14 {
+        let [b, f] = Layout::vertical([Constraint::Min(4), Constraint::Length(2)]).areas(disk_inner);
+        (b, Some(f))
+    } else {
+        (disk_inner, None)
+    };
+    if let Some(f) = footer {
+        frame.render_widget(
+            Paragraph::new(vec![
+                Line::default(),
+                Line::from(vec![
+                    Span::styled("Σ ", dim()),
+                    Span::styled(format!("read {}", human_size(h.io_r_total as f64)), Style::new().fg(C_CYAN)),
+                    Span::styled(" · ", dim()),
+                    Span::styled(format!("written {}", human_size(h.io_w_total as f64)), Style::new().fg(C_MAGENTA)),
+                    Span::styled("      since boot", dim()),
+                ]),
+            ]),
+            f,
+        );
+    }
     let [gauge_a, iolabel_a, iograph_a] =
-        Layout::vertical([Constraint::Length(1), Constraint::Length(1), Constraint::Min(1)]).areas(disk_inner);
+        Layout::vertical([Constraint::Length(1), Constraint::Length(1), Constraint::Min(1)]).areas(body);
     let barw = gauge_a.width as usize;
     let filled = (app.disk_pct as usize * barw / 100).min(barw);
     let mut gauge_spans = Vec::with_capacity(barw);
@@ -1004,11 +1254,11 @@ fn render_containers(frame: &mut Frame, cont_a: Rect, app: &App) {
     );
 }
 
-fn render_status(frame: &mut Frame, stat_a: Rect, app: &App) {
+fn render_status(frame: &mut Frame, stat_a: Rect, app: &App, tile: bool) {
     let stat_block = section(vec![Span::styled(" STATUS ", accent(C_MAGENTA))]);
     let stat_inner = stat_block.inner(stat_a);
     frame.render_widget(stat_block, stat_a);
-    frame.render_widget(Paragraph::new(status_panel(app)), stat_inner);
+    frame.render_widget(Paragraph::new(status_panel(app, tile)), stat_inner);
 }
 
 fn containers_panel(app: &App, width: usize, height: usize) -> Vec<Line<'static>> {
@@ -1069,7 +1319,7 @@ fn containers_panel(app: &App, width: usize, height: usize) -> Vec<Line<'static>
     lines
 }
 
-fn status_panel(app: &App) -> Vec<Line<'static>> {
+fn status_panel(app: &App, tile: bool) -> Vec<Line<'static>> {
     let mut lines = vec![Line::styled("HOST SERVICES", accent(C_BLUE)), Line::default()];
 
     // Two services per row — six units would otherwise burn half the panel.
@@ -1102,22 +1352,26 @@ fn status_panel(app: &App) -> Vec<Line<'static>> {
         ]));
     }
 
-    if !app.procs.is_empty() {
+    if tile {
+        // The kiosk's CPU/MEM tiles carry the process tables; this tile
+        // gets the docker-operations summary instead.
         lines.push(Line::default());
-        lines.push(Line::styled("TOP PROCESSES", accent(C_BLUE)));
+        lines.push(Line::styled("DOCKER", accent(C_BLUE)));
         lines.push(Line::default());
-        lines.push(Line::styled(format!("{:>5} {:>5}  {}", "CPU%", "MEM%", "COMMAND"), dim()));
-        for p in &app.procs {
-            let f: Vec<&str> = p.split_whitespace().collect();
-            if f.len() >= 3 {
-                let cpu: f64 = f[0].parse().unwrap_or(0.0);
-                lines.push(Line::from(vec![
-                    Span::styled(format!("{:>5}", f[0]), Style::new().fg(heat(cpu / 50.0))),
-                    Span::styled(format!(" {:>5}", f[1]), dim()),
-                    Span::styled(format!("  {}", f[2..].join(" ")), Style::new().fg(C_FG)),
-                ]));
-            }
+        let mut docker = vec![
+            Span::styled("● ".to_string(), Style::new().fg(C_GREEN)),
+            Span::styled(
+                format!("{}/{} containers running", app.containers.len(), app.containers_total),
+                Style::new().fg(C_FG),
+            ),
+            Span::styled(format!("   {} images", app.images), dim()),
+        ];
+        if !app.prune_next.is_empty() {
+            docker.push(Span::styled(format!("   prune {}", app.prune_next), dim()));
         }
+        lines.push(Line::from(docker));
+    } else if !app.procs_cpu.is_empty() {
+        lines.extend(proc_lines("TOP PROCESSES", &app.procs_cpu, 10, false));
     }
 
     let gateway_up = app.containers.contains_key("gnar-hermes-gateway");
@@ -1136,9 +1390,10 @@ fn status_panel(app: &App) -> Vec<Line<'static>> {
     if app.cron > 0 {
         hermes.push(Span::styled(format!("   cron {}", app.cron), Style::new().fg(C_CYAN)));
     }
+    let size = if app.backup_size_mb > 0 { format!(" · {}M", app.backup_size_mb) } else { String::new() };
     match app.backup_age_h {
-        Some(hh) if hh > 36 => hermes.push(Span::styled(format!("   ● backup {hh}h old"), Style::new().fg(C_RED))),
-        Some(hh) => hermes.push(Span::styled(format!("   ✓ backup {hh}h"), Style::new().fg(C_GREEN))),
+        Some(hh) if hh > 36 => hermes.push(Span::styled(format!("   ● backup {hh}h old{size}"), Style::new().fg(C_RED))),
+        Some(hh) => hermes.push(Span::styled(format!("   ✓ backup {hh}h{size}"), Style::new().fg(C_GREEN))),
         None => hermes.push(Span::styled("   backup ?", dim())),
     }
     lines.push(Line::default());
@@ -1176,7 +1431,7 @@ fn main() -> std::io::Result<()> {
         let a = app.clone();
         thread::spawn(move || docker_loop(a));
     }
-    if matches!(mode, Mode::Full | Mode::Disk | Mode::Status) {
+    if matches!(mode, Mode::Full | Mode::Cpu | Mode::Mem | Mode::Disk | Mode::Status) {
         let a = app.clone();
         let with_hermes = matches!(mode, Mode::Full | Mode::Status);
         thread::spawn(move || status_loop(a, with_hermes));
