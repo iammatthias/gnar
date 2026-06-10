@@ -533,7 +533,7 @@ fn top_procs() -> Vec<String> {
         .map(|o| {
             String::from_utf8_lossy(&o.stdout)
                 .lines()
-                .take(6)
+                .take(10)
                 .map(|l| l.trim().to_string())
                 .collect()
         })
@@ -694,8 +694,11 @@ fn spark_u64(vals: &VecDeque<f64>, width: usize) -> Vec<u64> {
 
 fn ui(frame: &mut Frame, app: &App) {
     let h = &app.host;
+    // Proportional heights: big history graphs up top (~24% of however
+    // tall the display is), a fixed net/disk band, the rest to the
+    // container + status grids. Degrades cleanly on small terminals.
     let [header, hosttop, hostnet, lower] =
-        Layout::vertical([Constraint::Length(1), Constraint::Length(9), Constraint::Length(5), Constraint::Min(8)])
+        Layout::vertical([Constraint::Length(1), Constraint::Percentage(24), Constraint::Length(8), Constraint::Min(8)])
             .areas(frame.area());
 
     // --- header -------------------------------------------------------------
@@ -762,56 +765,86 @@ fn ui(frame: &mut Frame, app: &App) {
     // --- NET / DISK ------------------------------------------------------------
     let [net_a, disk_a] = Layout::horizontal([Constraint::Percentage(50), Constraint::Percentage(50)]).areas(hostnet);
 
+    let peak = |v: &VecDeque<f64>| v.iter().copied().fold(0.0f64, f64::max);
+
     let net_block = section(vec![
         Span::styled(" NET ", head_style()),
         Span::styled(format!("{} ", h.iface), dim()),
     ]);
     let net_inner = net_block.inner(net_a);
     frame.render_widget(net_block, net_a);
-    let nsw = (net_inner.width as usize).saturating_sub(14).clamp(8, 80);
-    frame.render_widget(
-        Paragraph::new(vec![
-            Line::from(vec![
-                Span::raw(format!("↓ {} ", human_rate(Some(h.rx_cur)))),
-                Span::styled(spark(&h.rx, nsw, 10240.0, 1.0), dim()),
-            ]),
-            Line::from(vec![
-                Span::raw(format!("↑ {} ", human_rate(Some(h.tx_cur)))),
-                Span::styled(spark(&h.tx, nsw, 10240.0, 1.0), dim()),
-            ]),
-        ]),
-        net_inner,
-    );
+    let [rx_a, tx_a] =
+        Layout::vertical([Constraint::Percentage(50), Constraint::Percentage(50)]).areas(net_inner);
+    for (area, arrow, cur, series) in [(rx_a, '↓', h.rx_cur, &h.rx), (tx_a, '↑', h.tx_cur, &h.tx)] {
+        let [label_a, graph_a] =
+            Layout::vertical([Constraint::Length(1), Constraint::Min(1)]).areas(area);
+        frame.render_widget(
+            Paragraph::new(Line::from(vec![
+                Span::raw(format!("{arrow} {}", human_rate(Some(cur)))),
+                Span::styled(format!("   peak {}", human_rate(Some(peak(series)))), dim()),
+            ])),
+            label_a,
+        );
+        frame.render_widget(
+            Sparkline::default()
+                .data(&spark_u64(series, graph_a.width as usize))
+                .max(peak(series).max(10240.0) as u64)
+                .style(Style::new().fg(Color::Yellow)),
+            graph_a,
+        );
+    }
 
     let disk_block = section(vec![
         Span::styled(" DISK ", head_style()),
-        Span::styled(format!("/ {}% · {} ", app.disk_pct, app.disk_detail), dim()),
+        Span::styled(format!("/ {}% · {} · {} images ", app.disk_pct, app.disk_detail, app.images), dim()),
     ]);
     let disk_inner = disk_block.inner(disk_a);
     frame.render_widget(disk_block, disk_a);
-    let barw = (disk_inner.width as usize).saturating_sub(2).clamp(10, 60);
+    let [gauge_a, iolabel_a, iograph_a] =
+        Layout::vertical([Constraint::Length(1), Constraint::Length(1), Constraint::Min(1)]).areas(disk_inner);
+    let barw = gauge_a.width as usize;
     let filled = (app.disk_pct as usize * barw / 100).min(barw);
-    let dsw = (disk_inner.width as usize).saturating_sub(16).clamp(8, 60);
     frame.render_widget(
-        Paragraph::new(vec![
-            Line::from(vec![
-                Span::styled("▓".repeat(filled), Style::new().fg(if app.disk_pct > 85 { Color::Red } else { Color::Cyan })),
-                Span::styled("░".repeat(barw - filled), dim()),
-            ]),
-            Line::from(vec![
-                Span::raw(format!("io r {} ", human_rate(Some(h.io_r_cur)))),
-                Span::styled(spark(&h.io_r, dsw / 2, 1048576.0, 1.0), dim()),
-                Span::raw(format!("  w {} ", human_rate(Some(h.io_w_cur)))),
-                Span::styled(spark(&h.io_w, dsw / 2, 1048576.0, 1.0), dim()),
-            ]),
-        ]),
-        disk_inner,
+        Paragraph::new(Line::from(vec![
+            Span::styled("▓".repeat(filled), Style::new().fg(if app.disk_pct > 85 { Color::Red } else { Color::Cyan })),
+            Span::styled("░".repeat(barw - filled), dim()),
+        ])),
+        gauge_a,
+    );
+    frame.render_widget(
+        Paragraph::new(Line::from(vec![
+            Span::raw(format!("io  read {}", human_rate(Some(h.io_r_cur)))),
+            Span::styled(format!("  peak {}", human_rate(Some(peak(&h.io_r)))), dim()),
+            Span::raw(format!("      write {}", human_rate(Some(h.io_w_cur)))),
+            Span::styled(format!("  peak {}", human_rate(Some(peak(&h.io_w)))), dim()),
+        ])),
+        iolabel_a,
+    );
+    let [ior_a, iow_a] =
+        Layout::horizontal([Constraint::Percentage(50), Constraint::Percentage(50)]).areas(iograph_a);
+    frame.render_widget(
+        Sparkline::default()
+            .data(&spark_u64(&h.io_r, ior_a.width as usize))
+            .max(peak(&h.io_r).max(1048576.0) as u64)
+            .style(Style::new().fg(Color::Cyan)),
+        ior_a,
+    );
+    frame.render_widget(
+        Sparkline::default()
+            .data(&spark_u64(&h.io_w, iow_a.width as usize))
+            .max(peak(&h.io_w).max(1048576.0) as u64)
+            .style(Style::new().fg(Color::Magenta)),
+        iow_a,
     );
 
     // --- lower: containers + status -------------------------------------------
-    let [cont_a, stat_a] = Layout::horizontal([Constraint::Percentage(58), Constraint::Percentage(42)]).areas(lower);
+    let [cont_a, stat_a] = Layout::horizontal([Constraint::Percentage(62), Constraint::Percentage(38)]).areas(lower);
 
-    let cont_block = section(vec![Span::styled(" CONTAINERS ", head_style())]);
+    let total_mem: f64 = app.containers.values().map(|s| s.mem_cur).sum();
+    let cont_block = section(vec![
+        Span::styled(" CONTAINERS ", head_style()),
+        Span::styled(format!("{} · mem {} ", app.containers.len(), human_mem(total_mem).trim()), dim()),
+    ]);
     let cont_inner = cont_block.inner(cont_a);
     frame.render_widget(cont_block, cont_a);
     frame.render_widget(
@@ -826,8 +859,8 @@ fn ui(frame: &mut Frame, app: &App) {
 }
 
 fn containers_panel(app: &App, width: usize, height: usize) -> Vec<Line<'static>> {
-    let namew = 22usize;
-    let sw = ((width.saturating_sub(namew + 2 + 7 + 3 + 7 + 3 + 8)) / 2).clamp(8, 40);
+    let namew = 26usize;
+    let sw = ((width.saturating_sub(namew + 2 + 7 + 3 + 7 + 3 + 8)) / 2).clamp(8, 56);
 
     let mut lines = vec![
         Line::from(vec![
@@ -878,12 +911,15 @@ fn containers_panel(app: &App, width: usize, height: usize) -> Vec<Line<'static>
 fn status_panel(app: &App) -> Vec<Line<'static>> {
     let mut lines = vec![Line::styled("HOST SERVICES".to_string(), head_style()), Line::default()];
 
-    for (name, state) in &app.services {
-        lines.push(Line::from(vec![
-            Span::styled("● ".to_string(), Style::new().fg(dot_color(state))),
-            Span::raw(format!("{name:<14}")),
-            Span::styled(state.clone(), dim()),
-        ]));
+    // Two services per row — six units would otherwise burn half the panel.
+    for pair in app.services.chunks(2) {
+        let mut spans = Vec::new();
+        for (name, state) in pair {
+            spans.push(Span::styled("● ".to_string(), Style::new().fg(dot_color(state))));
+            spans.push(Span::raw(format!("{name:<14}")));
+            spans.push(Span::styled(format!("{state:<12}"), dim()));
+        }
+        lines.push(Line::from(spans));
     }
 
     lines.push(Line::default());
