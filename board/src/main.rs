@@ -47,7 +47,7 @@ use std::{
 use ratatui::{
     crossterm::event::{self, Event, KeyCode, KeyEventKind, KeyModifiers},
     prelude::*,
-    widgets::{Block, Paragraph, Sparkline},
+    widgets::{Block, Paragraph},
 };
 use serde_json::Value;
 
@@ -616,6 +616,65 @@ fn disk_usage() -> (u8, String) {
 // Rendering
 // ---------------------------------------------------------------------------
 
+// Tokyo Night-ish truecolor palette. foot (the kiosk terminal) speaks
+// 24-bit color; on lesser terminals crossterm degrades to nearest-match.
+const C_FG: Color = Color::Rgb(0xc0, 0xca, 0xf5);
+const C_DIM: Color = Color::Rgb(0x56, 0x5f, 0x89);
+const C_BORDER: Color = Color::Rgb(0x3b, 0x42, 0x61);
+const C_BG_ALT: Color = Color::Rgb(0x1a, 0x1b, 0x26);
+const C_CYAN: Color = Color::Rgb(0x7d, 0xcf, 0xff);
+const C_BLUE: Color = Color::Rgb(0x7a, 0xa2, 0xf7);
+const C_MAGENTA: Color = Color::Rgb(0xbb, 0x9a, 0xf7);
+const C_GREEN: Color = Color::Rgb(0x9e, 0xce, 0x6a);
+const C_YELLOW: Color = Color::Rgb(0xe0, 0xaf, 0x68);
+const C_RED: Color = Color::Rgb(0xf7, 0x76, 0x8e);
+
+const GREEN_RGB: (u8, u8, u8) = (0x9e, 0xce, 0x6a);
+const YELLOW_RGB: (u8, u8, u8) = (0xe0, 0xaf, 0x68);
+const RED_RGB: (u8, u8, u8) = (0xf7, 0x76, 0x8e);
+const BLUE_RGB: (u8, u8, u8) = (0x7a, 0xa2, 0xf7);
+const MAGENTA_RGB: (u8, u8, u8) = (0xbb, 0x9a, 0xf7);
+const CYAN_RGB: (u8, u8, u8) = (0x7d, 0xcf, 0xff);
+
+fn lerp(a: (u8, u8, u8), b: (u8, u8, u8), t: f64) -> Color {
+    let t = t.clamp(0.0, 1.0);
+    let c = |x: u8, y: u8| (x as f64 + (y as f64 - x as f64) * t).round() as u8;
+    Color::Rgb(c(a.0, b.0), c(a.1, b.1), c(a.2, b.2))
+}
+
+/// green → amber → rose as t goes 0 → 1. The signature gradient for
+/// anything that means "how loaded is this".
+fn heat(t: f64) -> Color {
+    let t = t.clamp(0.0, 1.0);
+    if t < 0.5 {
+        lerp(GREEN_RGB, YELLOW_RGB, t * 2.0)
+    } else {
+        lerp(YELLOW_RGB, RED_RGB, (t - 0.5) * 2.0)
+    }
+}
+
+/// Intensity tint of a hue: muted slate at t=0, full color at t=1.
+/// Used for throughput graphs, where "hot" means "busy" not "bad".
+fn tint(hue: (u8, u8, u8)) -> impl Fn(f64) -> Color {
+    move |t: f64| lerp((0x2f, 0x33, 0x4d), hue, 0.35 + 0.65 * t.clamp(0.0, 1.0))
+}
+
+fn dim() -> Style {
+    Style::new().fg(C_DIM)
+}
+
+fn accent(c: Color) -> Style {
+    Style::new().fg(c).add_modifier(Modifier::BOLD)
+}
+
+fn section(title: Vec<Span<'static>>) -> Block<'static> {
+    Block::bordered()
+        .border_set(ratatui::symbols::border::ROUNDED)
+        .border_style(Style::new().fg(C_BORDER))
+        .title(Line::from(title))
+}
+
+/// Single-row sparkline string — the per-container mini charts.
 fn spark(vals: &VecDeque<f64>, width: usize, floor: f64, head: f64) -> String {
     let take = vals.len().min(width);
     let slice: Vec<f64> = vals.iter().skip(vals.len() - take).copied().collect();
@@ -632,6 +691,43 @@ fn spark(vals: &VecDeque<f64>, width: usize, floor: f64, head: f64) -> String {
         s.push(TICKS[idx]);
     }
     s
+}
+
+/// Multi-row graph with per-column color: each column is the newest
+/// `width` samples scaled to `max`, drawn in eighth-block resolution
+/// across `rows` lines and colored by `color(value/max)`. This is what
+/// replaced ratatui's stock Sparkline — same geometry, but the color
+/// carries the value too.
+fn graph_lines(
+    vals: &VecDeque<f64>,
+    width: usize,
+    rows: usize,
+    max: f64,
+    color: impl Fn(f64) -> Color,
+) -> Vec<Line<'static>> {
+    let take = vals.len().min(width);
+    let slice: Vec<f64> = vals.iter().skip(vals.len() - take).copied().collect();
+    let max = max.max(f64::MIN_POSITIVE);
+    let pad = width - take;
+    let mut lines = Vec::with_capacity(rows);
+    for r in 0..rows {
+        let mut spans = Vec::with_capacity(take + 1);
+        if pad > 0 {
+            spans.push(Span::raw(" ".repeat(pad)));
+        }
+        for v in &slice {
+            let t = (v / max).clamp(0.0, 1.0);
+            let eighths = (t * (rows * 8) as f64).round() as usize;
+            let filled = eighths.saturating_sub((rows - 1 - r) * 8).min(8);
+            if filled == 0 {
+                spans.push(Span::raw(" "));
+            } else {
+                spans.push(Span::styled(TICKS[filled - 1].to_string(), Style::new().fg(color(t))));
+            }
+        }
+        lines.push(Line::from(spans));
+    }
+    lines
 }
 
 fn human_mem(mib: f64) -> String {
@@ -667,29 +763,10 @@ fn human_uptime(secs: u64) -> String {
 
 fn dot_color(state: &str) -> Color {
     match state {
-        "active" | "running" | "ok" | "up" => Color::Green,
-        "inactive" | "failed" | "exited" | "dead" | "down" => Color::Red,
-        _ => Color::Yellow,
+        "active" | "running" | "ok" | "up" => C_GREEN,
+        "inactive" | "failed" | "exited" | "dead" | "down" => C_RED,
+        _ => C_YELLOW,
     }
-}
-
-fn dim() -> Style {
-    Style::new().add_modifier(Modifier::DIM)
-}
-
-fn head_style() -> Style {
-    Style::new().fg(Color::Cyan).add_modifier(Modifier::BOLD)
-}
-
-fn section(title: Vec<Span<'static>>) -> Block<'static> {
-    Block::bordered()
-        .border_style(dim())
-        .title(Line::from(title))
-}
-
-fn spark_u64(vals: &VecDeque<f64>, width: usize) -> Vec<u64> {
-    let take = vals.len().min(width);
-    vals.iter().skip(vals.len() - take).map(|v| (*v).max(0.0) as u64).collect()
 }
 
 fn ui(frame: &mut Frame, app: &App) {
@@ -702,100 +779,116 @@ fn ui(frame: &mut Frame, app: &App) {
             .areas(frame.area());
 
     // --- header -------------------------------------------------------------
+    let loadc = heat(h.load / h.ncpu.max(1) as f64);
     let title = Line::from(vec![
-        Span::styled(" GNAR ", head_style()),
-        Span::styled(format!("· {} · up {} · load {:.2}/{}", h.hostname, human_uptime(h.uptime), h.load, h.ncpu), dim()),
+        Span::styled(" ▲ GNAR ", accent(C_MAGENTA)),
+        Span::styled(format!("· {} · up {} · ", h.hostname, human_uptime(h.uptime)), dim()),
+        Span::styled(format!("load {:.2}", h.load), Style::new().fg(loadc)),
+        Span::styled(format!("/{}", h.ncpu), dim()),
     ]);
-    let clock = Line::from(Span::styled(format!("{} ", app.clock), dim())).right_aligned();
+    let clock = Line::from(Span::styled(format!("{} ", app.clock), accent(C_CYAN))).right_aligned();
     frame.render_widget(Paragraph::new(title), header);
     frame.render_widget(Paragraph::new(clock), header);
 
     // --- CPU / MEM graphs ----------------------------------------------------
     let [cpu_a, mem_a] = Layout::horizontal([Constraint::Percentage(50), Constraint::Percentage(50)]).areas(hosttop);
 
-    let temp = h.temp_c.map(|t| format!(" · {t:.0}°C")).unwrap_or_default();
+    let temp = h.temp_c.map(|t| format!("· {t:.0}°C ")).unwrap_or_default();
     let cpu_block = section(vec![
-        Span::styled(" CPU ", head_style()),
-        Span::styled(format!("{:.1}%{} ", h.cpu_cur, temp), dim()),
+        Span::styled(" CPU ", accent(C_CYAN)),
+        Span::styled(format!("{:.1}% ", h.cpu_cur), Style::new().fg(heat(h.cpu_cur / 100.0))),
+        Span::styled(temp, dim()),
     ]);
     let cpu_inner = cpu_block.inner(cpu_a);
     frame.render_widget(cpu_block, cpu_a);
     if cpu_inner.height > 1 {
         let graph = Rect { height: cpu_inner.height - 1, ..cpu_inner };
         frame.render_widget(
-            Sparkline::default()
-                .data(&spark_u64(&h.cpu, graph.width as usize))
-                .max(100)
-                .style(Style::new().fg(Color::Cyan)),
+            Paragraph::new(graph_lines(&h.cpu, graph.width as usize, graph.height as usize, 100.0, heat)),
             graph,
         );
-        let cores: String = h.cores.iter().map(|p| TICKS[((p / 100.0 * 7.0).round() as usize).min(7)]).collect();
+        let mut core_spans = vec![Span::styled("cores ", dim())];
+        for p in &h.cores {
+            let t = (p / 100.0).clamp(0.0, 1.0);
+            core_spans.push(Span::styled(TICKS[(t * 7.0).round() as usize].to_string(), Style::new().fg(heat(t))));
+        }
         let coreline = Rect { y: cpu_inner.y + cpu_inner.height - 1, height: 1, ..cpu_inner };
-        frame.render_widget(
-            Paragraph::new(Line::from(vec![Span::styled("cores ", dim()), Span::raw(cores)])),
-            coreline,
-        );
+        frame.render_widget(Paragraph::new(Line::from(core_spans)), coreline);
     }
 
+    let mem_t = if h.mem_total > 0.0 { h.mem_cur / h.mem_total } else { 0.0 };
     let mem_block = section(vec![
-        Span::styled(" MEM ", head_style()),
-        Span::styled(format!("{} / {} ", human_mem(h.mem_cur).trim().to_string(), human_mem(h.mem_total).trim()), dim()),
+        Span::styled(" MEM ", accent(C_MAGENTA)),
+        Span::styled(
+            format!("{} / {} ", human_mem(h.mem_cur).trim(), human_mem(h.mem_total).trim()),
+            Style::new().fg(C_FG),
+        ),
+        Span::styled(format!("· {:.0}% ", mem_t * 100.0), dim()),
     ]);
     let mem_inner = mem_block.inner(mem_a);
     frame.render_widget(mem_block, mem_a);
     if mem_inner.height > 1 {
         let graph = Rect { height: mem_inner.height - 1, ..mem_inner };
         frame.render_widget(
-            Sparkline::default()
-                .data(&spark_u64(&h.mem_used, graph.width as usize))
-                .max(h.mem_total.max(1.0) as u64)
-                .style(Style::new().fg(Color::Green)),
+            Paragraph::new(graph_lines(
+                &h.mem_used,
+                graph.width as usize,
+                graph.height as usize,
+                h.mem_total.max(1.0),
+                |t| lerp(BLUE_RGB, MAGENTA_RGB, t),
+            )),
             graph,
         );
+        let swap_style = if h.swap_total > 0.0 && h.swap_used / h.swap_total > 0.5 {
+            Style::new().fg(C_YELLOW)
+        } else {
+            dim()
+        };
         let swapline = Rect { y: mem_inner.y + mem_inner.height - 1, height: 1, ..mem_inner };
         frame.render_widget(
             Paragraph::new(Line::from(Span::styled(
                 format!("swap {} / {}", human_mem(h.swap_used).trim(), human_mem(h.swap_total).trim()),
-                dim(),
+                swap_style,
             ))),
             swapline,
         );
     }
 
     // --- NET / DISK ------------------------------------------------------------
-    let [net_a, disk_a] = Layout::horizontal([Constraint::Percentage(50), Constraint::Percentage(50)]).areas(hostnet);
-
     let peak = |v: &VecDeque<f64>| v.iter().copied().fold(0.0f64, f64::max);
 
     let net_block = section(vec![
-        Span::styled(" NET ", head_style()),
+        Span::styled(" NET ", accent(C_YELLOW)),
         Span::styled(format!("{} ", h.iface), dim()),
     ]);
+    let [net_a, disk_a] = Layout::horizontal([Constraint::Percentage(50), Constraint::Percentage(50)]).areas(hostnet);
     let net_inner = net_block.inner(net_a);
     frame.render_widget(net_block, net_a);
     let [rx_a, tx_a] =
         Layout::vertical([Constraint::Percentage(50), Constraint::Percentage(50)]).areas(net_inner);
-    for (area, arrow, cur, series) in [(rx_a, '↓', h.rx_cur, &h.rx), (tx_a, '↑', h.tx_cur, &h.tx)] {
+    for (area, arrow, hue, cur, series) in [
+        (rx_a, '↓', CYAN_RGB, h.rx_cur, &h.rx),
+        (tx_a, '↑', MAGENTA_RGB, h.tx_cur, &h.tx),
+    ] {
         let [label_a, graph_a] =
             Layout::vertical([Constraint::Length(1), Constraint::Min(1)]).areas(area);
         frame.render_widget(
             Paragraph::new(Line::from(vec![
-                Span::raw(format!("{arrow} {}", human_rate(Some(cur)))),
+                Span::styled(format!("{arrow} "), accent(lerp(hue, hue, 0.0))),
+                Span::styled(human_rate(Some(cur)), Style::new().fg(C_FG)),
                 Span::styled(format!("   peak {}", human_rate(Some(peak(series)))), dim()),
             ])),
             label_a,
         );
+        let pk = peak(series).max(10240.0);
         frame.render_widget(
-            Sparkline::default()
-                .data(&spark_u64(series, graph_a.width as usize))
-                .max(peak(series).max(10240.0) as u64)
-                .style(Style::new().fg(Color::Yellow)),
+            Paragraph::new(graph_lines(series, graph_a.width as usize, graph_a.height as usize, pk, tint(hue))),
             graph_a,
         );
     }
 
     let disk_block = section(vec![
-        Span::styled(" DISK ", head_style()),
+        Span::styled(" DISK ", accent(C_BLUE)),
         Span::styled(format!("/ {}% · {} · {} images ", app.disk_pct, app.disk_detail, app.images), dim()),
     ]);
     let disk_inner = disk_block.inner(disk_a);
@@ -804,36 +897,36 @@ fn ui(frame: &mut Frame, app: &App) {
         Layout::vertical([Constraint::Length(1), Constraint::Length(1), Constraint::Min(1)]).areas(disk_inner);
     let barw = gauge_a.width as usize;
     let filled = (app.disk_pct as usize * barw / 100).min(barw);
+    let mut gauge_spans = Vec::with_capacity(barw);
+    for i in 0..barw {
+        if i < filled {
+            gauge_spans.push(Span::styled("▓", Style::new().fg(heat(i as f64 / barw as f64))));
+        } else {
+            gauge_spans.push(Span::styled("░", Style::new().fg(C_BORDER)));
+        }
+    }
+    frame.render_widget(Paragraph::new(Line::from(gauge_spans)), gauge_a);
     frame.render_widget(
         Paragraph::new(Line::from(vec![
-            Span::styled("▓".repeat(filled), Style::new().fg(if app.disk_pct > 85 { Color::Red } else { Color::Cyan })),
-            Span::styled("░".repeat(barw - filled), dim()),
-        ])),
-        gauge_a,
-    );
-    frame.render_widget(
-        Paragraph::new(Line::from(vec![
-            Span::raw(format!("io  read {}", human_rate(Some(h.io_r_cur)))),
+            Span::styled("io  read ", dim()),
+            Span::styled(human_rate(Some(h.io_r_cur)), Style::new().fg(C_CYAN)),
             Span::styled(format!("  peak {}", human_rate(Some(peak(&h.io_r)))), dim()),
-            Span::raw(format!("      write {}", human_rate(Some(h.io_w_cur)))),
+            Span::styled("      write ", dim()),
+            Span::styled(human_rate(Some(h.io_w_cur)), Style::new().fg(C_MAGENTA)),
             Span::styled(format!("  peak {}", human_rate(Some(peak(&h.io_w)))), dim()),
         ])),
         iolabel_a,
     );
     let [ior_a, iow_a] =
         Layout::horizontal([Constraint::Percentage(50), Constraint::Percentage(50)]).areas(iograph_a);
+    let pk_r = peak(&h.io_r).max(1048576.0);
+    let pk_w = peak(&h.io_w).max(1048576.0);
     frame.render_widget(
-        Sparkline::default()
-            .data(&spark_u64(&h.io_r, ior_a.width as usize))
-            .max(peak(&h.io_r).max(1048576.0) as u64)
-            .style(Style::new().fg(Color::Cyan)),
+        Paragraph::new(graph_lines(&h.io_r, ior_a.width as usize, ior_a.height as usize, pk_r, tint(CYAN_RGB))),
         ior_a,
     );
     frame.render_widget(
-        Sparkline::default()
-            .data(&spark_u64(&h.io_w, iow_a.width as usize))
-            .max(peak(&h.io_w).max(1048576.0) as u64)
-            .style(Style::new().fg(Color::Magenta)),
+        Paragraph::new(graph_lines(&h.io_w, iow_a.width as usize, iow_a.height as usize, pk_w, tint(MAGENTA_RGB))),
         iow_a,
     );
 
@@ -842,8 +935,9 @@ fn ui(frame: &mut Frame, app: &App) {
 
     let total_mem: f64 = app.containers.values().map(|s| s.mem_cur).sum();
     let cont_block = section(vec![
-        Span::styled(" CONTAINERS ", head_style()),
-        Span::styled(format!("{} · mem {} ", app.containers.len(), human_mem(total_mem).trim()), dim()),
+        Span::styled(" CONTAINERS ", accent(C_CYAN)),
+        Span::styled(format!("{} ", app.containers.len()), Style::new().fg(C_FG)),
+        Span::styled(format!("· mem {} ", human_mem(total_mem).trim()), dim()),
     ]);
     let cont_inner = cont_block.inner(cont_a);
     frame.render_widget(cont_block, cont_a);
@@ -852,7 +946,7 @@ fn ui(frame: &mut Frame, app: &App) {
         cont_inner,
     );
 
-    let stat_block = section(vec![Span::styled(" STATUS ", head_style())]);
+    let stat_block = section(vec![Span::styled(" STATUS ", accent(C_MAGENTA))]);
     let stat_inner = stat_block.inner(stat_a);
     frame.render_widget(stat_block, stat_a);
     frame.render_widget(Paragraph::new(status_panel(app)), stat_inner);
@@ -861,19 +955,21 @@ fn ui(frame: &mut Frame, app: &App) {
 fn containers_panel(app: &App, width: usize, height: usize) -> Vec<Line<'static>> {
     let namew = 26usize;
     let sw = ((width.saturating_sub(namew + 2 + 7 + 3 + 7 + 3 + 8)) / 2).clamp(8, 56);
+    let rowlen = namew + 2 + sw + 7 + 3 + sw + 7 + 3 + 8;
+    let memblue = Color::Rgb(0x6a, 0x7e, 0xc2);
 
     let mut lines = vec![
         Line::from(vec![
-            Span::styled(format!("{:<w$}", "NAME", w = namew + 2), Style::new().fg(Color::Cyan)),
-            Span::styled(format!("{:<w$}", "CPU", w = sw + 1 + 6 + 3), Style::new().fg(Color::Cyan)),
-            Span::styled(format!("{:<w$}", "MEM", w = sw + 1 + 6 + 3), Style::new().fg(Color::Cyan)),
-            Span::styled("NET".to_string(), Style::new().fg(Color::Cyan)),
+            Span::styled(format!("{:<w$}", "NAME", w = namew + 2), dim()),
+            Span::styled(format!("{:<w$}", "CPU", w = sw + 1 + 6 + 3), dim()),
+            Span::styled(format!("{:<w$}", "MEM", w = sw + 1 + 6 + 3), dim()),
+            Span::styled("NET".to_string(), dim()),
         ]),
         Line::default(),
     ];
 
     if let Some(err) = &app.docker_err {
-        lines.push(Line::styled(format!("docker unavailable: {err}"), Style::new().fg(Color::Red)));
+        lines.push(Line::styled(format!("docker unavailable: {err}"), Style::new().fg(C_RED)));
         return lines;
     }
 
@@ -883,24 +979,30 @@ fn containers_panel(app: &App, width: usize, height: usize) -> Vec<Line<'static>
             lines.push(Line::styled(format!("… +{} more", app.containers.len() - i), dim()));
             break;
         }
-        let cpu_color = if s.cpu_cur >= 80.0 {
-            Color::Red
-        } else if s.cpu_cur >= 40.0 {
-            Color::Yellow
-        } else {
-            Color::Green
-        };
+        let t = (s.cpu_cur / 100.0).clamp(0.0, 1.0);
+        let name_color = if name.starts_with("gnar") { C_CYAN } else { C_BLUE };
         let shown: String = name.chars().take(namew).collect();
-        lines.push(Line::from(vec![
-            Span::raw(format!("{shown:<namew$}  ")),
-            Span::styled(spark(&s.cpu, sw, 5.0, 1.0), dim()),
-            Span::styled(format!(" {:5.1}%", s.cpu_cur), Style::new().fg(cpu_color)),
+        let net_style = match s.net_rate {
+            Some(r) if r >= 1024.0 => Style::new().fg(C_CYAN),
+            _ => dim(),
+        };
+        let mut spans = vec![
+            Span::styled(format!("{shown:<namew$}  "), Style::new().fg(name_color)),
+            Span::styled(spark(&s.cpu, sw, 5.0, 1.0), Style::new().fg(heat(t))),
+            Span::styled(format!(" {:5.1}%", s.cpu_cur), Style::new().fg(heat(t))),
             Span::raw("   "),
-            Span::styled(spark(&s.mem, sw, 1.0, 1.25), dim()),
-            Span::raw(format!(" {}", human_mem(s.mem_cur))),
+            Span::styled(spark(&s.mem, sw, 1.0, 1.25), Style::new().fg(memblue)),
+            Span::styled(format!(" {}", human_mem(s.mem_cur)), Style::new().fg(C_FG)),
             Span::raw("   "),
-            Span::styled(human_rate(s.net_rate), dim()),
-        ]));
+            Span::styled(human_rate(s.net_rate), net_style),
+        ];
+        // Pad to the panel edge so the zebra stripe runs full width.
+        spans.push(Span::raw(" ".repeat(width.saturating_sub(rowlen))));
+        let mut line = Line::from(spans);
+        if i % 2 == 1 {
+            line = line.style(Style::new().bg(C_BG_ALT));
+        }
+        lines.push(line);
     }
     if app.containers.is_empty() {
         lines.push(Line::styled("(no running containers)", dim()));
@@ -909,62 +1011,75 @@ fn containers_panel(app: &App, width: usize, height: usize) -> Vec<Line<'static>
 }
 
 fn status_panel(app: &App) -> Vec<Line<'static>> {
-    let mut lines = vec![Line::styled("HOST SERVICES".to_string(), head_style()), Line::default()];
+    let mut lines = vec![Line::styled("HOST SERVICES", accent(C_BLUE)), Line::default()];
 
     // Two services per row — six units would otherwise burn half the panel.
     for pair in app.services.chunks(2) {
         let mut spans = Vec::new();
         for (name, state) in pair {
             spans.push(Span::styled("● ".to_string(), Style::new().fg(dot_color(state))));
-            spans.push(Span::raw(format!("{name:<14}")));
+            spans.push(Span::styled(format!("{name:<14}"), Style::new().fg(C_FG)));
             spans.push(Span::styled(format!("{state:<12}"), dim()));
         }
         lines.push(Line::from(spans));
     }
 
     lines.push(Line::default());
-    lines.push(Line::styled("CADDY SITES".to_string(), head_style()));
+    lines.push(Line::styled("CADDY SITES", accent(C_BLUE)));
     lines.push(Line::default());
     if app.sites.is_empty() {
         lines.push(Line::styled("(no sites)", dim()));
     }
     for (host, kind) in &app.sites {
+        let kind_color = match kind.as_str() {
+            "private" => C_CYAN,
+            "public" => C_MAGENTA,
+            _ => C_YELLOW,
+        };
         lines.push(Line::from(vec![
-            Span::styled("● ".to_string(), Style::new().fg(Color::Green)),
-            Span::raw(format!("{host:<28}")),
-            Span::styled(kind.clone(), dim()),
+            Span::styled("● ".to_string(), Style::new().fg(C_GREEN)),
+            Span::styled(format!("{host:<28}"), Style::new().fg(C_FG)),
+            Span::styled(kind.clone(), Style::new().fg(kind_color)),
         ]));
     }
 
     if !app.procs.is_empty() {
         lines.push(Line::default());
-        lines.push(Line::styled("TOP PROCESSES".to_string(), head_style()));
+        lines.push(Line::styled("TOP PROCESSES", accent(C_BLUE)));
         lines.push(Line::default());
         lines.push(Line::styled(format!("{:>5} {:>5}  {}", "CPU%", "MEM%", "COMMAND"), dim()));
         for p in &app.procs {
             let f: Vec<&str> = p.split_whitespace().collect();
             if f.len() >= 3 {
-                lines.push(Line::raw(format!("{:>5} {:>5}  {}", f[0], f[1], f[2..].join(" "))));
+                let cpu: f64 = f[0].parse().unwrap_or(0.0);
+                lines.push(Line::from(vec![
+                    Span::styled(format!("{:>5}", f[0]), Style::new().fg(heat(cpu / 50.0))),
+                    Span::styled(format!(" {:>5}", f[1]), dim()),
+                    Span::styled(format!("  {}", f[2..].join(" ")), Style::new().fg(C_FG)),
+                ]));
             }
         }
     }
 
     let gateway_up = app.containers.contains_key("gnar-hermes-gateway");
     let mut hermes = vec![
-        Span::styled("HERMES".to_string(), head_style()),
+        Span::styled("HERMES".to_string(), accent(C_MAGENTA)),
         Span::raw("   "),
-        Span::styled("● ".to_string(), Style::new().fg(if gateway_up { Color::Green } else { Color::Red })),
-        Span::raw(if gateway_up { "gateway up" } else { "gateway down" }),
+        Span::styled("● ".to_string(), Style::new().fg(if gateway_up { C_GREEN } else { C_RED })),
+        Span::styled(
+            if gateway_up { "gateway up" } else { "gateway down" },
+            Style::new().fg(C_FG),
+        ),
     ];
     if app.kanban > 0 {
-        hermes.push(Span::styled(format!("   kanban {}", app.kanban), dim()));
+        hermes.push(Span::styled(format!("   kanban {}", app.kanban), Style::new().fg(C_CYAN)));
     }
     if app.cron > 0 {
-        hermes.push(Span::styled(format!("   cron {}", app.cron), dim()));
+        hermes.push(Span::styled(format!("   cron {}", app.cron), Style::new().fg(C_CYAN)));
     }
     match app.backup_age_h {
-        Some(h) if h > 36 => hermes.push(Span::styled(format!("   ● backup {h}h old"), Style::new().fg(Color::Red))),
-        Some(h) => hermes.push(Span::styled(format!("   backup {h}h"), dim())),
+        Some(hh) if hh > 36 => hermes.push(Span::styled(format!("   ● backup {hh}h old"), Style::new().fg(C_RED))),
+        Some(hh) => hermes.push(Span::styled(format!("   ✓ backup {hh}h"), Style::new().fg(C_GREEN))),
         None => hermes.push(Span::styled("   backup ?", dim())),
     }
     lines.push(Line::default());
