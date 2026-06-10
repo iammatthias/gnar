@@ -4,10 +4,10 @@
 # Launched by mango's exec-once (see configs/mango-config.conf). Six
 # parallel foot launches map in nondeterministic order, which scrambles
 # tile placement — so launch one at a time with a beat in between.
-# Mango's grid layout fills column-major (top then bottom, per column)
-# in client order, so this sequence:
+# Mango's grid layout fills row-major in client order, so this
+# sequence:
 #
-#   cpu disk mem containers net status
+#   cpu mem net disk containers status
 #
 # lands as:
 #
@@ -19,7 +19,7 @@
 
 set -u
 
-for panel in cpu disk mem containers net status; do
+for panel in cpu mem net disk containers status; do
     foot --app-id="gnar-$panel" \
          -e sh -c "while :; do gnar-board $panel; sleep 2; done" &
     sleep 0.5
