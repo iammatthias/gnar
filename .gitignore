@@ -25,6 +25,9 @@ Thumbs.db
 test/
 tmp/
 
+# Rust build output (board/)
+target/
+
 # Claude agent workspace state
 .claude/
 .gstack/

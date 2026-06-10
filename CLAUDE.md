@@ -86,6 +86,9 @@ gnar/
 │   ├── gnar-info
 │   ├── gnar-update
 │   └── gnar-help
+├── board/                # gnar-board — fullscreen ratatui kiosk TUI
+│   ├── Cargo.toml        #   (built by setup.sh; host + container graphs)
+│   └── src/main.rs
 └── docs/
     ├── configuration.md
     ├── helpers.md

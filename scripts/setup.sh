@@ -512,6 +512,20 @@ install -m 755 "$BIN/gnar-bootstrap"        /usr/local/bin/gnar-bootstrap
 install -m 755 "$BIN/gnar-preview-site"     /usr/local/bin/gnar-preview-site
 install -m 755 "$BIN/gnar-deploy"           /usr/local/bin/gnar-deploy
 
+# gnar-board — the ratatui kiosk TUI (flicker-free fullscreen board).
+# Built from source as $REAL_USER (cargo via rustup, installed above).
+# Failure tolerated: gnar-dashboard falls back to btop + shell boards.
+if sudo -u "$REAL_USER" bash -c '. "$HOME/.cargo/env" 2>/dev/null; command -v cargo' &>/dev/null; then
+    echo -e "${GREEN}Building gnar-board (kiosk TUI)...${NC}"
+    if sudo -u "$REAL_USER" bash -c ". \"\$HOME/.cargo/env\" 2>/dev/null; cargo build --release --manifest-path '$REPO_ROOT/board/Cargo.toml'"; then
+        install -m 755 "$REPO_ROOT/board/target/release/gnar-board" /usr/local/bin/gnar-board
+    else
+        echo -e "${YELLOW}gnar-board build failed — kiosk will use the shell boards${NC}"
+    fi
+else
+    echo -e "${YELLOW}cargo not found — skipping gnar-board build${NC}"
+fi
+
 # Default project root for Hermes-managed work. Owned by the user so
 # `gnar-project-init` doesn't need sudo to create new projects under it.
 install -d -o "$REAL_USER" -g "$REAL_USER" /srv/projects

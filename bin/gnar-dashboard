@@ -1,17 +1,13 @@
 #!/bin/bash
 # GNAR — kiosk tmux dashboard.
 #
-#   ┌─────────────────────────────────────────────────────┐
-#   │  btop  — system monitor                              │
-#   ├───────────────────────────┬─────────────────────────┤
-#   │  gnar-metrics-board       │  gnar-status-board       │
-#   │  per-container CPU/MEM    │  services · containers   │
-#   │  sparklines · net · host  │  · sites · Hermes        │
-#   └───────────────────────────┴─────────────────────────┘
+# One full-screen pane running gnar-board — the ratatui TUI (built from
+# board/ in this repo): host CPU/MEM/NET/DISK graphs, per-container
+# sparklines, and stack status, all diff-rendered so nothing flickers.
 #
-# Each lower pane is a single renderer — one grid each, aligned columns.
-# The metrics pane refreshes every 10s and accumulates sparkline history;
-# the status board every 30s.
+# Fallback (gnar-board not built — cargo missing at setup time): the
+# original btop + shell-board split, with buffered repaints to keep the
+# flicker down.
 #
 # `gnar-claude-stats` still exists as a one-shot — run it manually if you
 # want a snapshot of Claude Code activity. Hermes is the day-to-day signal.
@@ -32,19 +28,26 @@ if tmux has-session -t "$SESSION" 2>/dev/null; then
     exit 0
 fi
 
-# Build a self-refreshing pane command: clear + run + sleep, forever.
-# `while :;` (not `while cmd`) means a transient command failure never
-# tears the pane down.
+# Build a self-refreshing pane command for the fallback shell boards:
+# render to a buffer first, then home+clear+paint in a single printf —
+# no blank frame between refreshes. `while :;` means a transient
+# command failure never tears the pane down.
 loop() {  # loop <interval-seconds> <command>
-    printf 'while :; do clear; %s; sleep %s; done' "$2" "$1"
+    printf 'while :; do out=$(%s 2>&1); printf "\\033[H\\033[2J%%s\\n" "$out"; sleep %s; done' "$2" "$1"
 }
 
-# Top: btop. Bottom ~44%: utilization charts (left) + status board (right).
-tmux new-session -d -s "$SESSION" -n main -x "${COLUMNS:-232}" -y "${LINES:-55}" 'btop'
-tmux split-window -v -t "$SESSION:main" -l 44% "$(loop 10 gnar-metrics-board)"
-tmux split-window -h -t "$SESSION:main.{bottom-left}" -l 50% "$(loop 30 gnar-status-board)"
-
-tmux select-pane  -t "$SESSION:main.{top-left}"
+if command -v gnar-board >/dev/null 2>&1; then
+    # Full-screen ratatui board. The respawn loop means a crash never
+    # leaves a dead kiosk pane.
+    tmux new-session -d -s "$SESSION" -n main -x "${COLUMNS:-232}" -y "${LINES:-55}" \
+        'while :; do gnar-board; sleep 2; done'
+else
+    # Fallback: btop + the shell boards.
+    tmux new-session -d -s "$SESSION" -n main -x "${COLUMNS:-232}" -y "${LINES:-55}" 'btop'
+    tmux split-window -v -t "$SESSION:main" -l 44% "$(loop 10 gnar-metrics-board)"
+    tmux split-window -h -t "$SESSION:main.{bottom-left}" -l 50% "$(loop 30 gnar-status-board)"
+    tmux select-pane  -t "$SESSION:main.{top-left}"
+fi
 tmux set-option   -t "$SESSION" status off
 tmux set-option   -t "$SESSION" mouse on
 

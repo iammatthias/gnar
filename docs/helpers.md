@@ -63,26 +63,29 @@ GNAR is headless by default, but `setup.sh` also installs **Mango**
 (Wayland WM, AUR `mangowm-git`) + `foot` and configures `getty@tty1`
 to auto-log the user in. When a display is plugged into the box, on
 next login `~/.zprofile` exec's `mango`, which fullscreens
-`gnar-dashboard` — a three-pane tmux session: btop up top, utilization
-charts and a unified status board side by side below.
+`gnar-dashboard` — a tmux session running **gnar-board**, a fullscreen
+ratatui TUI (Rust, built from `board/` at setup time):
 
 ```
-┌─────────────────────────────────────────────────────┐
-│  btop  — system monitor (full width)                 │
-├───────────────────────────┬─────────────────────────┤
-│  gnar-metrics-board       │  gnar-status-board       │
-│  CONTAINERS CPU▁▂▃ MEM NET│  SERVICES CONTAINERS     │
-│  HOST load▁▂▃ disk images │  SITES · HERMES · backup │
-└───────────────────────────┴─────────────────────────┘
+┌ CPU 12% · 54°C ────────────┐┌ MEM 2.6G/27G ───────────────┐
+│ ▂▃▂▁▂▆▂▁ (history graph)   ││ ▆▆▆▆▆▆▆▆ (history graph)    │
+│ cores ▁▃▂▁▅▁▁▂▁▁▁▁▁▁▁▁     ││ swap 137M/4.0G              │
+├ NET ↓↑ rates + sparklines ─┤├ DISK fill bar · io r/w ─────┤
+├ CONTAINERS ────────────────┤├ STATUS ─────────────────────┤
+│ name CPU ▁▂▁ 0.4% MEM NET  ││ services · sites · top      │
+│ … one row per container    ││ procs · HERMES · backup     │
+└────────────────────────────┘└─────────────────────────────┘
 ```
 
-Each lower pane is a single renderer. `gnar-metrics-board` draws
-per-container CPU and memory sparklines (history accumulates across
-its 10s refresh — ~10 minutes of context) plus live network rates and
-a host line (load history, root-disk fill, image count).
-`gnar-status-board` shows host services, containers and Caddy sites in
-three aligned columns plus a Hermes summary line with backup
-staleness.
+Host metrics are sampled natively from `/proc` + `/sys` (CPU total +
+per-core, memory/swap, default-route NIC throughput, whole-disk I/O,
+hwmon temperature); container CPU/MEM sparklines + net rates come
+straight off the Docker socket every 2s. Rendering is diff-based —
+no flicker, no full repaints. `q` quits (the kiosk respawns it).
+
+If `gnar-board` isn't built (no cargo at setup time), the dashboard
+falls back to btop + the shell boards (`gnar-metrics-board` +
+`gnar-status-board`), which remain installed as one-shot CLIs.
 
 You can also run `gnar-dashboard` from any shell — it attaches the
 same session if it already exists, or builds it. Run over plain ssh

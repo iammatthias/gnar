@@ -7,10 +7,12 @@ Core
   gnar-info                   System information (fastfetch)
   gnar-update                 Update system
   gnar-help                   This reference
-  gnar-dashboard              Multi-pane tmux dashboard (btop + container
-                              charts + sites/Hermes status board)
+  gnar-dashboard              Kiosk tmux session running gnar-board
+  gnar-board                  Fullscreen ratatui dashboard: host CPU/MEM/
+                              NET/DISK graphs + container sparklines +
+                              stack status (q quits)
   gnar-metrics-board          Container CPU/MEM sparklines + net rates +
-                              host line (one-shot)
+                              host line (one-shot fallback)
   gnar-services-status        Caddy sites + service health (one-shot)
   gnar-hermes-status          Hermes auth + kanban + cron (one-shot)
   gnar-claude-stats           Claude Code session + token stats (one-shot)
