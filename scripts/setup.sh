@@ -426,6 +426,12 @@ fi
 # systemd unit that runs `docker compose up -d --build` at boot.
 install -m 644 "$CONFIGS/gnar-stack.service" /etc/systemd/system/gnar-stack.service
 
+# Weekly prune of dangling images + old stopped containers — every
+# `--build` strands the previous image as untagged layers (multi-GB for
+# the hermes image), which otherwise accumulate unbounded.
+install -m 644 "$CONFIGS/gnar-docker-prune.service" /etc/systemd/system/gnar-docker-prune.service
+install -m 644 "$CONFIGS/gnar-docker-prune.timer" /etc/systemd/system/gnar-docker-prune.timer
+
 # Passwordless sudo for the user. Required so the Hermes orchestrator (which
 # runs inside the gnar-hermes-gateway container with /var/run/docker.sock
 # mounted, but also needs to poke host things via `sudo` over docker exec
@@ -440,6 +446,7 @@ visudo -c -q || { echo -e "${RED}sudoers syntax error — removing $SUDOERS_FILE
 
 systemctl daemon-reload
 systemctl enable gnar-stack.service
+systemctl enable --now gnar-docker-prune.timer
 
 # -----------------------------------------------------------------------------
 # Per-user runtime tooling

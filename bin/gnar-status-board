@@ -59,6 +59,22 @@ hermes_summary() {
     cr=$($E hermes cron list 2>/dev/null | grep -c '[^[:space:]]' || true)
     [ "${k:-0}" -gt 0 ] 2>/dev/null  && printf '%s   kanban %s%s' "$DIM" "$k"  "$RST"
     [ "${cr:-0}" -gt 0 ] 2>/dev/null && printf '%s   cron %s%s'   "$DIM" "$cr" "$RST"
+    backup_summary
+}
+
+# Age of the newest nightly Hermes backup. The backup cron's watchdog
+# pattern only signals on failure — a cron that never fired leaves no
+# trace, so surface staleness here (red past 36h ≈ one missed nightly).
+backup_summary() {
+    local newest
+    newest=$(ls -1t /srv/stack/data/backups/hermes-backup-*.zip 2>/dev/null | head -1)
+    [ -z "$newest" ] && return
+    local age=$(( ($(date +%s) - $(stat -c %Y "$newest")) / 3600 ))
+    if [ "$age" -gt 36 ]; then
+        printf '   %s● backup %sh old%s' "$RED" "$age" "$RST"
+    else
+        printf '%s   backup %sh%s' "$DIM" "$age" "$RST"
+    fi
 }
 
 # --- geometry --------------------------------------------------------------

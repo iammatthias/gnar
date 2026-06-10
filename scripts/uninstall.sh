@@ -42,7 +42,7 @@ echo
 # -----------------------------------------------------------------------------
 # Stop / disable services
 # -----------------------------------------------------------------------------
-for svc in gnar-stack fail2ban valkey postgresql ufw; do
+for svc in gnar-stack gnar-docker-prune.timer fail2ban valkey postgresql ufw; do
     systemctl is-active --quiet "$svc" && systemctl stop "$svc" || true
     systemctl is-enabled --quiet "$svc" 2>/dev/null && systemctl disable "$svc" || true
 done
@@ -55,6 +55,7 @@ if [ -f /srv/stack/docker-compose.yml ]; then
     docker compose -f /srv/stack/docker-compose.yml down 2>/dev/null || true
 fi
 rm -f /etc/systemd/system/gnar-stack.service
+rm -f /etc/systemd/system/gnar-docker-prune.service /etc/systemd/system/gnar-docker-prune.timer
 
 # Reset UFW to default deny-all-allow-all (before disabling) so reinstall is clean
 if command -v ufw &>/dev/null; then

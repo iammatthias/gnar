@@ -46,7 +46,9 @@ RUN cargo install --root /usr/local chainlink-tracker \
  && rm -rf /root/.cargo /root/.rustup
 
 # Claude Code (used as a subprocess tool by the claude-with-chainlink skill).
-RUN npm install -g @anthropic-ai/claude-code \
+# Pinned so rebuilds are reproducible; bump deliberately alongside HERMES_REF.
+ARG CLAUDE_CODE_VERSION=2.1.170
+RUN npm install -g "@anthropic-ai/claude-code@${CLAUDE_CODE_VERSION}" \
  && npm cache clean --force
 
 # Hermes — install via uv from upstream (matches the spec's manual path).
@@ -57,7 +59,7 @@ RUN npm install -g @anthropic-ai/claude-code \
 # update (changing it busts this layer's cache). The dashboard patches below
 # assert the exact lines they touch still exist, so the build fails loudly if
 # an upgrade moved them rather than silently shipping an unpatched dashboard.
-ARG HERMES_REF=v2026.5.29.2
+ARG HERMES_REF=v2026.6.5
 RUN mkdir -p /opt/hermes-agent && cd /opt/hermes-agent \
  && git init -q \
  && git remote add origin https://github.com/NousResearch/hermes-agent.git \
@@ -73,16 +75,19 @@ RUN mkdir -p /opt/hermes-agent && cd /opt/hermes-agent \
 RUN cd /opt/hermes-agent && uv pip install websockets
 
 # Let the dashboard serve the Hermes desktop app over the tailnet.
-# Upstream's dashboard is localhost-only: an ephemeral per-start session token
-# (injected into its SPA) plus a localhost-only CORS regex. Make both honor an
-# env override so a remote client can authenticate with a pinned token and an
-# allowed origin. Defaults to upstream behavior when the env vars are unset.
+# Upstream's dashboard is localhost-only by design. As of v2026.6.5 upstream
+# natively honors HERMES_DASHBOARD_SESSION_TOKEN (a pinned session token —
+# set via compose) and always enables the embedded chat WS, so the old token
+# + TUI patches are gone. What upstream still hardcodes for localhost — the
+# CORS origin regex, preflights hitting the auth middleware, and the WS
+# origin guard — keeps a remote (non-localhost-origin) client out, so patch
+# those three to honor HERMES_DASHBOARD_CORS_REGEX. Defaults to upstream
+# behavior when the env var is unset.
 # `grep -q` fails the build if upstream ever renames the lines we patch.
-RUN sed -i 's|_SESSION_TOKEN = secrets.token_urlsafe(32)|_SESSION_TOKEN = os.environ.get("HERMES_DASHBOARD_TOKEN") or secrets.token_urlsafe(32)|' /opt/hermes-agent/hermes_cli/web_server.py \
- && sed -i 's|allow_origin_regex=r"|allow_origin_regex=os.environ.get("HERMES_DASHBOARD_CORS_REGEX") or r"|' /opt/hermes-agent/hermes_cli/web_server.py \
+RUN sed -i 's|allow_origin_regex=r"|allow_origin_regex=os.environ.get("HERMES_DASHBOARD_CORS_REGEX") or r"|' /opt/hermes-agent/hermes_cli/web_server.py \
  && sed -i 's|if path.startswith("/api/") and path not in _PUBLIC_API_PATHS:|if request.method != "OPTIONS" and path.startswith("/api/") and path not in _PUBLIC_API_PATHS:|' /opt/hermes-agent/hermes_cli/web_server.py \
  && sed -i 's|    return _ws_host_origin_is_allowed(ws) and _ws_client_is_allowed(ws)|    return bool(os.environ.get("HERMES_DASHBOARD_CORS_REGEX")) or (_ws_host_origin_is_allowed(ws) and _ws_client_is_allowed(ws))|' /opt/hermes-agent/hermes_cli/web_server.py \
- && grep -q 'os.environ.get("HERMES_DASHBOARD_TOKEN")' /opt/hermes-agent/hermes_cli/web_server.py \
+ && grep -q 'HERMES_DASHBOARD_SESSION_TOKEN' /opt/hermes-agent/hermes_cli/web_server.py \
  && grep -q 'os.environ.get("HERMES_DASHBOARD_CORS_REGEX")' /opt/hermes-agent/hermes_cli/web_server.py \
  && grep -q 'request.method != "OPTIONS"' /opt/hermes-agent/hermes_cli/web_server.py \
  && grep -q 'bool(os.environ.get("HERMES_DASHBOARD_CORS_REGEX")) or (_ws_host_origin_is_allowed' /opt/hermes-agent/hermes_cli/web_server.py

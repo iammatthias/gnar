@@ -1,0 +1,16 @@
+# GNAR — prune Docker build leftovers. Repeated `docker compose up --build`
+# (gnar-stack at boot, gnar-deploy, hermes image rebuilds) strands the
+# previous build as a dangling image — multi-GB each for the hermes image —
+# so without this the disk fills with untagged layers. Dangling-only prune:
+# tagged images, running containers, and volumes are never touched.
+# Triggered weekly by gnar-docker-prune.timer.
+
+[Unit]
+Description=GNAR weekly Docker prune (dangling images + old stopped containers)
+Requires=docker.service
+After=docker.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/docker image prune -f
+ExecStart=/usr/bin/docker container prune -f --filter until=168h

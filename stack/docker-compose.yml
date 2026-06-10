@@ -164,13 +164,14 @@ services:
       - ./skills:/root/.hermes/skills/gnar:ro
     environment:
       # Pin a stable dashboard session token + allow a remote origin so the
-      # Hermes desktop app can connect over the tailnet (see hermes/Dockerfile
-      # patch). Both empty by default = upstream localhost-only behavior.
-      HERMES_DASHBOARD_TOKEN: ${HERMES_DASHBOARD_TOKEN:-}
+      # Hermes desktop app can connect over the tailnet. The token override
+      # is native upstream as of v2026.6.5 (HERMES_DASHBOARD_SESSION_TOKEN);
+      # the CORS/WS-origin relaxation is a hermes/Dockerfile patch. The .env
+      # var keeps its original HERMES_DASHBOARD_TOKEN name. Both empty by
+      # default = upstream localhost-only behavior. (The embedded chat
+      # sidecar /api/ws is always-on upstream now; no TUI flag needed.)
+      HERMES_DASHBOARD_SESSION_TOKEN: ${HERMES_DASHBOARD_TOKEN:-}
       HERMES_DASHBOARD_CORS_REGEX: ${HERMES_DASHBOARD_CORS_REGEX:-}
-      # Enable the embedded chat sidecar (/api/ws); the desktop app's live
-      # connection uses it. Upstream leaves it off unless --tui / this flag.
-      HERMES_DASHBOARD_TUI: "1"
     restart: unless-stopped
 
   # Cloudflare Tunnel connector — always on. Token-managed: the tunnel and
