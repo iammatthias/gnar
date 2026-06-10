@@ -62,20 +62,27 @@ caddy-logs                     # journalctl -fu caddy
 GNAR is headless by default, but `setup.sh` also installs **Mango**
 (Wayland WM, AUR `mangowm-git`) + `foot` and configures `getty@tty1`
 to auto-log the user in. When a display is plugged into the box, on
-next login `~/.zprofile` exec's `mango`, which fullscreens
-`gnar-dashboard` — a tmux session running **gnar-board**, a fullscreen
-ratatui TUI (Rust, built from `board/` at setup time):
+next login `~/.zprofile` exec's `mango`, which composites the
+dashboard as **six tiles** — one foot window per `gnar-board` panel,
+arranged by mango's grid layout with gaps and Tokyo Night borders:
 
 ```
-┌ CPU 12% · 54°C ────────────┐┌ MEM 2.6G/27G ───────────────┐
-│ ▂▃▂▁▂▆▂▁ (history graph)   ││ ▆▆▆▆▆▆▆▆ (history graph)    │
-│ cores ▁▃▂▁▅▁▁▂▁▁▁▁▁▁▁▁     ││ swap 137M/4.0G              │
-├ NET ↓↑ rates + sparklines ─┤├ DISK fill bar · io r/w ─────┤
-├ CONTAINERS ────────────────┤├ STATUS ─────────────────────┤
-│ name CPU ▁▂▁ 0.4% MEM NET  ││ services · sites · top      │
-│ … one row per container    ││ procs · HERMES · backup     │
-└────────────────────────────┘└─────────────────────────────┘
+╭ CPU ─────────╮ ╭ MEM ─────────╮ ╭ NET ─────────╮
+│ heat-gradient│ │ used graph + │ │ ↓↑ rates +   │
+│ graph + cores│ │ swap         │ │ peak graphs  │
+╰──────────────╯ ╰──────────────╯ ╰──────────────╯
+╭ DISK ────────╮ ╭ CONTAINERS ──╮ ╭ STATUS ──────╮
+│ gauge + io   │ │ CPU/MEM      │ │ services ·   │
+│ r/w graphs   │ │ sparklines   │ │ sites · procs│
+╰──────────────╯ ╰──────────────╯ ╰──────────────╯
 ```
+
+The compositor owns the mosaic: every tile is a real window you can
+focus, swap, zoom, or kill (it respawns), and mango supplies the
+gaps, borders, and animations. Each panel process only runs the
+samplers it displays. `gnar-board` (no args) renders the whole board
+in one terminal — that's what `gnar-dashboard` runs in tmux for ssh
+sessions, where there's no compositor:
 
 Host metrics are sampled natively from `/proc` + `/sys` (CPU total +
 per-core, memory/swap, default-route NIC throughput, whole-disk I/O,

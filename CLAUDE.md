@@ -13,8 +13,10 @@ Hermes orchestrator, Claude Code).
 
 It also installs Mango (Wayland WM, AUR `mangowm-git`) + foot so an optional
 attached display becomes a live kiosk dashboard (auto-login on tty1 →
-Mango → fullscreen `gnar-dashboard` 4-pane tmux session). The DRM-status
-guard in `~/.zprofile` is a no-op on truly headless boxes.
+Mango → six `gnar-board <panel>` foot tiles composited in mango's grid
+layout; `bin/gnar-dashboard` runs the same board as a single tmux view
+for ssh sessions). The DRM-status guard in `~/.zprofile` is a no-op on
+truly headless boxes.
 
 ### Container stack (`/srv/stack`)
 

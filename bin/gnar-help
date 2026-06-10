@@ -7,10 +7,12 @@ Core
   gnar-info                   System information (fastfetch)
   gnar-update                 Update system
   gnar-help                   This reference
-  gnar-dashboard              Kiosk tmux session running gnar-board
-  gnar-board                  Fullscreen ratatui dashboard: host CPU/MEM/
-                              NET/DISK graphs + container sparklines +
-                              stack status (q quits)
+  gnar-dashboard              tmux session running the full gnar-board
+                              (ssh view; the kiosk uses mango tiles)
+  gnar-board [panel]          Ratatui dashboard. No args = full board;
+                              cpu|mem|net|disk|containers|status render
+                              one panel (the kiosk runs six as mango
+                              grid tiles). q quits.
   gnar-metrics-board          Container CPU/MEM sparklines + net rates +
                               host line (one-shot fallback)
   gnar-services-status        Caddy sites + service health (one-shot)

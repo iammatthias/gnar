@@ -1,9 +1,12 @@
 #!/bin/bash
-# GNAR — kiosk tmux dashboard.
+# GNAR — tmux dashboard: the ssh view of gnar-board.
 #
-# One full-screen pane running gnar-board — the ratatui TUI (built from
-# board/ in this repo): host CPU/MEM/NET/DISK graphs, per-container
-# sparklines, and stack status, all diff-rendered so nothing flickers.
+# One full-screen pane running `gnar-board` (full-board mode): host
+# CPU/MEM/NET/DISK graphs, per-container sparklines, and stack status,
+# all diff-rendered so nothing flickers. The kiosk display doesn't use
+# this — mango composites six single-panel gnar-board tiles in a grid
+# (see configs/mango-config.conf); this tmux session is for looking at
+# the same board over ssh, where there's no compositor.
 #
 # Fallback (gnar-board not built — cargo missing at setup time): the
 # original btop + shell-board split, with buffered repaints to keep the
@@ -12,11 +15,8 @@
 # `gnar-claude-stats` still exists as a one-shot — run it manually if you
 # want a snapshot of Claude Code activity. Hermes is the day-to-day signal.
 #
-# Auto-attaches if the session already exists. Mango's `exec-once`
-# launches `foot -e gnar-dashboard`, so on display attach this is your
-# kiosk view. Run from any shell to attach manually. Without a tty
-# (e.g. over plain ssh) it creates/refreshes the session detached —
-# handy for rebuilding the kiosk layout remotely.
+# Auto-attaches if the session already exists. Without a tty (e.g. over
+# plain ssh) it creates/refreshes the session detached.
 
 set -uo pipefail
 

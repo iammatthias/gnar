@@ -59,6 +59,21 @@ const SERVICES: [&str; 6] = ["docker", "postgresql", "valkey", "fail2ban", "ufw"
 const STACK: &str = "/srv/stack";
 const TICKS: [char; 8] = ['▁', '▂', '▃', '▄', '▅', '▆', '▇', '█'];
 
+/// What this process renders. `Full` is the whole composite board (the
+/// tmux / ssh view); the rest are single panels — one per Mango tile,
+/// so the compositor does the layout and each tile only runs the
+/// samplers it needs.
+#[derive(Clone, Copy, PartialEq)]
+enum Mode {
+    Full,
+    Cpu,
+    Mem,
+    Net,
+    Disk,
+    Containers,
+    Status,
+}
+
 // ---------------------------------------------------------------------------
 // State
 // ---------------------------------------------------------------------------
@@ -371,10 +386,17 @@ fn sample_host(h: &mut Host) {
 // Container + status sampling
 // ---------------------------------------------------------------------------
 
-fn stats_loop(app: Arc<Mutex<App>>) {
+fn host_loop(app: Arc<Mutex<App>>) {
     loop {
         let started = Instant::now();
         sample_host(&mut app.lock().unwrap().host);
+        thread::sleep(STATS_EVERY.saturating_sub(started.elapsed()));
+    }
+}
+
+fn docker_loop(app: Arc<Mutex<App>>) {
+    loop {
+        let started = Instant::now();
         match sample_containers(&app) {
             Ok(()) => app.lock().unwrap().docker_err = None,
             Err(e) => app.lock().unwrap().docker_err = Some(e),
@@ -443,7 +465,7 @@ fn sample_containers(app: &Arc<Mutex<App>>) -> Result<(), String> {
     Ok(())
 }
 
-fn status_loop(app: Arc<Mutex<App>>) {
+fn status_loop(app: Arc<Mutex<App>>, with_hermes: bool) {
     let mut tick: u64 = 0;
     loop {
         let started = Instant::now();
@@ -471,8 +493,9 @@ fn status_loop(app: Arc<Mutex<App>>) {
             .and_then(|v| v.as_array().map(|a| a.len()))
             .unwrap_or(0);
 
-        // Hermes counts are docker-exec subprocesses — every other cycle.
-        let hermes = if tick % 2 == 0 {
+        // Hermes counts are docker-exec subprocesses — every other cycle,
+        // and only for the panels that display them.
+        let hermes = if with_hermes && tick % 2 == 0 {
             Some((hermes_count("kanban"), hermes_count("cron")))
         } else {
             None
@@ -769,7 +792,22 @@ fn dot_color(state: &str) -> Color {
     }
 }
 
-fn ui(frame: &mut Frame, app: &App) {
+fn ui(frame: &mut Frame, app: &App, mode: Mode) {
+    let area = frame.area();
+    match mode {
+        Mode::Full => ui_full(frame, app),
+        Mode::Cpu => render_cpu(frame, area, app),
+        Mode::Mem => render_mem(frame, area, app),
+        Mode::Net => render_net(frame, area, app),
+        Mode::Disk => render_disk(frame, area, app),
+        Mode::Containers => render_containers(frame, area, app),
+        Mode::Status => render_status(frame, area, app),
+    }
+}
+
+/// The whole composite board — what tmux/ssh sessions see. The kiosk
+/// instead runs six single-panel processes tiled by Mango.
+fn ui_full(frame: &mut Frame, app: &App) {
     let h = &app.host;
     // Proportional heights: big history graphs up top (~24% of however
     // tall the display is), a fixed net/disk band, the rest to the
@@ -778,7 +816,6 @@ fn ui(frame: &mut Frame, app: &App) {
         Layout::vertical([Constraint::Length(1), Constraint::Percentage(24), Constraint::Length(8), Constraint::Min(8)])
             .areas(frame.area());
 
-    // --- header -------------------------------------------------------------
     let loadc = heat(h.load / h.ncpu.max(1) as f64);
     let title = Line::from(vec![
         Span::styled(" ▲ GNAR ", accent(C_MAGENTA)),
@@ -790,9 +827,21 @@ fn ui(frame: &mut Frame, app: &App) {
     frame.render_widget(Paragraph::new(title), header);
     frame.render_widget(Paragraph::new(clock), header);
 
-    // --- CPU / MEM graphs ----------------------------------------------------
     let [cpu_a, mem_a] = Layout::horizontal([Constraint::Percentage(50), Constraint::Percentage(50)]).areas(hosttop);
+    render_cpu(frame, cpu_a, app);
+    render_mem(frame, mem_a, app);
 
+    let [net_a, disk_a] = Layout::horizontal([Constraint::Percentage(50), Constraint::Percentage(50)]).areas(hostnet);
+    render_net(frame, net_a, app);
+    render_disk(frame, disk_a, app);
+
+    let [cont_a, stat_a] = Layout::horizontal([Constraint::Percentage(62), Constraint::Percentage(38)]).areas(lower);
+    render_containers(frame, cont_a, app);
+    render_status(frame, stat_a, app);
+}
+
+fn render_cpu(frame: &mut Frame, cpu_a: Rect, app: &App) {
+    let h = &app.host;
     let temp = h.temp_c.map(|t| format!("· {t:.0}°C ")).unwrap_or_default();
     let cpu_block = section(vec![
         Span::styled(" CPU ", accent(C_CYAN)),
@@ -815,7 +864,10 @@ fn ui(frame: &mut Frame, app: &App) {
         let coreline = Rect { y: cpu_inner.y + cpu_inner.height - 1, height: 1, ..cpu_inner };
         frame.render_widget(Paragraph::new(Line::from(core_spans)), coreline);
     }
+}
 
+fn render_mem(frame: &mut Frame, mem_a: Rect, app: &App) {
+    let h = &app.host;
     let mem_t = if h.mem_total > 0.0 { h.mem_cur / h.mem_total } else { 0.0 };
     let mem_block = section(vec![
         Span::styled(" MEM ", accent(C_MAGENTA)),
@@ -853,15 +905,16 @@ fn ui(frame: &mut Frame, app: &App) {
             swapline,
         );
     }
+}
 
-    // --- NET / DISK ------------------------------------------------------------
+fn render_net(frame: &mut Frame, net_a: Rect, app: &App) {
+    let h = &app.host;
     let peak = |v: &VecDeque<f64>| v.iter().copied().fold(0.0f64, f64::max);
 
     let net_block = section(vec![
         Span::styled(" NET ", accent(C_YELLOW)),
         Span::styled(format!("{} ", h.iface), dim()),
     ]);
-    let [net_a, disk_a] = Layout::horizontal([Constraint::Percentage(50), Constraint::Percentage(50)]).areas(hostnet);
     let net_inner = net_block.inner(net_a);
     frame.render_widget(net_block, net_a);
     let [rx_a, tx_a] =
@@ -886,6 +939,11 @@ fn ui(frame: &mut Frame, app: &App) {
             graph_a,
         );
     }
+}
+
+fn render_disk(frame: &mut Frame, disk_a: Rect, app: &App) {
+    let h = &app.host;
+    let peak = |v: &VecDeque<f64>| v.iter().copied().fold(0.0f64, f64::max);
 
     let disk_block = section(vec![
         Span::styled(" DISK ", accent(C_BLUE)),
@@ -929,10 +987,9 @@ fn ui(frame: &mut Frame, app: &App) {
         Paragraph::new(graph_lines(&h.io_w, iow_a.width as usize, iow_a.height as usize, pk_w, tint(MAGENTA_RGB))),
         iow_a,
     );
+}
 
-    // --- lower: containers + status -------------------------------------------
-    let [cont_a, stat_a] = Layout::horizontal([Constraint::Percentage(62), Constraint::Percentage(38)]).areas(lower);
-
+fn render_containers(frame: &mut Frame, cont_a: Rect, app: &App) {
     let total_mem: f64 = app.containers.values().map(|s| s.mem_cur).sum();
     let cont_block = section(vec![
         Span::styled(" CONTAINERS ", accent(C_CYAN)),
@@ -945,7 +1002,9 @@ fn ui(frame: &mut Frame, app: &App) {
         Paragraph::new(containers_panel(app, cont_inner.width as usize, cont_inner.height as usize)),
         cont_inner,
     );
+}
 
+fn render_status(frame: &mut Frame, stat_a: Rect, app: &App) {
     let stat_block = section(vec![Span::styled(" STATUS ", accent(C_MAGENTA))]);
     let stat_inner = stat_block.inner(stat_a);
     frame.render_widget(stat_block, stat_a);
@@ -1090,17 +1149,48 @@ fn status_panel(app: &App) -> Vec<Line<'static>> {
 // ---------------------------------------------------------------------------
 
 fn main() -> std::io::Result<()> {
+    let mode = match std::env::args().nth(1).as_deref() {
+        None | Some("full") => Mode::Full,
+        Some("cpu") => Mode::Cpu,
+        Some("mem") => Mode::Mem,
+        Some("net") => Mode::Net,
+        Some("disk") => Mode::Disk,
+        Some("containers") => Mode::Containers,
+        Some("status") => Mode::Status,
+        Some(other) => {
+            eprintln!("gnar-board: unknown panel '{other}'");
+            eprintln!("usage: gnar-board [full|cpu|mem|net|disk|containers|status]");
+            std::process::exit(2);
+        }
+    };
+
     let app = Arc::new(Mutex::new(App::default()));
-    for f in [stats_loop, status_loop, clock_loop] {
+
+    // Each panel only runs the samplers it displays — six Mango tiles
+    // shouldn't mean six docker pollers.
+    if matches!(mode, Mode::Full | Mode::Cpu | Mode::Mem | Mode::Net | Mode::Disk) {
         let a = app.clone();
-        thread::spawn(move || f(a));
+        thread::spawn(move || host_loop(a));
+    }
+    if matches!(mode, Mode::Full | Mode::Containers | Mode::Status) {
+        let a = app.clone();
+        thread::spawn(move || docker_loop(a));
+    }
+    if matches!(mode, Mode::Full | Mode::Disk | Mode::Status) {
+        let a = app.clone();
+        let with_hermes = matches!(mode, Mode::Full | Mode::Status);
+        thread::spawn(move || status_loop(a, with_hermes));
+    }
+    if mode == Mode::Full {
+        let a = app.clone();
+        thread::spawn(move || clock_loop(a));
     }
 
     let mut terminal = ratatui::init();
     loop {
         {
             let st = app.lock().unwrap();
-            terminal.draw(|f| ui(f, &st))?;
+            terminal.draw(|f| ui(f, &st, mode))?;
         }
         if event::poll(Duration::from_millis(500))? {
             if let Event::Key(k) = event::read()? {
