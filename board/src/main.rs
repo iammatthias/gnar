@@ -1333,11 +1333,10 @@ fn status_panel(app: &App, tile: bool) -> Vec<Line<'static>> {
         lines.push(Line::from(spans));
     }
 
-    lines.push(Line::default());
-    lines.push(Line::styled("CADDY SITES", accent(C_BLUE)));
-    lines.push(Line::default());
+    // --- sections, assembled in tile-dependent order below ------------------
+    let mut sites = vec![Line::default(), Line::styled("CADDY SITES", accent(C_BLUE)), Line::default()];
     if app.sites.is_empty() {
-        lines.push(Line::styled("(no sites)", dim()));
+        sites.push(Line::styled("(no sites)", dim()));
     }
     for (host, kind) in &app.sites {
         let kind_color = match kind.as_str() {
@@ -1345,33 +1344,11 @@ fn status_panel(app: &App, tile: bool) -> Vec<Line<'static>> {
             "public" => C_MAGENTA,
             _ => C_YELLOW,
         };
-        lines.push(Line::from(vec![
+        sites.push(Line::from(vec![
             Span::styled("● ".to_string(), Style::new().fg(C_GREEN)),
             Span::styled(format!("{host:<28}"), Style::new().fg(C_FG)),
             Span::styled(kind.clone(), Style::new().fg(kind_color)),
         ]));
-    }
-
-    if tile {
-        // The kiosk's CPU/MEM tiles carry the process tables; this tile
-        // gets the docker-operations summary instead.
-        lines.push(Line::default());
-        lines.push(Line::styled("DOCKER", accent(C_BLUE)));
-        lines.push(Line::default());
-        let mut docker = vec![
-            Span::styled("● ".to_string(), Style::new().fg(C_GREEN)),
-            Span::styled(
-                format!("{}/{} containers running", app.containers.len(), app.containers_total),
-                Style::new().fg(C_FG),
-            ),
-            Span::styled(format!("   {} images", app.images), dim()),
-        ];
-        if !app.prune_next.is_empty() {
-            docker.push(Span::styled(format!("   prune {}", app.prune_next), dim()));
-        }
-        lines.push(Line::from(docker));
-    } else if !app.procs_cpu.is_empty() {
-        lines.extend(proc_lines("TOP PROCESSES", &app.procs_cpu, 10, false));
     }
 
     let gateway_up = app.containers.contains_key("gnar-hermes-gateway");
@@ -1396,8 +1373,37 @@ fn status_panel(app: &App, tile: bool) -> Vec<Line<'static>> {
         Some(hh) => hermes.push(Span::styled(format!("   ✓ backup {hh}h{size}"), Style::new().fg(C_GREEN))),
         None => hermes.push(Span::styled("   backup ?", dim())),
     }
-    lines.push(Line::default());
-    lines.push(Line::from(hermes));
+    let hermes_lines = vec![Line::default(), Line::from(hermes)];
+
+    if tile {
+        // The kiosk's CPU/MEM tiles carry the process tables; this tile
+        // gets the docker-operations summary instead. The headline rows
+        // (DOCKER, HERMES) come before the long site list, so if anything
+        // clips at the tile's bottom edge it's sites — not the health line.
+        lines.push(Line::default());
+        lines.push(Line::styled("DOCKER", accent(C_BLUE)));
+        lines.push(Line::default());
+        let mut docker = vec![
+            Span::styled("● ".to_string(), Style::new().fg(C_GREEN)),
+            Span::styled(
+                format!("{}/{} containers running", app.containers.len(), app.containers_total),
+                Style::new().fg(C_FG),
+            ),
+            Span::styled(format!("   {} images", app.images), dim()),
+        ];
+        if !app.prune_next.is_empty() {
+            docker.push(Span::styled(format!("   prune {}", app.prune_next), dim()));
+        }
+        lines.push(Line::from(docker));
+        lines.extend(hermes_lines);
+        lines.extend(sites);
+    } else {
+        lines.extend(sites);
+        if !app.procs_cpu.is_empty() {
+            lines.extend(proc_lines("TOP PROCESSES", &app.procs_cpu, 10, false));
+        }
+        lines.extend(hermes_lines);
+    }
     lines
 }
 
