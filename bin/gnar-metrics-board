@@ -1,0 +1,196 @@
+#!/bin/bash
+# GNAR — container utilization charts: the kiosk dashboard's lower-left pane.
+#
+# Unicode sparklines of per-container CPU and memory over a sliding
+# window, with live network throughput and a host summary line (load
+# history, root-disk fill, image count). Each run takes one docker-stats
+# sample and appends it to $STATE; the pane's refresh loop (10s) builds
+# ~10 minutes of visible history, so the charts deepen the longer the
+# kiosk is up. Series idle for an hour are pruned, so charts restart
+# clean rather than bridging a gap.
+#
+#   NAME                  CPU ▁▂▁▁▃▂▁ 0.4%   MEM ▅▅▅▅▅▅▅ 240M   NET 1.2K/s
+#
+# Self-refreshes from gnar-dashboard's pane loop; also runs one-shot
+# (a single sample renders a one-tick chart and "-" for net rate).
+
+set -uo pipefail
+
+STATE=${GNAR_METRICS_STATE:-/tmp/gnar-metrics}
+KEEP=64                      # samples retained per series
+mkdir -p "$STATE"
+
+RST=$'\033[0m'; BOLD=$'\033[1m'; DIM=$'\033[2m'
+CYAN=$'\033[36m'; GREEN=$'\033[32m'; RED=$'\033[31m'; YEL=$'\033[33m'
+
+now=$(date +%s)
+
+# --- helpers ---------------------------------------------------------------
+
+# spark <width> <floor> "<v1 v2 ...>" [head] — render the newest <width>
+# values as a sparkline, left-padded to <width>. Series scale to their own
+# max, with <floor> as a minimum ceiling so near-zero jitter doesn't read
+# as a storm, and <head> (default 1) as a headroom multiplier so flat
+# series sit below full height instead of rendering a solid band.
+spark() {
+    awk -v w="$1" -v floor="$2" -v vals="$3" -v head="${4:-1}" 'BEGIN {
+        split("▁ ▂ ▃ ▄ ▅ ▆ ▇ █", T, " ")
+        n = split(vals, a, " ")
+        start = (n > w) ? n - w + 1 : 1
+        max = floor
+        for (i = start; i <= n; i++) if (a[i] + 0 > max) max = a[i] + 0
+        max *= head
+        out = ""
+        for (i = 0; i < w - (n - start + 1); i++) out = out " "
+        for (i = start; i <= n; i++) {
+            idx = int((a[i] + 0) / max * 7 + 0.5) + 1
+            if (idx > 8) idx = 8; if (idx < 1) idx = 1
+            out = out T[idx]
+        }
+        print out
+    }'
+}
+
+# human_rate <bytes-per-second>
+human_rate() {
+    awk -v b="$1" 'BEGIN {
+        if (b == "-" || b < 0)   { print "   -  "; exit }
+        if (b < 1024)            { printf "%4dB/s", b }
+        else if (b < 1048576)    { printf "%4.1fK/s", b / 1024 }
+        else if (b < 1073741824) { printf "%4.1fM/s", b / 1048576 }
+        else                     { printf "%4.1fG/s", b / 1073741824 }
+    }'
+}
+
+# human_mem <MiB>
+human_mem() {
+    awk -v m="$1" 'BEGIN {
+        if (m < 1024) printf "%5.0fM", m
+        else          printf "%5.1fG", m / 1024
+    }'
+}
+
+# --- sample ----------------------------------------------------------------
+# One docker-stats snapshot → "name cpu% memMiB netTotalBytes" lines.
+# docker mixes decimal (kB) and binary (MiB) units; both ≈ binary here —
+# chart precision, not accounting.
+sample=$(docker stats --no-stream \
+            --format '{{.Name}}\t{{.CPUPerc}}\t{{.MemUsage}}\t{{.NetIO}}' 2>/dev/null |
+awk -F'\t' '
+    function bytes(s,    v, u) {
+        v = s + 0; u = s
+        sub(/^[0-9.]+/, "", u); gsub(/ /, "", u)
+        if      (u ~ /^[kK]i?B/) v *= 1024
+        else if (u ~ /^Mi?B/)    v *= 1048576
+        else if (u ~ /^Gi?B/)    v *= 1073741824
+        else if (u ~ /^Ti?B/)    v *= 1099511627776
+        return v
+    }
+    NF == 4 {
+        cpu = $2; sub(/%/, "", cpu)
+        split($3, m, / \/ /); split($4, io, / \/ /)
+        printf "%s %.2f %.1f %.0f\n", $1, cpu, bytes(m[1]) / 1048576, bytes(io[1]) + bytes(io[2])
+    }' | sort)
+
+# Append samples to per-container history; derive net B/s from the
+# previous sample's cumulative counter (counter reset on container
+# restart → clamp to 0).
+declare -A NETRATE
+names=()
+while read -r name cpu mem net; do
+    [ -z "$name" ] && continue
+    hist="$STATE/$name.hist"
+    rate="-"
+    if [ -s "$hist" ]; then
+        read -r pts _ _ pnet < <(tail -n 1 "$hist")
+        dt=$(( now - pts ))
+        if [ "$dt" -gt 0 ] 2>/dev/null; then
+            rate=$(( (net - pnet) / dt ))
+            [ "$rate" -lt 0 ] && rate=0
+        fi
+    fi
+    printf '%s %s %s %s\n' "$now" "$cpu" "$mem" "$net" >> "$hist"
+    tail -n "$KEEP" "$hist" > "$hist.tmp" && mv "$hist.tmp" "$hist"
+    names+=("$name")
+    NETRATE[$name]=$rate
+done <<< "$sample"
+
+# Host load history rides the same mechanism.
+read -r load1 _ < /proc/loadavg
+printf '%s %s\n' "$now" "$load1" >> "$STATE/.host.hist"
+tail -n "$KEEP" "$STATE/.host.hist" > "$STATE/.host.tmp" && mv "$STATE/.host.tmp" "$STATE/.host.hist"
+
+# Prune series for containers that stopped reporting.
+find "$STATE" -name '*.hist' -mmin +60 -delete 2>/dev/null
+
+# --- geometry --------------------------------------------------------------
+# name + two sparkline blocks (chart, value) + net rate, centred. Spark
+# width soaks up whatever the pane offers, within reason.
+cols=$(tput cols 2>/dev/null || echo 116)
+lines=$(tput lines 2>/dev/null || echo 24)
+namew=22
+sw=$(( (cols - namew - 6 - 7 - 8 - 14) / 2 ))
+[ "$sw" -gt 32 ] && sw=32
+[ "$sw" -lt 8 ]  && sw=8
+width=$(( namew + 2 + sw + 1 + 6 + 3 + sw + 1 + 6 + 3 + 7 ))
+leftpad=$(( (cols - width) / 2 ))
+[ "$leftpad" -lt 1 ] && leftpad=1
+
+pad() { printf '%*s' "$1" ''; }
+
+# --- render ----------------------------------------------------------------
+echo
+pad "$leftpad"
+printf '%s%s%-*s%s' "$BOLD" "$CYAN" $(( namew + 2 )) "CONTAINERS" "$RST"
+printf '%s%-*s%s'   "$CYAN" $(( sw + 1 + 6 + 3 )) "CPU" "$RST"
+printf '%s%-*s%s'   "$CYAN" $(( sw + 1 + 6 + 3 )) "MEM" "$RST"
+printf '%s%s%s\n'   "$CYAN" "NET" "$RST"
+echo
+
+avail=$(( lines - 8 ))
+[ "$avail" -lt 3 ] && avail=3
+shown=0
+for name in "${names[@]:-}"; do
+    [ -z "$name" ] && continue
+    if [ "$shown" -ge "$avail" ]; then
+        pad "$leftpad"
+        printf '%s… +%d more%s\n' "$DIM" $(( ${#names[@]} - shown )) "$RST"
+        break
+    fi
+    hist="$STATE/$name.hist"
+    cpus=$(awk '{printf "%s ", $2}' "$hist")
+    mems=$(awk '{printf "%s ", $3}' "$hist")
+    read -r _ cpu mem _ < <(tail -n 1 "$hist")
+
+    cpucolor=$GREEN
+    awk -v c="$cpu" 'BEGIN { exit !(c >= 40) }' && cpucolor=$YEL
+    awk -v c="$cpu" 'BEGIN { exit !(c >= 80) }' && cpucolor=$RED
+
+    pad "$leftpad"
+    printf '%-*s  ' "$namew" "${name:0:namew}"
+    printf '%s%s%s %s%5.1f%%%s   ' "$DIM" "$(spark "$sw" 5 "$cpus")" "$RST" "$cpucolor" "$cpu" "$RST"
+    printf '%s%s%s %s   '          "$DIM" "$(spark "$sw" 1 "$mems" 1.25)" "$RST" "$(human_mem "$mem")"
+    printf '%s%s%s\n' "$DIM" "$(human_rate "${NETRATE[$name]}")" "$RST"
+    shown=$(( shown + 1 ))
+done
+[ "${#names[@]}" -eq 0 ] && { pad "$leftpad"; printf '%s(no running containers)%s\n' "$DIM" "$RST"; }
+
+# --- host line -------------------------------------------------------------
+loads=$(awk '{printf "%s ", $2}' "$STATE/.host.hist" 2>/dev/null)
+ncpu=$(nproc 2>/dev/null || echo 4)
+diskline=$(df -h / 2>/dev/null | awk 'NR==2 {print $5, $3"/"$2}')
+diskpct=${diskline%% *}; diskuse=${diskline#* }
+barw=12
+filled=$(( ${diskpct%\%} * barw / 100 ))
+bar=""
+for ((i = 0; i < barw; i++)); do
+    if [ "$i" -lt "$filled" ]; then bar+="▓"; else bar+="░"; fi
+done
+nimg=$(docker images -q 2>/dev/null | sort -u | wc -l | tr -d ' ')
+
+echo
+pad "$leftpad"
+printf '%s%sHOST%s   ' "$BOLD" "$CYAN" "$RST"
+printf 'load %s%s%s %s%s/%s%s   ' "$DIM" "$(spark 16 "$ncpu" "$loads")" "$RST" "$load1" "$DIM" "$ncpu" "$RST"
+printf 'disk / %s %s %s%s%s   ' "$bar" "$diskpct" "$DIM" "$diskuse" "$RST"
+printf '%simages %s%s\n' "$DIM" "$nimg" "$RST"

@@ -1,24 +1,26 @@
 #!/bin/bash
 # GNAR — kiosk tmux dashboard.
 #
-# Two panes, full width:
-#
 #   ┌─────────────────────────────────────────────────────┐
 #   │  btop  — system monitor                              │
-#   ├─────────────────────────────────────────────────────┤
-#   │  gnar-status-board — services · containers · sites   │
-#   │                      · Hermes (one grid, no seams)   │
-#   └─────────────────────────────────────────────────────┘
+#   ├───────────────────────────┬─────────────────────────┤
+#   │  gnar-metrics-board       │  gnar-status-board       │
+#   │  per-container CPU/MEM    │  services · containers   │
+#   │  sparklines · net · host  │  · sites · Hermes        │
+#   └───────────────────────────┴─────────────────────────┘
 #
-# The lower pane is a single renderer (gnar-status-board) rather than a
-# row of per-topic panes — one grid, aligned columns, no pane seams.
+# Each lower pane is a single renderer — one grid each, aligned columns.
+# The metrics pane refreshes every 10s and accumulates sparkline history;
+# the status board every 30s.
 #
 # `gnar-claude-stats` still exists as a one-shot — run it manually if you
 # want a snapshot of Claude Code activity. Hermes is the day-to-day signal.
 #
 # Auto-attaches if the session already exists. Mango's `exec-once`
 # launches `foot -e gnar-dashboard`, so on display attach this is your
-# kiosk view. Run from any shell to attach manually.
+# kiosk view. Run from any shell to attach manually. Without a tty
+# (e.g. over plain ssh) it creates/refreshes the session detached —
+# handy for rebuilding the kiosk layout remotely.
 
 set -uo pipefail
 
@@ -26,7 +28,8 @@ SESSION=dashboard
 
 # Already running? Just attach.
 if tmux has-session -t "$SESSION" 2>/dev/null; then
-    exec tmux attach -t "$SESSION"
+    [ -t 0 ] && exec tmux attach -t "$SESSION"
+    exit 0
 fi
 
 # Build a self-refreshing pane command: clear + run + sleep, forever.
@@ -36,12 +39,14 @@ loop() {  # loop <interval-seconds> <command>
     printf 'while :; do clear; %s; sleep %s; done' "$2" "$1"
 }
 
-# Top: btop. Bottom ~32%: the status board.
-tmux new-session -d -s "$SESSION" -n main 'btop'
-tmux split-window -v -t "$SESSION:main" -l 32% "$(loop 30 gnar-status-board)"
+# Top: btop. Bottom ~44%: utilization charts (left) + status board (right).
+tmux new-session -d -s "$SESSION" -n main -x "${COLUMNS:-232}" -y "${LINES:-55}" 'btop'
+tmux split-window -v -t "$SESSION:main" -l 44% "$(loop 10 gnar-metrics-board)"
+tmux split-window -h -t "$SESSION:main.{bottom-left}" -l 50% "$(loop 30 gnar-status-board)"
 
 tmux select-pane  -t "$SESSION:main.{top-left}"
 tmux set-option   -t "$SESSION" status off
 tmux set-option   -t "$SESSION" mouse on
 
-exec tmux attach -t "$SESSION"
+[ -t 0 ] && exec tmux attach -t "$SESSION"
+exit 0

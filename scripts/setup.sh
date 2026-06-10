@@ -504,6 +504,7 @@ install -m 755 "$BIN/gnar-dashboard"        /usr/local/bin/gnar-dashboard
 install -m 755 "$BIN/gnar-services-status"  /usr/local/bin/gnar-services-status
 install -m 755 "$BIN/gnar-docker-status"    /usr/local/bin/gnar-docker-status
 install -m 755 "$BIN/gnar-status-board"     /usr/local/bin/gnar-status-board
+install -m 755 "$BIN/gnar-metrics-board"    /usr/local/bin/gnar-metrics-board
 install -m 755 "$BIN/gnar-claude-stats"     /usr/local/bin/gnar-claude-stats
 install -m 755 "$BIN/gnar-hermes-status"    /usr/local/bin/gnar-hermes-status
 install -m 755 "$BIN/gnar-project-init"     /usr/local/bin/gnar-project-init

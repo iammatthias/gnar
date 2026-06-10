@@ -63,29 +63,36 @@ GNAR is headless by default, but `setup.sh` also installs **Mango**
 (Wayland WM, AUR `mangowm-git`) + `foot` and configures `getty@tty1`
 to auto-log the user in. When a display is plugged into the box, on
 next login `~/.zprofile` exec's `mango`, which fullscreens
-`gnar-dashboard` — a two-pane tmux session: btop up top, a unified
-status board below.
+`gnar-dashboard` — a three-pane tmux session: btop up top, utilization
+charts and a unified status board side by side below.
 
 ```
 ┌─────────────────────────────────────────────────────┐
 │  btop  — system monitor (full width)                 │
-├─────────────────────────────────────────────────────┤
-│  gnar-status-board                                   │
-│  HOST SERVICES   CONTAINERS      CADDY SITES          │
-│  HERMES  gateway up · kanban · cron                   │
-└─────────────────────────────────────────────────────┘
+├───────────────────────────┬─────────────────────────┤
+│  gnar-metrics-board       │  gnar-status-board       │
+│  CONTAINERS CPU▁▂▃ MEM NET│  SERVICES CONTAINERS     │
+│  HOST load▁▂▃ disk images │  SITES · HERMES · backup │
+└───────────────────────────┴─────────────────────────┘
 ```
 
-The lower pane is a single renderer (`gnar-status-board`) — host
-services, containers and Caddy sites in three aligned columns plus a
-Hermes summary line. One grid, no pane seams.
+Each lower pane is a single renderer. `gnar-metrics-board` draws
+per-container CPU and memory sparklines (history accumulates across
+its 10s refresh — ~10 minutes of context) plus live network rates and
+a host line (load history, root-disk fill, image count).
+`gnar-status-board` shows host services, containers and Caddy sites in
+three aligned columns plus a Hermes summary line with backup
+staleness.
 
 You can also run `gnar-dashboard` from any shell — it attaches the
-same session if it already exists, or builds it.
+same session if it already exists, or builds it. Run over plain ssh
+(no tty) it creates/refreshes the session detached, which is how you
+rebuild the kiosk layout remotely.
 
 The dashboard helpers are stand-alone too:
 
 ```bash
+gnar-metrics-board     # container CPU/MEM sparklines + net + host (one-shot)
 gnar-status-board      # the unified dashboard board (one-shot)
 gnar-services-status   # Caddy sites + service health (one-shot)
 gnar-docker-status     # docker containers + pm2 processes
