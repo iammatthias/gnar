@@ -145,12 +145,28 @@ if [ "$ROOT_FS" = "btrfs" ]; then
         snapper -c root set-config "TIMELINE_LIMIT_HOURLY=5"
         snapper -c root set-config "TIMELINE_LIMIT_DAILY=7"
         snapper -c root set-config "TIMELINE_LIMIT_WEEKLY=2"
-        snapper -c root set-config "TIMELINE_LIMIT_MONTHLY=2"
+        snapper -c root set-config "TIMELINE_LIMIT_MONTHLY=1"
         snapper -c root set-config "TIMELINE_LIMIT_YEARLY=0"
+        # snapper's default NUMBER_LIMIT=50 keeps ~all pacman pre/post
+        # pairs for months. On a box with docker churn each snapshot pins
+        # the image layers of its era — observed ~160G held by stale
+        # snapshots. A dozen transactions of rollback depth is plenty.
+        snapper -c root set-config "NUMBER_LIMIT=12"
+        snapper -c root set-config "NUMBER_LIMIT_IMPORTANT=6"
         snapper -c root set-config "ALLOW_GROUPS=wheel"
 
         chmod 750 /.snapshots 2>/dev/null || true
         chgrp wheel /.snapshots 2>/dev/null || true
+    fi
+
+    # /var/lib/docker as its own subvolume — snapper snapshots of the
+    # root subvolume then EXCLUDE container storage. Without this every
+    # pacman pre/post snapshot pins the docker image layers of its era
+    # and the disk silently fills. Only safe to create while empty
+    # (i.e. before dockerd first starts).
+    if [ ! -e /var/lib/docker ] || [ -z "$(ls -A /var/lib/docker 2>/dev/null)" ]; then
+        rmdir /var/lib/docker 2>/dev/null || true
+        btrfs subvolume create /var/lib/docker 2>/dev/null || mkdir -p /var/lib/docker
     fi
 
     # Disable CoW on dirs with lots of small random writes (databases,
@@ -519,6 +535,8 @@ install -m 755 "$BIN/gnar-docker-status"    /usr/local/bin/gnar-docker-status
 install -m 755 "$BIN/gnar-status-board"     /usr/local/bin/gnar-status-board
 install -m 755 "$BIN/gnar-metrics-board"    /usr/local/bin/gnar-metrics-board
 install -m 755 "$BIN/gnar-kiosk-tiles"      /usr/local/bin/gnar-kiosk-tiles
+install -m 755 "$BIN/gnar-kiosk-restart"    /usr/local/bin/gnar-kiosk-restart
+install -m 755 "$BIN/gnar-kiosk-shot"       /usr/local/bin/gnar-kiosk-shot
 install -m 755 "$BIN/gnar-claude-stats"     /usr/local/bin/gnar-claude-stats
 install -m 755 "$BIN/gnar-hermes-status"    /usr/local/bin/gnar-hermes-status
 install -m 755 "$BIN/gnar-project-init"     /usr/local/bin/gnar-project-init

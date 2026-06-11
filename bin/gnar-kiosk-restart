@@ -1,0 +1,30 @@
+#!/bin/bash
+# gnar-kiosk-restart — gracefully restart the kiosk compositor.
+#
+# `pkill mango` works, but mango SIGABRTs during teardown (coredump +
+# a hundred lines of backtrace in the journal — the dashboard's own
+# crash alert fires on it). `mmsg -q` asks it to quit cleanly. Either
+# way getty@tty1's autologin respawns it with fresh windowrule state —
+# which is also why this is the right tool after editing windowrules:
+# reload_config accumulates duplicate rules in-session.
+set -uo pipefail
+
+pid=$(pgrep -x foot | head -1 || true)
+if [ -n "${pid:-}" ] && command -v mmsg >/dev/null 2>&1; then
+    env_of() { tr '\0' '\n' < "/proc/$1/environ" | grep "^$2=" | cut -d= -f2-; }
+    WAYLAND_DISPLAY=$(env_of "$pid" WAYLAND_DISPLAY) \
+    XDG_RUNTIME_DIR=$(env_of "$pid" XDG_RUNTIME_DIR) \
+        mmsg -q 2>/dev/null || pkill -x mango || true
+else
+    pkill -x mango || true
+fi
+
+for _ in $(seq 1 30); do
+    if pgrep -x mango >/dev/null && [ "$(pgrep -xc foot 2>/dev/null || echo 0)" -ge 6 ]; then
+        echo "kiosk restarted"
+        exit 0
+    fi
+    sleep 2
+done
+echo "gnar-kiosk-restart: kiosk did not come back — check getty@tty1 / ~/.zprofile" >&2
+exit 1

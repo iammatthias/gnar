@@ -17,6 +17,9 @@ Core
                               grid tiles). q quits.
   gnar-metrics-board          Container CPU/MEM sparklines + net rates +
                               host line (one-shot fallback)
+  gnar-kiosk-restart          Gracefully restart the kiosk compositor
+                              (mmsg -q; getty autologin respawns it)
+  gnar-kiosk-shot [out.png]   Screenshot the kiosk display via grim
   gnar-services-status        Caddy sites + service health (one-shot)
   gnar-hermes-status          Hermes auth + kanban + cron (one-shot)
   gnar-claude-stats           Claude Code session + token stats (one-shot)

@@ -175,6 +175,7 @@ struct App {
     traffic: HashMap<String, (u32, u32, u32)>, // host → (reqs/5m, 4xx, 5xx)
     failed_units: usize,
     journal_errs: usize,
+    crashes: usize,
     banned_ips: usize,
     ssh_fails: usize,
     reboot_pending: Option<String>,
@@ -611,7 +612,7 @@ fn status_loop(app: Arc<Mutex<App>>, with_hermes: bool) {
             .unwrap_or(0);
 
         let traffic = sample_traffic(&mut log_offset, &mut traffic_window);
-        let (failed_units, journal_errs, banned_ips, ssh_fails) = sample_alerts();
+        let (failed_units, journal_errs, crashes, banned_ips, ssh_fails) = sample_alerts();
         let tailscale = sample_tailscale();
         let reboot_pending = reboot_pending();
 
@@ -662,6 +663,7 @@ fn status_loop(app: Arc<Mutex<App>>, with_hermes: bool) {
             a.traffic = traffic;
             a.failed_units = failed_units;
             a.journal_errs = journal_errs;
+            a.crashes = crashes;
             a.banned_ips = banned_ips;
             a.ssh_fails = ssh_fails;
             a.reboot_pending = reboot_pending;
@@ -958,11 +960,26 @@ fn sudo_lines(args: &[&str]) -> Vec<String> {
         .unwrap_or_default()
 }
 
-/// (failed units, journal errors/h, fail2ban bans, ssh failures/h).
-/// All via passwordless sudo — gnar boxes grant it by design.
-fn sample_alerts() -> (usize, usize, usize, usize) {
+/// (failed units, journal errors/h, crashes/h, fail2ban bans,
+/// ssh failures/h). All via passwordless sudo — gnar grants it by
+/// design. Coredumps log entire stack traces at priority err, which
+/// would read as hundreds of "errors" per crash — so crashes are
+/// counted as their own signal and the trace spam is excluded from
+/// the error count.
+fn sample_alerts() -> (usize, usize, usize, usize, usize) {
     let failed = sudo_lines(&["systemctl", "--failed", "--plain", "--no-legend"]).len();
-    let errs = sudo_lines(&["journalctl", "-p", "3", "--since", "-1 hour", "-q", "--no-pager", "-o", "cat", "-n", "500"]).len();
+    let p3 = sudo_lines(&["journalctl", "-p", "3", "--since", "-1 hour", "-q", "--no-pager", "-o", "cat", "-n", "1000"]);
+    let crashes = p3.iter().filter(|l| l.contains(" dumped core")).count();
+    let errs = p3
+        .iter()
+        .filter(|l| {
+            let t = l.trim_start();
+            !(t.starts_with('#')
+                || t.starts_with("Module ")
+                || t.starts_with("Stack trace of")
+                || t.contains(" dumped core"))
+        })
+        .count();
     let banned = sudo_lines(&["fail2ban-client", "status", "sshd"])
         .iter()
         .find_map(|l| {
@@ -975,7 +992,7 @@ fn sample_alerts() -> (usize, usize, usize, usize) {
         .iter()
         .filter(|l| l.contains("Failed password") || l.contains("Invalid user"))
         .count();
-    (failed, errs, banned, ssh_fails)
+    (failed, errs, crashes, banned, ssh_fails)
 }
 
 /// (tailnet IP, peers online, peers total) from the tailscale container.
@@ -1938,9 +1955,15 @@ fn site_rows(app: &App) -> Vec<Line<'static>> {
                 "public" => C_MAGENTA,
                 _ => C_YELLOW,
             };
+            // Truncate long hostnames — format width pads but never cuts.
+            let mut host: String = site.host.chars().take(29).collect();
+            if site.host.chars().count() > 29 {
+                host.pop();
+                host.push('…');
+            }
             let mut spans = vec![
                 Span::styled("● ".to_string(), Style::new().fg(dotc)),
-                Span::styled(format!("{:<30}", site.host), Style::new().fg(C_FG)),
+                Span::styled(format!("{host:<30}"), Style::new().fg(C_FG)),
                 Span::styled(format!("{info:<11}"), info_style),
             ];
             match app.traffic.get(&site.host) {
@@ -2091,6 +2114,7 @@ fn hermes_panel(app: &App) -> Vec<Line<'static>> {
     // Host alerts — invisible when everything is clean, loud when not.
     let alerts: Vec<String> = [
         (app.failed_units, "failed units".to_string()),
+        (app.crashes, "crashes/h".to_string()),
         (app.journal_errs, "journal errors/h".to_string()),
         (app.banned_ips, "banned IPs".to_string()),
         (app.ssh_fails, "ssh failures/h".to_string()),
