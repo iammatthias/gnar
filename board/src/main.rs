@@ -85,7 +85,19 @@ struct Series {
     cpu_cur: f64,
     mem_cur: f64,
     net_rate: Option<f64>, // bytes/sec; None = unknown or shared netns
+    flag: Option<String>,  // "restarting" / "unhealthy"
     prev: Option<Prev>,
+}
+
+/// A Caddy vhost plus its live probe result. `ok: None` = not probed
+/// yet; `code: 0` = TCP/TLS-connect check only (preview sites).
+#[derive(Clone)]
+struct Site {
+    host: String,
+    kind: String,
+    ok: Option<bool>,
+    code: u16,
+    ms: u64,
 }
 
 struct Prev {
@@ -129,9 +141,11 @@ struct Host {
     load: f64,
     load_hist: VecDeque<f64>,
     ncpu: usize,
+    watts: Option<f64>, // CPU package draw via RAPL (None if unreadable)
     prev_cpu: Option<(Vec<(u64, u64)>, (u64, u64))>, // per-core + total (busy, total)
     prev_net: Option<(Instant, u64, u64)>,
     prev_io: Option<(Instant, u64, u64)>,
+    prev_energy: Option<(Instant, u64)>,
 }
 
 #[derive(Default)]
@@ -140,15 +154,17 @@ struct App {
     containers: BTreeMap<String, Series>,
     containers_total: usize,
     services: Vec<(String, String)>,
-    sites: Vec<(String, String)>,
+    sites: Vec<Site>,
     procs_cpu: Vec<String>,
     procs_mem: Vec<String>,
     disk_pct: u8,
     disk_detail: String,
     images: usize,
     prune_next: String,
-    kanban: usize,
-    cron: usize,
+    updates: Option<usize>,
+    kanban_lines: Vec<String>,
+    cron_lines: Vec<(bool, String, String)>,
+    claude_runs: usize,
     backup_age_h: Option<u64>,
     backup_size_mb: u64,
     docker_err: Option<String>,
@@ -416,6 +432,21 @@ fn sample_host(h: &mut Host) {
         h.hostname = fs::read_to_string("/etc/hostname").map(|s| s.trim().to_string()).unwrap_or_default();
     }
     h.temp_c = cpu_temp();
+    // CPU package power via RAPL. Root-only by default; gnar ships a
+    // tmpfiles.d rule opening it to 0444 — degrade silently without it.
+    if let Some(e) = fs::read_to_string("/sys/class/powercap/intel-rapl:0/energy_uj")
+        .ok()
+        .and_then(|s| s.trim().parse::<u64>().ok())
+    {
+        if let Some((at, pe)) = h.prev_energy {
+            let dt = now.duration_since(at).as_secs_f64();
+            if dt > 0.0 && e > pe {
+                // skip wrap-around samples (e < pe)
+                h.watts = Some((e - pe) as f64 / 1e6 / dt);
+            }
+        }
+        h.prev_energy = Some((now, e));
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -453,6 +484,15 @@ fn sample_containers(app: &Arc<Mutex<App>>) -> Result<(), String> {
             .unwrap_or("?")
             .trim_start_matches('/')
             .to_string();
+        let state = c["State"].as_str().unwrap_or("");
+        let status = c["Status"].as_str().unwrap_or("");
+        let flag = if state == "restarting" {
+            Some("restarting".to_string())
+        } else if status.contains("unhealthy") {
+            Some("unhealthy".to_string())
+        } else {
+            None
+        };
         let stats = match docker_get(&format!("/containers/{id}/stats?stream=false&one-shot=true")) {
             Ok(v) => v,
             Err(_) => continue, // container racing us to exit
@@ -492,6 +532,7 @@ fn sample_containers(app: &Arc<Mutex<App>>) -> Result<(), String> {
         }
         s.mem_cur = mem_mib;
         push(&mut s.mem, mem_mib);
+        s.flag = flag;
         s.prev = Some(Prev { at: now, cpu_total, sys_total, net_total });
         drop(a);
         seen.push(name);
@@ -520,7 +561,8 @@ fn status_loop(app: Arc<Mutex<App>>, with_hermes: bool) {
             })
             .collect();
 
-        let sites = caddy_sites();
+        let mut sites = caddy_sites();
+        probe_sites(&mut sites);
         let backup = backup_info();
         let (disk_pct, disk_detail) = disk_usage();
         let procs_cpu = top_procs("-pcpu", 10);
@@ -535,10 +577,17 @@ fn status_loop(app: Arc<Mutex<App>>, with_hermes: bool) {
             .and_then(|v| v.as_array().map(|a| a.len()))
             .unwrap_or(0);
 
-        // Hermes counts are docker-exec subprocesses — every other cycle,
-        // and only for the panels that display them.
+        // checkupdates does a network sync — hourly is plenty.
+        let updates = if tick % 120 == 0 { Some(pending_updates()) } else { None };
+
+        // Hermes detail is docker-exec subprocesses — every other cycle,
+        // and only for the panels that display it.
         let hermes = if with_hermes && tick % 2 == 0 {
-            Some((hermes_count("kanban"), hermes_count("cron")))
+            Some((
+                kanban_tasks(&hermes_raw("kanban")),
+                cron_jobs(&hermes_raw("cron")),
+                claude_runs(),
+            ))
         } else {
             None
         };
@@ -556,9 +605,13 @@ fn status_loop(app: Arc<Mutex<App>>, with_hermes: bool) {
             a.images = images;
             a.containers_total = containers_total;
             a.prune_next = prune_next;
-            if let Some((k, c)) = hermes {
-                a.kanban = k;
-                a.cron = c;
+            if let Some(u) = updates {
+                a.updates = Some(u);
+            }
+            if let Some((k, c, r)) = hermes {
+                a.kanban_lines = k;
+                a.cron_lines = c;
+                a.claude_runs = r;
             }
         }
         tick += 1;
@@ -580,7 +633,100 @@ fn clock_loop(app: Arc<Mutex<App>>) {
     }
 }
 
-fn hermes_count(what: &str) -> usize {
+/// Live-probe each Caddy vhost through the tailscale container's bridge
+/// IP (caddy shares that netns, so its listeners are reachable there
+/// from the host). private → :80, public → :8080, previews are
+/// TLS-only so they get a TCP-connect check on :443.
+fn probe_sites(sites: &mut [Site]) {
+    let ip = match docker_get("/containers/gnar-tailscale/json").ok().and_then(|v| {
+        let ns = &v["NetworkSettings"];
+        ns["IPAddress"]
+            .as_str()
+            .filter(|s| !s.is_empty())
+            .map(String::from)
+            .or_else(|| {
+                ns["Networks"]
+                    .as_object()
+                    .and_then(|o| o.values().next())
+                    .and_then(|n| n["IPAddress"].as_str())
+                    .filter(|s| !s.is_empty())
+                    .map(String::from)
+            })
+    }) {
+        Some(ip) => ip,
+        None => return,
+    };
+    for site in sites.iter_mut() {
+        let res = match site.kind.as_str() {
+            "private" => http_probe(&ip, 80, &site.host),
+            "public" => http_probe(&ip, 8080, &site.host),
+            _ => tcp_probe(&ip, 443).map(|ms| (0u16, ms)),
+        };
+        match res {
+            Some((code, ms)) => {
+                site.code = code;
+                site.ms = ms;
+                site.ok = Some(code == 0 || (200..400).contains(&code));
+            }
+            None => site.ok = Some(false),
+        }
+    }
+}
+
+fn http_probe(ip: &str, port: u16, host: &str) -> Option<(u16, u64)> {
+    use std::net::{SocketAddr, TcpStream};
+    let addr: SocketAddr = format!("{ip}:{port}").parse().ok()?;
+    let start = Instant::now();
+    let mut s = TcpStream::connect_timeout(&addr, Duration::from_secs(3)).ok()?;
+    s.set_read_timeout(Some(Duration::from_secs(3))).ok();
+    s.set_write_timeout(Some(Duration::from_secs(3))).ok();
+    write!(
+        s,
+        "GET / HTTP/1.1\r\nHost: {host}\r\nUser-Agent: gnar-board\r\nConnection: close\r\n\r\n"
+    )
+    .ok()?;
+    let mut buf = [0u8; 32];
+    let n = s.read(&mut buf).ok()?;
+    let code = String::from_utf8_lossy(&buf[..n]).split_whitespace().nth(1)?.parse().ok()?;
+    Some((code, start.elapsed().as_millis() as u64))
+}
+
+fn tcp_probe(ip: &str, port: u16) -> Option<u64> {
+    use std::net::{SocketAddr, TcpStream};
+    let addr: SocketAddr = format!("{ip}:{port}").parse().ok()?;
+    let start = Instant::now();
+    TcpStream::connect_timeout(&addr, Duration::from_secs(3)).ok()?;
+    Some(start.elapsed().as_millis() as u64)
+}
+
+/// Pending pacman updates (pacman-contrib's checkupdates; syncs to a
+/// temp DB, never touches the real one).
+fn pending_updates() -> usize {
+    Command::new("checkupdates")
+        .output()
+        .ok()
+        .map(|o| String::from_utf8_lossy(&o.stdout).lines().filter(|l| !l.trim().is_empty()).count())
+        .unwrap_or(0)
+}
+
+fn strip_ansi(s: &str) -> String {
+    let mut out = String::new();
+    let mut chars = s.chars();
+    while let Some(c) = chars.next() {
+        if c == '\x1b' {
+            for d in chars.by_ref() {
+                if d.is_ascii_alphabetic() {
+                    break;
+                }
+            }
+        } else {
+            out.push(c);
+        }
+    }
+    out
+}
+
+fn hermes_raw(what: &str) -> Vec<String> {
     Command::new("timeout")
         .args(["10", "docker", "exec", "gnar-hermes-gateway", "hermes", what, "list"])
         .output()
@@ -588,8 +734,63 @@ fn hermes_count(what: &str) -> usize {
         .map(|o| {
             String::from_utf8_lossy(&o.stdout)
                 .lines()
-                .filter(|l| !l.trim().is_empty())
-                .count()
+                .map(|l| strip_ansi(l).trim_end().to_string())
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// Task rows out of `hermes kanban list`, minus box-drawing and
+/// "(no matching tasks)" placeholders.
+fn kanban_tasks(raw: &[String]) -> Vec<String> {
+    raw.iter()
+        .map(|l| l.trim())
+        .filter(|l| {
+            !l.is_empty() && !l.starts_with('(') && !l.chars().next().is_some_and(|c| "─┌└│┐┘├┤═╔╚║".contains(c))
+        })
+        .map(String::from)
+        .take(8)
+        .collect()
+}
+
+/// (active, name, schedule) per job from `hermes cron list`'s
+/// multi-line output (id [active] / Name: / Schedule: / …).
+fn cron_jobs(raw: &[String]) -> Vec<(bool, String, String)> {
+    let mut jobs = Vec::new();
+    let mut active = false;
+    let mut name = String::new();
+    for l in raw {
+        let t = l.trim();
+        if t.contains("[active]") {
+            active = true;
+        } else if t.contains("[paused]") || t.contains("[inactive]") {
+            active = false;
+        }
+        if let Some(v) = t.strip_prefix("Name:") {
+            name = v.trim().to_string();
+        } else if let Some(v) = t.strip_prefix("Schedule:") {
+            jobs.push((active, name.clone(), v.trim().to_string()));
+            active = false;
+        }
+    }
+    jobs
+}
+
+/// Count claude processes inside the gateway container — a live
+/// delegated coding run shows up here.
+fn claude_runs() -> usize {
+    docker_get("/containers/gnar-hermes-gateway/top")
+        .ok()
+        .and_then(|v| {
+            v["Processes"].as_array().map(|ps| {
+                ps.iter()
+                    .filter(|p| {
+                        p.as_array().is_some_and(|f| {
+                            f.iter().any(|x| x.as_str().is_some_and(|s| s.contains("claude")))
+                        })
+                    })
+                    .count()
+            })
         })
         .unwrap_or(0)
 }
@@ -625,19 +826,26 @@ fn prune_timer_next() -> String {
         .unwrap_or_default()
 }
 
-fn caddy_sites() -> Vec<(String, String)> {
+fn caddy_sites() -> Vec<Site> {
     let hostish = |h: &str| !h.is_empty() && h.chars().all(|c| c.is_ascii_alphanumeric() || c == '.' || c == '-');
+    let site = |host: &str, kind: &str| Site {
+        host: host.to_string(),
+        kind: kind.to_string(),
+        ok: None,
+        code: 0,
+        ms: 0,
+    };
     let mut out = Vec::new();
     if let Ok(s) = fs::read_to_string(format!("{STACK}/Caddyfile")) {
         for l in s.lines() {
             let l = l.trim_end();
             if let Some(h) = l.strip_suffix(":80 {") {
                 if h.ends_with(".local") && hostish(h) {
-                    out.push((h.to_string(), "private".into()));
+                    out.push(site(h, "private"));
                 }
             } else if let Some(h) = l.strip_prefix("http://").and_then(|r| r.strip_suffix(":8080 {")) {
                 if hostish(h) {
-                    out.push((h.to_string(), "public".into()));
+                    out.push(site(h, "public"));
                 }
             }
         }
@@ -661,7 +869,7 @@ fn caddy_sites() -> Vec<(String, String)> {
             })
             .collect();
         previews.sort();
-        out.extend(previews.into_iter().map(|h| (h, "preview".into())));
+        out.extend(previews.into_iter().map(|h| site(&h, "preview")));
     }
     out
 }
@@ -961,11 +1169,23 @@ fn ui_full(frame: &mut Frame, app: &App) {
 fn render_cpu(frame: &mut Frame, cpu_a: Rect, app: &App) {
     let h = &app.host;
     let temp = h.temp_c.map(|t| format!("· {t:.0}°C ")).unwrap_or_default();
-    let cpu_block = section(vec![
+    let watts = h.watts.map(|w| format!("· {w:.0}W ")).unwrap_or_default();
+    let mut cpu_block = section(vec![
         Span::styled(" CPU ", accent(C_CYAN)),
         Span::styled(format!("{:.1}% ", h.cpu_cur), Style::new().fg(heat(h.cpu_cur / 100.0))),
-        Span::styled(temp, dim()),
+        Span::styled(format!("{temp}{watts}"), dim()),
     ]);
+    // Tile mode: the kiosk has no global header, so clock + uptime ride
+    // this tile's title bar.
+    if cpu_a.height >= 22 && !app.clock.is_empty() {
+        cpu_block = cpu_block.title(
+            Line::from(Span::styled(
+                format!(" {} · up {} ", app.clock, human_uptime(h.uptime)),
+                dim(),
+            ))
+            .right_aligned(),
+        );
+    }
     let cpu_inner = cpu_block.inner(cpu_a);
     frame.render_widget(cpu_block, cpu_a);
     if cpu_inner.height >= 20 && !h.cores_hist.is_empty() {
@@ -1120,8 +1340,16 @@ fn render_net(frame: &mut Frame, net_a: Rect, app: &App) {
     ]);
     let net_inner = net_block.inner(net_a);
     frame.render_widget(net_block, net_a);
-    // Tile mode gets a totals/sockets footer under the graphs.
-    let (body, footer) = if net_inner.height >= 14 {
+    // Tile mode gets a totals/sockets footer and the probed site list
+    // (ingress health is network business) under the graphs.
+    let mut sites_a = None;
+    let (body, footer) = if net_inner.height >= 22 && !app.sites.is_empty() {
+        let rows = (app.sites.len() as u16 + 3).min(16);
+        let [b, f, s] =
+            Layout::vertical([Constraint::Min(8), Constraint::Length(2), Constraint::Length(rows)]).areas(net_inner);
+        sites_a = Some(s);
+        (b, Some(f))
+    } else if net_inner.height >= 14 {
         let [b, f] = Layout::vertical([Constraint::Min(4), Constraint::Length(2)]).areas(net_inner);
         (b, Some(f))
     } else {
@@ -1166,6 +1394,19 @@ fn render_net(frame: &mut Frame, net_a: Rect, app: &App) {
             ]),
             f,
         );
+    }
+    if let Some(sa) = sites_a {
+        let down = app.sites.iter().filter(|s| s.ok == Some(false)).count();
+        let mut header = vec![
+            Span::styled("SITES ".to_string(), accent(C_BLUE)),
+            Span::styled(format!("{}", app.sites.len()), dim()),
+        ];
+        if down > 0 {
+            header.push(Span::styled(format!(" · {down} down"), Style::new().fg(C_RED)));
+        }
+        let mut lines = vec![Line::default(), Line::from(header), Line::default()];
+        lines.extend(site_rows(app));
+        frame.render_widget(Paragraph::new(lines), sa);
     }
 }
 
@@ -1241,24 +1482,50 @@ fn render_disk(frame: &mut Frame, disk_a: Rect, app: &App) {
 
 fn render_containers(frame: &mut Frame, cont_a: Rect, app: &App) {
     let total_mem: f64 = app.containers.values().map(|s| s.mem_cur).sum();
-    let cont_block = section(vec![
+    let flagged = app.containers.values().filter(|s| s.flag.is_some()).count();
+    let mut title = vec![
         Span::styled(" CONTAINERS ", accent(C_CYAN)),
         Span::styled(format!("{} ", app.containers.len()), Style::new().fg(C_FG)),
         Span::styled(format!("· mem {} ", human_mem(total_mem).trim()), dim()),
-    ]);
+    ];
+    if flagged > 0 {
+        title.push(Span::styled(format!("· {flagged} unhealthy "), Style::new().fg(C_RED)));
+    }
+    let cont_block = section(title);
     let cont_inner = cont_block.inner(cont_a);
     frame.render_widget(cont_block, cont_a);
+    // Tile mode gets a host-services + docker-ops footer.
+    let (body, footer) = if cont_inner.height >= 24 {
+        let [b, f] = Layout::vertical([Constraint::Min(8), Constraint::Length(6)]).areas(cont_inner);
+        (b, Some(f))
+    } else {
+        (cont_inner, None)
+    };
     frame.render_widget(
-        Paragraph::new(containers_panel(app, cont_inner.width as usize, cont_inner.height as usize)),
-        cont_inner,
+        Paragraph::new(containers_panel(app, body.width as usize, body.height as usize)),
+        body,
     );
+    if let Some(f) = footer {
+        let mut lines = vec![Line::default()];
+        lines.extend(service_rows(app));
+        lines.push(Line::default());
+        lines.push(docker_line(app));
+        frame.render_widget(Paragraph::new(lines), f);
+    }
 }
 
 fn render_status(frame: &mut Frame, stat_a: Rect, app: &App, tile: bool) {
-    let stat_block = section(vec![Span::styled(" STATUS ", accent(C_MAGENTA))]);
+    // On the kiosk this tile is all Hermes — services/sites/docker live
+    // in the NET and CONTAINERS tiles there.
+    let (title, content) = if tile {
+        (" HERMES ", hermes_panel(app))
+    } else {
+        (" STATUS ", status_panel(app))
+    };
+    let stat_block = section(vec![Span::styled(title, accent(C_MAGENTA))]);
     let stat_inner = stat_block.inner(stat_a);
     frame.render_widget(stat_block, stat_a);
-    frame.render_widget(Paragraph::new(status_panel(app, tile)), stat_inner);
+    frame.render_widget(Paragraph::new(content), stat_inner);
 }
 
 fn containers_panel(app: &App, width: usize, height: usize) -> Vec<Line<'static>> {
@@ -1289,7 +1556,13 @@ fn containers_panel(app: &App, width: usize, height: usize) -> Vec<Line<'static>
             break;
         }
         let t = (s.cpu_cur / 100.0).clamp(0.0, 1.0);
-        let name_color = if name.starts_with("gnar") { C_CYAN } else { C_BLUE };
+        let name_color = if s.flag.is_some() {
+            C_RED // restarting / unhealthy
+        } else if name.starts_with("gnar") {
+            C_CYAN
+        } else {
+            C_BLUE
+        };
         let shown: String = name.chars().take(namew).collect();
         let net_style = match s.net_rate {
             Some(r) if r >= 1024.0 => Style::new().fg(C_CYAN),
@@ -1319,38 +1592,73 @@ fn containers_panel(app: &App, width: usize, height: usize) -> Vec<Line<'static>
     lines
 }
 
-fn status_panel(app: &App, tile: bool) -> Vec<Line<'static>> {
-    let mut lines = vec![Line::styled("HOST SERVICES", accent(C_BLUE)), Line::default()];
+/// Host services, two per row — six units in three lines.
+fn service_rows(app: &App) -> Vec<Line<'static>> {
+    app.services
+        .chunks(2)
+        .map(|pair| {
+            let mut spans = Vec::new();
+            for (name, state) in pair {
+                spans.push(Span::styled("● ".to_string(), Style::new().fg(dot_color(state))));
+                spans.push(Span::styled(format!("{name:<14}"), Style::new().fg(C_FG)));
+                spans.push(Span::styled(format!("{state:<12}"), dim()));
+            }
+            Line::from(spans)
+        })
+        .collect()
+}
 
-    // Two services per row — six units would otherwise burn half the panel.
-    for pair in app.services.chunks(2) {
-        let mut spans = Vec::new();
-        for (name, state) in pair {
-            spans.push(Span::styled("● ".to_string(), Style::new().fg(dot_color(state))));
-            spans.push(Span::styled(format!("{name:<14}"), Style::new().fg(C_FG)));
-            spans.push(Span::styled(format!("{state:<12}"), dim()));
-        }
-        lines.push(Line::from(spans));
-    }
+/// Probed site rows: dot = live health, then host, probe result, kind.
+fn site_rows(app: &App) -> Vec<Line<'static>> {
+    app.sites
+        .iter()
+        .map(|site| {
+            let (dotc, info) = match site.ok {
+                Some(true) if site.code == 0 => (C_GREEN, format!("tls {}ms", site.ms)),
+                Some(true) => (C_GREEN, format!("{} {}ms", site.code, site.ms)),
+                Some(false) if site.code > 0 => (C_RED, format!("{} {}ms", site.code, site.ms)),
+                Some(false) => (C_RED, "down".to_string()),
+                None => (C_YELLOW, String::new()),
+            };
+            let info_style = if matches!(site.ok, Some(false)) { Style::new().fg(C_RED) } else { dim() };
+            let kind_color = match site.kind.as_str() {
+                "private" => C_CYAN,
+                "public" => C_MAGENTA,
+                _ => C_YELLOW,
+            };
+            Line::from(vec![
+                Span::styled("● ".to_string(), Style::new().fg(dotc)),
+                Span::styled(format!("{:<30}", site.host), Style::new().fg(C_FG)),
+                Span::styled(format!("{info:<11}"), info_style),
+                Span::styled(site.kind.clone(), Style::new().fg(kind_color)),
+            ])
+        })
+        .collect()
+}
 
-    // --- sections, assembled in tile-dependent order below ------------------
-    let mut sites = vec![Line::default(), Line::styled("CADDY SITES", accent(C_BLUE)), Line::default()];
-    if app.sites.is_empty() {
-        sites.push(Line::styled("(no sites)", dim()));
+/// One-line docker ops summary: running/total, images, next prune,
+/// pending updates.
+fn docker_line(app: &App) -> Line<'static> {
+    let mut spans = vec![
+        Span::styled("● ".to_string(), Style::new().fg(C_GREEN)),
+        Span::styled(
+            format!("{}/{} containers running", app.containers.len(), app.containers_total),
+            Style::new().fg(C_FG),
+        ),
+        Span::styled(format!("   {} images", app.images), dim()),
+    ];
+    if !app.prune_next.is_empty() {
+        spans.push(Span::styled(format!("   prune {}", app.prune_next), dim()));
     }
-    for (host, kind) in &app.sites {
-        let kind_color = match kind.as_str() {
-            "private" => C_CYAN,
-            "public" => C_MAGENTA,
-            _ => C_YELLOW,
-        };
-        sites.push(Line::from(vec![
-            Span::styled("● ".to_string(), Style::new().fg(C_GREEN)),
-            Span::styled(format!("{host:<28}"), Style::new().fg(C_FG)),
-            Span::styled(kind.clone(), Style::new().fg(kind_color)),
-        ]));
+    match app.updates {
+        Some(0) => spans.push(Span::styled("   pacman up to date", dim())),
+        Some(n) => spans.push(Span::styled(format!("   {n} updates pending"), Style::new().fg(C_YELLOW))),
+        None => {}
     }
+    Line::from(spans)
+}
 
+fn hermes_summary_line(app: &App) -> Line<'static> {
     let gateway_up = app.containers.contains_key("gnar-hermes-gateway");
     let mut hermes = vec![
         Span::styled("HERMES".to_string(), accent(C_MAGENTA)),
@@ -1361,11 +1669,11 @@ fn status_panel(app: &App, tile: bool) -> Vec<Line<'static>> {
             Style::new().fg(C_FG),
         ),
     ];
-    if app.kanban > 0 {
-        hermes.push(Span::styled(format!("   kanban {}", app.kanban), Style::new().fg(C_CYAN)));
+    if !app.kanban_lines.is_empty() {
+        hermes.push(Span::styled(format!("   kanban {}", app.kanban_lines.len()), Style::new().fg(C_CYAN)));
     }
-    if app.cron > 0 {
-        hermes.push(Span::styled(format!("   cron {}", app.cron), Style::new().fg(C_CYAN)));
+    if !app.cron_lines.is_empty() {
+        hermes.push(Span::styled(format!("   cron {}", app.cron_lines.len()), Style::new().fg(C_CYAN)));
     }
     let size = if app.backup_size_mb > 0 { format!(" · {}M", app.backup_size_mb) } else { String::new() };
     match app.backup_age_h {
@@ -1373,36 +1681,94 @@ fn status_panel(app: &App, tile: bool) -> Vec<Line<'static>> {
         Some(hh) => hermes.push(Span::styled(format!("   ✓ backup {hh}h{size}"), Style::new().fg(C_GREEN))),
         None => hermes.push(Span::styled("   backup ?", dim())),
     }
-    let hermes_lines = vec![Line::default(), Line::from(hermes)];
+    Line::from(hermes)
+}
 
-    if tile {
-        // The kiosk's CPU/MEM tiles carry the process tables; this tile
-        // gets the docker-operations summary instead. The headline rows
-        // (DOCKER, HERMES) come before the long site list, so if anything
-        // clips at the tile's bottom edge it's sites — not the health line.
-        lines.push(Line::default());
-        lines.push(Line::styled("DOCKER", accent(C_BLUE)));
-        lines.push(Line::default());
-        let mut docker = vec![
-            Span::styled("● ".to_string(), Style::new().fg(C_GREEN)),
+/// Full-board STATUS panel: services, probed sites, top procs, HERMES
+/// summary. (The kiosk splits this across tiles.)
+fn status_panel(app: &App) -> Vec<Line<'static>> {
+    let mut lines = vec![Line::styled("HOST SERVICES", accent(C_BLUE)), Line::default()];
+    lines.extend(service_rows(app));
+    lines.push(Line::default());
+    lines.push(Line::styled("CADDY SITES", accent(C_BLUE)));
+    lines.push(Line::default());
+    if app.sites.is_empty() {
+        lines.push(Line::styled("(no sites)", dim()));
+    }
+    lines.extend(site_rows(app));
+    if !app.procs_cpu.is_empty() {
+        lines.extend(proc_lines("TOP PROCESSES", &app.procs_cpu, 10, false));
+    }
+    lines.push(Line::default());
+    lines.push(hermes_summary_line(app));
+    lines
+}
+
+/// The kiosk's HERMES tile: gateway + backup health, live claude runs,
+/// kanban tasks, and the cron schedule.
+fn hermes_panel(app: &App) -> Vec<Line<'static>> {
+    let gateway_up = app.containers.contains_key("gnar-hermes-gateway");
+    let size = if app.backup_size_mb > 0 { format!(" · {}M", app.backup_size_mb) } else { String::new() };
+    let backup_span = match app.backup_age_h {
+        Some(hh) if hh > 36 => Span::styled(format!("     ● backup {hh}h old{size}"), Style::new().fg(C_RED)),
+        Some(hh) => Span::styled(format!("     ✓ backup {hh}h{size}"), Style::new().fg(C_GREEN)),
+        None => Span::styled("     backup ?", dim()),
+    };
+    let mut lines = vec![
+        Line::from(vec![
+            Span::styled("● ".to_string(), Style::new().fg(if gateway_up { C_GREEN } else { C_RED })),
             Span::styled(
-                format!("{}/{} containers running", app.containers.len(), app.containers_total),
+                if gateway_up { "gateway up" } else { "gateway down" },
                 Style::new().fg(C_FG),
             ),
-            Span::styled(format!("   {} images", app.images), dim()),
-        ];
-        if !app.prune_next.is_empty() {
-            docker.push(Span::styled(format!("   prune {}", app.prune_next), dim()));
-        }
-        lines.push(Line::from(docker));
-        lines.extend(hermes_lines);
-        lines.extend(sites);
-    } else {
-        lines.extend(sites);
-        if !app.procs_cpu.is_empty() {
-            lines.extend(proc_lines("TOP PROCESSES", &app.procs_cpu, 10, false));
-        }
-        lines.extend(hermes_lines);
+            backup_span,
+        ]),
+        if app.claude_runs > 0 {
+            Line::from(vec![
+                Span::styled("● ".to_string(), Style::new().fg(C_CYAN)),
+                Span::styled(
+                    format!(
+                        "{} claude process{} live",
+                        app.claude_runs,
+                        if app.claude_runs == 1 { "" } else { "es" }
+                    ),
+                    Style::new().fg(C_CYAN),
+                ),
+            ])
+        } else {
+            Line::from(Span::styled("○ idle — no claude processes", dim()))
+        },
+        Line::default(),
+        Line::from(vec![
+            Span::styled("KANBAN ".to_string(), accent(C_BLUE)),
+            Span::styled(format!("{}", app.kanban_lines.len()), dim()),
+        ]),
+        Line::default(),
+    ];
+    if app.kanban_lines.is_empty() {
+        lines.push(Line::styled("(no open tasks)", dim()));
+    }
+    for t in app.kanban_lines.iter().take(8) {
+        lines.push(Line::styled(t.clone(), Style::new().fg(C_FG)));
+    }
+    lines.push(Line::default());
+    lines.push(Line::from(vec![
+        Span::styled("CRON ".to_string(), accent(C_BLUE)),
+        Span::styled(format!("{}", app.cron_lines.len()), dim()),
+    ]));
+    lines.push(Line::default());
+    if app.cron_lines.is_empty() {
+        lines.push(Line::styled("(no scheduled jobs)", dim()));
+    }
+    for (active, name, sched) in app.cron_lines.iter().take(12) {
+        lines.push(Line::from(vec![
+            Span::styled(
+                if *active { "● " } else { "○ " }.to_string(),
+                Style::new().fg(if *active { C_GREEN } else { C_DIM }),
+            ),
+            Span::styled(format!("{name:<26}"), Style::new().fg(C_FG)),
+            Span::styled(sched.clone(), dim()),
+        ]));
     }
     lines
 }
@@ -1437,12 +1803,14 @@ fn main() -> std::io::Result<()> {
         let a = app.clone();
         thread::spawn(move || docker_loop(a));
     }
-    if matches!(mode, Mode::Full | Mode::Cpu | Mode::Mem | Mode::Disk | Mode::Status) {
+    {
+        // Every panel shows something from the status loop now (procs,
+        // sites, services, disk, hermes) — hermes execs stay gated.
         let a = app.clone();
         let with_hermes = matches!(mode, Mode::Full | Mode::Status);
         thread::spawn(move || status_loop(a, with_hermes));
     }
-    if mode == Mode::Full {
+    if matches!(mode, Mode::Full | Mode::Cpu) {
         let a = app.clone();
         thread::spawn(move || clock_loop(a));
     }

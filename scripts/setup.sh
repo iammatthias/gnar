@@ -88,7 +88,7 @@ pacman -S --noconfirm \
   fastfetch htop btop iotop nethogs lsof ncdu \
   tree bc rsync rclone p7zip imagemagick httpie \
   net-tools openssh ufw fail2ban nmap tcpdump wireshark-cli \
-  postgresql valkey sqlite smartmontools
+  postgresql valkey sqlite smartmontools pacman-contrib
 
 echo -e "${GREEN}Installing display stack (Mango kiosk dashboard)...${NC}"
 # Wayland terminal + fonts for the optional attached-display dashboard.
@@ -323,6 +323,10 @@ if ! systemctl start valkey; then
 fi
 
 install -m 644 "$CONFIGS/logrotate-gnar.conf" /etc/logrotate.d/gnar
+
+# tmpfiles rules (RAPL counters readable for gnar-board power display).
+install -m 644 "$CONFIGS/tmpfiles-gnar.conf" /etc/tmpfiles.d/gnar.conf
+systemd-tmpfiles --create /etc/tmpfiles.d/gnar.conf 2>/dev/null || true
 
 # -----------------------------------------------------------------------------
 # yay (AUR helper)

@@ -56,6 +56,7 @@ if [ -f /srv/stack/docker-compose.yml ]; then
 fi
 rm -f /etc/systemd/system/gnar-stack.service
 rm -f /etc/systemd/system/gnar-docker-prune.service /etc/systemd/system/gnar-docker-prune.timer
+rm -f /etc/tmpfiles.d/gnar.conf
 
 # Reset UFW to default deny-all-allow-all (before disabling) so reinstall is clean
 if command -v ufw &>/dev/null; then
