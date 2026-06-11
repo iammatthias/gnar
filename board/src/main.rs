@@ -34,14 +34,14 @@
 // Keys: q / Esc / Ctrl-C to quit.
 
 use std::{
-    collections::{BTreeMap, VecDeque},
+    collections::{BTreeMap, HashMap, VecDeque},
     fs,
-    io::{Read, Write},
+    io::{Read, Seek, SeekFrom, Write},
     os::unix::net::UnixStream,
     process::Command,
     sync::{Arc, Mutex},
     thread,
-    time::{Duration, Instant, SystemTime},
+    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
 use ratatui::{
@@ -122,6 +122,8 @@ struct Host {
     swap_used: f64,
     swap_total: f64,
     iface: String,
+    wifi: VecDeque<f64>, // link quality %, only when iface is wireless
+    wifi_dbm: f64,
     rx: VecDeque<f64>, // bytes/sec
     tx: VecDeque<f64>,
     rx_cur: f64,
@@ -165,8 +167,24 @@ struct App {
     kanban_lines: Vec<String>,
     cron_lines: Vec<(bool, String, String)>,
     claude_runs: usize,
+    claude_24h: usize,
+    claude_total: usize,
     backup_age_h: Option<u64>,
     backup_size_mb: u64,
+    backup_sizes: Vec<f64>, // archive sizes by age, oldest first (MB)
+    traffic: HashMap<String, (u32, u32, u32)>, // host → (reqs/5m, 4xx, 5xx)
+    failed_units: usize,
+    journal_errs: usize,
+    banned_ips: usize,
+    ssh_fails: usize,
+    reboot_pending: Option<String>,
+    last_update_days: Option<u64>,
+    ts_ip: String,
+    ts_online: usize,
+    ts_total: usize,
+    nvme_wear: Option<u64>,
+    nvme_temp: Option<u64>,
+    snapshots: usize,
     docker_err: Option<String>,
     clock: String,
 }
@@ -407,6 +425,19 @@ fn sample_host(h: &mut Host) {
             h.tcp_tw = f.get(6).and_then(|v| v.parse().ok()).unwrap_or(0);
         }
     }
+    // Wireless link quality — this box's uplink is wifi, so the radio
+    // is load-bearing telemetry. /proc/net/wireless: link is x/70.
+    if h.iface.starts_with("wl") {
+        if let Ok(s) = fs::read_to_string("/proc/net/wireless") {
+            let prefix = format!("{}:", h.iface);
+            if let Some(l) = s.lines().find(|l| l.trim_start().starts_with(&prefix)) {
+                let f: Vec<&str> = l.split_whitespace().collect();
+                let q = f.get(2).and_then(|v| v.trim_end_matches('.').parse::<f64>().ok()).unwrap_or(0.0);
+                h.wifi_dbm = f.get(3).and_then(|v| v.trim_end_matches('.').parse::<f64>().ok()).unwrap_or(0.0);
+                push(&mut h.wifi, (q / 70.0 * 100.0).clamp(0.0, 100.0));
+            }
+        }
+    }
     if let Some((r, w)) = disk_io_bytes() {
         if let Some((at, pr, pw)) = h.prev_io {
             let dt = now.duration_since(at).as_secs_f64();
@@ -544,6 +575,8 @@ fn sample_containers(app: &Arc<Mutex<App>>) -> Result<(), String> {
 
 fn status_loop(app: Arc<Mutex<App>>, with_hermes: bool) {
     let mut tick: u64 = 0;
+    let mut log_offset: u64 = 0;
+    let mut traffic_window: VecDeque<(Instant, String, u16)> = VecDeque::new();
     loop {
         let started = Instant::now();
 
@@ -577,8 +610,24 @@ fn status_loop(app: Arc<Mutex<App>>, with_hermes: bool) {
             .and_then(|v| v.as_array().map(|a| a.len()))
             .unwrap_or(0);
 
-        // checkupdates does a network sync — hourly is plenty.
-        let updates = if tick % 120 == 0 { Some(pending_updates()) } else { None };
+        let traffic = sample_traffic(&mut log_offset, &mut traffic_window);
+        let (failed_units, journal_errs, banned_ips, ssh_fails) = sample_alerts();
+        let tailscale = sample_tailscale();
+        let reboot_pending = reboot_pending();
+
+        // Slow-moving / heavier samples — hourly. checkupdates does a
+        // network sync, smartctl wakes the drive, pacman.log is big.
+        let hourly = if tick % 120 == 0 {
+            Some((
+                pending_updates(),
+                nvme_health(),
+                snapshot_count(),
+                last_update_days(),
+                claude_usage(),
+            ))
+        } else {
+            None
+        };
 
         // Hermes detail is docker-exec subprocesses — every other cycle,
         // and only for the panels that display it.
@@ -598,15 +647,37 @@ fn status_loop(app: Arc<Mutex<App>>, with_hermes: bool) {
             a.sites = sites;
             a.procs_cpu = procs_cpu;
             a.procs_mem = procs_mem;
-            a.backup_age_h = backup.map(|(age, _)| age);
-            a.backup_size_mb = backup.map(|(_, size)| size).unwrap_or(0);
+            if let Some((age, size, sizes)) = &backup {
+                a.backup_age_h = Some(*age);
+                a.backup_size_mb = *size;
+                a.backup_sizes = sizes.clone();
+            } else {
+                a.backup_age_h = None;
+            }
             a.disk_pct = disk_pct;
             a.disk_detail = disk_detail;
             a.images = images;
             a.containers_total = containers_total;
             a.prune_next = prune_next;
-            if let Some(u) = updates {
-                a.updates = Some(u);
+            a.traffic = traffic;
+            a.failed_units = failed_units;
+            a.journal_errs = journal_errs;
+            a.banned_ips = banned_ips;
+            a.ssh_fails = ssh_fails;
+            a.reboot_pending = reboot_pending;
+            if let Some((ip, online, total)) = tailscale {
+                a.ts_ip = ip;
+                a.ts_online = online;
+                a.ts_total = total;
+            }
+            if let Some((updates, (wear, temp), snaps, upd_days, (c24, ctotal))) = hourly {
+                a.updates = Some(updates);
+                a.nvme_wear = wear;
+                a.nvme_temp = temp;
+                a.snapshots = snaps;
+                a.last_update_days = upd_days;
+                a.claude_24h = c24;
+                a.claude_total = ctotal;
             }
             if let Some((k, c, r)) = hermes {
                 a.kanban_lines = k;
@@ -810,6 +881,203 @@ fn top_procs(sort: &str, n: usize) -> Vec<String> {
         .unwrap_or_default()
 }
 
+const ACCESS_LOG: &str = "/srv/stack/data/caddy/data/access/access.log";
+
+/// Incrementally tail caddy's shared JSON access log and aggregate a
+/// 5-minute window of per-host request counts and 4xx/5xx tallies.
+/// Only complete lines are consumed; rotation resets the offset.
+fn sample_traffic(
+    offset: &mut u64,
+    window: &mut VecDeque<(Instant, String, u16)>,
+) -> HashMap<String, (u32, u32, u32)> {
+    if let Ok(mut f) = fs::File::open(ACCESS_LOG) {
+        let len = f.metadata().map(|m| m.len()).unwrap_or(0);
+        if len < *offset {
+            *offset = 0; // rotated
+        }
+        // First pass: start near the tail, not from history.
+        if *offset == 0 && len > 524_288 {
+            *offset = len - 524_288;
+        }
+        if len > *offset && f.seek(SeekFrom::Start(*offset)).is_ok() {
+            let mut buf = Vec::with_capacity((len - *offset) as usize);
+            if (&mut f).take(len - *offset).read_to_end(&mut buf).is_ok() {
+                // Consume only up to the last complete line.
+                if let Some(last_nl) = buf.iter().rposition(|b| *b == b'\n') {
+                    let now = Instant::now();
+                    for l in String::from_utf8_lossy(&buf[..=last_nl]).lines() {
+                        let Ok(v) = serde_json::from_str::<Value>(l) else { continue };
+                        let host = v["request"]["host"]
+                            .as_str()
+                            .unwrap_or("")
+                            .split(':')
+                            .next()
+                            .unwrap_or("")
+                            .to_string();
+                        if host.is_empty() {
+                            continue;
+                        }
+                        let status = v["status"].as_u64().unwrap_or(0) as u16;
+                        window.push_back((now, host, status));
+                    }
+                    *offset += last_nl as u64 + 1;
+                }
+            }
+        }
+    }
+    while window.front().is_some_and(|(t, ..)| t.elapsed() > Duration::from_secs(300)) {
+        window.pop_front();
+    }
+    let mut map: HashMap<String, (u32, u32, u32)> = HashMap::new();
+    for (_, host, status) in window.iter() {
+        let e = map.entry(host.clone()).or_default();
+        e.0 += 1;
+        if (400..500).contains(status) {
+            e.1 += 1;
+        }
+        if *status >= 500 {
+            e.2 += 1;
+        }
+    }
+    map
+}
+
+fn sudo_lines(args: &[&str]) -> Vec<String> {
+    Command::new("sudo")
+        .arg("-n")
+        .args(args)
+        .output()
+        .ok()
+        .map(|o| {
+            String::from_utf8_lossy(&o.stdout)
+                .lines()
+                .map(|l| l.trim_end().to_string())
+                .filter(|l| !l.is_empty())
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// (failed units, journal errors/h, fail2ban bans, ssh failures/h).
+/// All via passwordless sudo — gnar boxes grant it by design.
+fn sample_alerts() -> (usize, usize, usize, usize) {
+    let failed = sudo_lines(&["systemctl", "--failed", "--plain", "--no-legend"]).len();
+    let errs = sudo_lines(&["journalctl", "-p", "3", "--since", "-1 hour", "-q", "--no-pager", "-o", "cat", "-n", "500"]).len();
+    let banned = sudo_lines(&["fail2ban-client", "status", "sshd"])
+        .iter()
+        .find_map(|l| {
+            l.contains("Currently banned:")
+                .then(|| l.split_whitespace().last()?.parse().ok())
+                .flatten()
+        })
+        .unwrap_or(0);
+    let ssh_fails = sudo_lines(&["journalctl", "-u", "sshd", "--since", "-1 hour", "-q", "--no-pager", "-o", "cat", "-n", "500"])
+        .iter()
+        .filter(|l| l.contains("Failed password") || l.contains("Invalid user"))
+        .count();
+    (failed, errs, banned, ssh_fails)
+}
+
+/// (tailnet IP, peers online, peers total) from the tailscale container.
+fn sample_tailscale() -> Option<(String, usize, usize)> {
+    let out = Command::new("timeout")
+        .args(["10", "docker", "exec", "gnar-tailscale", "tailscale", "status", "--json"])
+        .output()
+        .ok()?;
+    let v: Value = serde_json::from_slice(&out.stdout).ok()?;
+    let ip = v["Self"]["TailscaleIPs"][0].as_str().unwrap_or("").to_string();
+    let (online, total) = v["Peer"]
+        .as_object()
+        .map(|p| {
+            (
+                p.values().filter(|x| x["Online"].as_bool().unwrap_or(false)).count(),
+                p.len(),
+            )
+        })
+        .unwrap_or((0, 0));
+    Some((ip, online, total))
+}
+
+/// The running kernel's modules vanish from /usr/lib/modules when
+/// pacman installs a new kernel — the classic Arch "reboot pending"
+/// signal. Returns the newest installed version when they differ.
+fn reboot_pending() -> Option<String> {
+    let running = fs::read_to_string("/proc/sys/kernel/osrelease").ok()?.trim().to_string();
+    let dirs: Vec<String> = fs::read_dir("/usr/lib/modules")
+        .ok()?
+        .flatten()
+        .filter_map(|e| e.file_name().to_str().map(String::from))
+        .collect();
+    if dirs.iter().any(|d| *d == running) {
+        None
+    } else {
+        dirs.into_iter().max()
+    }
+}
+
+/// (NVMe wear %, NVMe temperature °C) via smartctl.
+fn nvme_health() -> (Option<u64>, Option<u64>) {
+    Command::new("sudo")
+        .args(["-n", "smartctl", "-j", "-A", "/dev/nvme0"])
+        .output()
+        .ok()
+        .and_then(|o| serde_json::from_slice::<Value>(&o.stdout).ok())
+        .map(|v| {
+            let log = &v["nvme_smart_health_information_log"];
+            (log["percentage_used"].as_u64(), log["temperature"].as_u64())
+        })
+        .unwrap_or((None, None))
+}
+
+fn snapshot_count() -> usize {
+    sudo_lines(&["ls", "/.snapshots"])
+        .iter()
+        .filter(|l| l.chars().all(|c| c.is_ascii_digit()))
+        .count()
+}
+
+fn days_from_civil(y: i64, m: i64, d: i64) -> i64 {
+    let y = if m <= 2 { y - 1 } else { y };
+    let era = if y >= 0 { y } else { y - 399 } / 400;
+    let yoe = y - era * 400;
+    let doy = (153 * (if m > 2 { m - 3 } else { m + 9 }) + 2) / 5 + d - 1;
+    let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+    era * 146097 + doe - 719468
+}
+
+/// Days since the last `pacman -Syu` per /var/log/pacman.log
+/// (timestamps are UTC, e.g. [2026-06-11T00:08:11+0000]).
+fn last_update_days() -> Option<u64> {
+    let s = fs::read_to_string("/var/log/pacman.log").ok()?;
+    let line = s.lines().rev().find(|l| l.contains("starting full system upgrade"))?;
+    let ts = line.split(']').next()?.trim_start_matches('[');
+    let (date, time) = ts.split_once('T')?;
+    let mut dp = date.split('-');
+    let (y, m, d): (i64, i64, i64) = (
+        dp.next()?.parse().ok()?,
+        dp.next()?.parse().ok()?,
+        dp.next()?.parse().ok()?,
+    );
+    let mut tp = time.get(..8)?.split(':');
+    let (hh, mm, ss): (i64, i64, i64) = (
+        tp.next()?.parse().ok()?,
+        tp.next()?.parse().ok()?,
+        tp.next()?.parse().ok()?,
+    );
+    let then = days_from_civil(y, m, d) * 86400 + hh * 3600 + mm * 60 + ss;
+    let now = SystemTime::now().duration_since(UNIX_EPOCH).ok()?.as_secs() as i64;
+    Some(((now - then).max(0) / 86400) as u64)
+}
+
+/// (claude transcripts touched in 24h, total transcripts) — the
+/// delegated-coding workload, from the persisted ~/.claude state.
+fn claude_usage() -> (usize, usize) {
+    let base = format!("{STACK}/data/claude/projects");
+    let recent = sudo_lines(&["find", &base, "-name", "*.jsonl", "-mtime", "-1"]).len();
+    let total = sudo_lines(&["find", &base, "-name", "*.jsonl"]).len();
+    (recent, total)
+}
+
 /// "Mon 2026-06-15" from the prune timer's next elapse, or "".
 fn prune_timer_next() -> String {
     Command::new("systemctl")
@@ -874,9 +1142,11 @@ fn caddy_sites() -> Vec<Site> {
     out
 }
 
-/// (age in hours, size in MB) of the newest hermes backup archive.
-fn backup_info() -> Option<(u64, u64)> {
-    let (mtime, size) = fs::read_dir(format!("{STACK}/data/backups"))
+/// (age h, size MB of newest, all sizes oldest→newest in MB) for the
+/// hermes backup archives — the size trend catches "backup suddenly
+/// doubled/shrank", which age alone misses.
+fn backup_info() -> Option<(u64, u64, Vec<f64>)> {
+    let mut archives: Vec<(SystemTime, u64)> = fs::read_dir(format!("{STACK}/data/backups"))
         .ok()?
         .flatten()
         .filter(|e| {
@@ -888,9 +1158,12 @@ fn backup_info() -> Option<(u64, u64)> {
             let m = e.metadata().ok()?;
             Some((m.modified().ok()?, m.len()))
         })
-        .max_by_key(|(t, _)| *t)?;
+        .collect();
+    archives.sort_by_key(|(t, _)| *t);
+    let (mtime, size) = *archives.last()?;
     let age = SystemTime::now().duration_since(mtime).ok()?.as_secs() / 3600;
-    Some((age, size / 1_000_000))
+    let sizes = archives.iter().map(|(_, s)| *s as f64 / 1e6).collect();
+    Some((age, size / 1_000_000, sizes))
 }
 
 fn disk_usage() -> (u8, String) {
@@ -1346,11 +1619,11 @@ fn render_net(frame: &mut Frame, net_a: Rect, app: &App) {
     let (body, footer) = if net_inner.height >= 22 && !app.sites.is_empty() {
         let rows = (app.sites.len() as u16 + 3).min(16);
         let [b, f, s] =
-            Layout::vertical([Constraint::Min(8), Constraint::Length(2), Constraint::Length(rows)]).areas(net_inner);
+            Layout::vertical([Constraint::Min(8), Constraint::Length(3), Constraint::Length(rows)]).areas(net_inner);
         sites_a = Some(s);
         (b, Some(f))
     } else if net_inner.height >= 14 {
-        let [b, f] = Layout::vertical([Constraint::Min(4), Constraint::Length(2)]).areas(net_inner);
+        let [b, f] = Layout::vertical([Constraint::Min(4), Constraint::Length(3)]).areas(net_inner);
         (b, Some(f))
     } else {
         (net_inner, None)
@@ -1378,22 +1651,45 @@ fn render_net(frame: &mut Frame, net_a: Rect, app: &App) {
         );
     }
     if let Some(f) = footer {
-        frame.render_widget(
-            Paragraph::new(vec![
-                Line::default(),
-                Line::from(vec![
-                    Span::styled("Σ ", dim()),
-                    Span::styled(format!("↓ {}", human_size(h.rx_total as f64)), Style::new().fg(C_CYAN)),
-                    Span::styled(" · ", dim()),
-                    Span::styled(format!("↑ {}", human_size(h.tx_total as f64)), Style::new().fg(C_MAGENTA)),
-                    Span::styled(
-                        format!("      tcp {} estab · {} timewait", h.tcp_inuse, h.tcp_tw),
-                        dim(),
-                    ),
-                ]),
+        let mut lines = vec![
+            Line::default(),
+            Line::from(vec![
+                Span::styled("Σ ", dim()),
+                Span::styled(format!("↓ {}", human_size(h.rx_total as f64)), Style::new().fg(C_CYAN)),
+                Span::styled(" · ", dim()),
+                Span::styled(format!("↑ {}", human_size(h.tx_total as f64)), Style::new().fg(C_MAGENTA)),
+                Span::styled(
+                    format!("      tcp {} estab · {} timewait", h.tcp_inuse, h.tcp_tw),
+                    dim(),
+                ),
             ]),
-            f,
-        );
+        ];
+        // Radio + tailnet line: link quality colored good→bad (inverted
+        // heat — high quality is green), peer reachability beside it.
+        let mut link = Vec::new();
+        if let Some(q) = h.wifi.back().copied() {
+            let qc = heat(1.0 - q / 100.0);
+            link.push(Span::styled("wifi ", dim()));
+            link.push(Span::styled(spark(&h.wifi, 16, 100.0, 1.0), Style::new().fg(qc)));
+            link.push(Span::styled(format!(" {q:.0}%"), Style::new().fg(qc)));
+            link.push(Span::styled(format!(" · {:.0}dBm", h.wifi_dbm), dim()));
+        }
+        if app.ts_total > 0 {
+            link.push(Span::styled("      TS ", dim()));
+            link.push(Span::styled(
+                "● ".to_string(),
+                Style::new().fg(if app.ts_online > 0 { C_GREEN } else { C_YELLOW }),
+            ));
+            link.push(Span::styled(
+                format!("{}/{} peers", app.ts_online, app.ts_total),
+                Style::new().fg(C_FG),
+            ));
+            link.push(Span::styled(format!(" · {}", app.ts_ip), dim()));
+        }
+        if !link.is_empty() {
+            lines.push(Line::from(link));
+        }
+        frame.render_widget(Paragraph::new(lines), f);
     }
     if let Some(sa) = sites_a {
         let down = app.sites.iter().filter(|s| s.ok == Some(false)).count();
@@ -1414,9 +1710,17 @@ fn render_disk(frame: &mut Frame, disk_a: Rect, app: &App) {
     let h = &app.host;
     let peak = |v: &VecDeque<f64>| v.iter().copied().fold(0.0f64, f64::max);
 
+    let nvme = match (app.nvme_wear, app.nvme_temp) {
+        (Some(w), Some(t)) => format!("· wear {w}% · {t}°C "),
+        (Some(w), None) => format!("· wear {w}% "),
+        _ => String::new(),
+    };
     let disk_block = section(vec![
         Span::styled(" DISK ", accent(C_BLUE)),
-        Span::styled(format!("/ {}% · {} · {} images ", app.disk_pct, app.disk_detail, app.images), dim()),
+        Span::styled(
+            format!("/ {}% · {} · {} images {}", app.disk_pct, app.disk_detail, app.images, nvme),
+            dim(),
+        ),
     ]);
     let disk_inner = disk_block.inner(disk_a);
     frame.render_widget(disk_block, disk_a);
@@ -1436,7 +1740,14 @@ fn render_disk(frame: &mut Frame, disk_a: Rect, app: &App) {
                     Span::styled(format!("read {}", human_size(h.io_r_total as f64)), Style::new().fg(C_CYAN)),
                     Span::styled(" · ", dim()),
                     Span::styled(format!("written {}", human_size(h.io_w_total as f64)), Style::new().fg(C_MAGENTA)),
-                    Span::styled("      since boot", dim()),
+                    Span::styled(
+                        if app.snapshots > 0 {
+                            format!("      since boot · {} btrfs snapshots", app.snapshots)
+                        } else {
+                            "      since boot".to_string()
+                        },
+                        dim(),
+                    ),
                 ]),
             ]),
             f,
@@ -1608,7 +1919,8 @@ fn service_rows(app: &App) -> Vec<Line<'static>> {
         .collect()
 }
 
-/// Probed site rows: dot = live health, then host, probe result, kind.
+/// Probed site rows: dot = live health, then host, probe result,
+/// 5-minute traffic (from the caddy access log), kind.
 fn site_rows(app: &App) -> Vec<Line<'static>> {
     app.sites
         .iter()
@@ -1626,12 +1938,26 @@ fn site_rows(app: &App) -> Vec<Line<'static>> {
                 "public" => C_MAGENTA,
                 _ => C_YELLOW,
             };
-            Line::from(vec![
+            let mut spans = vec![
                 Span::styled("● ".to_string(), Style::new().fg(dotc)),
                 Span::styled(format!("{:<30}", site.host), Style::new().fg(C_FG)),
                 Span::styled(format!("{info:<11}"), info_style),
-                Span::styled(site.kind.clone(), Style::new().fg(kind_color)),
-            ])
+            ];
+            match app.traffic.get(&site.host) {
+                Some((reqs, e4, e5)) if *reqs > 0 => {
+                    spans.push(Span::styled(format!("{reqs:>4}/5m "), Style::new().fg(C_CYAN)));
+                    if *e5 > 0 {
+                        spans.push(Span::styled(format!("{e5}×5xx "), Style::new().fg(C_RED)));
+                    } else if *e4 > 0 {
+                        spans.push(Span::styled(format!("{e4}×4xx "), Style::new().fg(C_YELLOW)));
+                    } else {
+                        spans.push(Span::raw("      "));
+                    }
+                }
+                _ => spans.push(Span::styled("   -/5m       ", dim())),
+            }
+            spans.push(Span::styled(site.kind.clone(), Style::new().fg(kind_color)));
+            Line::from(spans)
         })
         .collect()
 }
@@ -1654,6 +1980,12 @@ fn docker_line(app: &App) -> Line<'static> {
         Some(0) => spans.push(Span::styled("   pacman up to date", dim())),
         Some(n) => spans.push(Span::styled(format!("   {n} updates pending"), Style::new().fg(C_YELLOW))),
         None => {}
+    }
+    if let Some(d) = app.last_update_days {
+        spans.push(Span::styled(format!("   updated {d}d ago"), dim()));
+    }
+    if let Some(v) = &app.reboot_pending {
+        spans.push(Span::styled(format!("   ● reboot pending ({v})"), Style::new().fg(C_YELLOW)));
     }
     Line::from(spans)
 }
@@ -1714,15 +2046,21 @@ fn hermes_panel(app: &App) -> Vec<Line<'static>> {
         Some(hh) => Span::styled(format!("     ✓ backup {hh}h{size}"), Style::new().fg(C_GREEN)),
         None => Span::styled("     backup ?", dim()),
     };
+    let mut status_line = vec![
+        Span::styled("● ".to_string(), Style::new().fg(if gateway_up { C_GREEN } else { C_RED })),
+        Span::styled(
+            if gateway_up { "gateway up" } else { "gateway down" },
+            Style::new().fg(C_FG),
+        ),
+        backup_span,
+    ];
+    if app.backup_sizes.len() >= 3 {
+        let sizes: VecDeque<f64> = app.backup_sizes.iter().copied().collect();
+        status_line.push(Span::raw(" "));
+        status_line.push(Span::styled(spark(&sizes, 8, 1.0, 1.25), dim()));
+    }
     let mut lines = vec![
-        Line::from(vec![
-            Span::styled("● ".to_string(), Style::new().fg(if gateway_up { C_GREEN } else { C_RED })),
-            Span::styled(
-                if gateway_up { "gateway up" } else { "gateway down" },
-                Style::new().fg(C_FG),
-            ),
-            backup_span,
-        ]),
+        Line::from(status_line),
         if app.claude_runs > 0 {
             Line::from(vec![
                 Span::styled("● ".to_string(), Style::new().fg(C_CYAN)),
@@ -1738,13 +2076,44 @@ fn hermes_panel(app: &App) -> Vec<Line<'static>> {
         } else {
             Line::from(Span::styled("○ idle — no claude processes", dim()))
         },
+    ];
+    if app.claude_total > 0 {
+        lines.push(Line::from(Span::styled(
+            format!(
+                "claude: {} session{} active 24h · {} transcripts",
+                app.claude_24h,
+                if app.claude_24h == 1 { "" } else { "s" },
+                app.claude_total
+            ),
+            dim(),
+        )));
+    }
+    // Host alerts — invisible when everything is clean, loud when not.
+    let alerts: Vec<String> = [
+        (app.failed_units, "failed units".to_string()),
+        (app.journal_errs, "journal errors/h".to_string()),
+        (app.banned_ips, "banned IPs".to_string()),
+        (app.ssh_fails, "ssh failures/h".to_string()),
+    ]
+    .iter()
+    .filter(|(n, _)| *n > 0)
+    .map(|(n, label)| format!("{n} {label}"))
+    .collect();
+    if !alerts.is_empty() {
+        lines.push(Line::default());
+        lines.push(Line::from(vec![
+            Span::styled("ALERTS  ".to_string(), accent(C_RED)),
+            Span::styled(alerts.join("   "), Style::new().fg(C_RED)),
+        ]));
+    }
+    lines.extend([
         Line::default(),
         Line::from(vec![
             Span::styled("KANBAN ".to_string(), accent(C_BLUE)),
             Span::styled(format!("{}", app.kanban_lines.len()), dim()),
         ]),
         Line::default(),
-    ];
+    ]);
     if app.kanban_lines.is_empty() {
         lines.push(Line::styled("(no open tasks)", dim()));
     }

@@ -339,7 +339,7 @@ add-site() {
 
     local block
     if [[ "$target" =~ ^[0-9]+$ ]]; then
-        block=$(printf '\n# private: %s\n%s.local:80 {\n    reverse_proxy host.docker.internal:%s\n}' \
+        block=$(printf '\n# private: %s\n%s.local:80 {\n    import gnar_access_log\n    reverse_proxy host.docker.internal:%s\n}' \
             "$name" "$name" "$target")
         _gnar_caddy_append PRIVATE-SITES "$block" \
             && echo "Private site: http://$name.local → host:$target"
@@ -348,7 +348,7 @@ add-site() {
             echo "Directory $target does not exist"
             return 1
         fi
-        block=$(printf '\n# private static: %s\n%s.local:80 {\n    root * %s\n    file_server\n}' \
+        block=$(printf '\n# private static: %s\n%s.local:80 {\n    import gnar_access_log\n    root * %s\n    file_server\n}' \
             "$name" "$name" "$target")
         _gnar_caddy_append PRIVATE-SITES "$block" \
             && echo "Private static: http://$name.local → $target"
@@ -379,7 +379,7 @@ add-public-site() {
 
     local block
     if [[ "$target" =~ ^[0-9]+$ ]]; then
-        block=$(printf '\n# public: %s\nhttp://%s:8080 {\n    reverse_proxy host.docker.internal:%s\n}' \
+        block=$(printf '\n# public: %s\nhttp://%s:8080 {\n    import gnar_access_log\n    reverse_proxy host.docker.internal:%s\n}' \
             "$host" "$host" "$target")
         _gnar_caddy_append PUBLIC-SITES "$block" \
             && echo "Public site: https://$host → host:$target (via tunnel)"
@@ -388,7 +388,7 @@ add-public-site() {
             echo "Directory $target does not exist"
             return 1
         fi
-        block=$(printf '\n# public static: %s\nhttp://%s:8080 {\n    root * %s\n    file_server\n}' \
+        block=$(printf '\n# public static: %s\nhttp://%s:8080 {\n    import gnar_access_log\n    root * %s\n    file_server\n}' \
             "$host" "$host" "$target")
         _gnar_caddy_append PUBLIC-SITES "$block" \
             && echo "Public static: https://$host → $target (via tunnel)"
