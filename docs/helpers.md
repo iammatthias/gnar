@@ -187,7 +187,7 @@ db-status          # postgresql + valkey systemd status + connection counts
 security-status    # ufw + fail2ban + sshd status
 port-check <port>  # is anything listening on this port?
 gnar-info          # fastfetch machine report (TR-100 style)
-gnar-update        # pacman -Syu + cache clean
+gnar-update        # pacman -Syu + cache clean (--yes: unattended via systemd-run)
 gnar-help          # full alias / function reference
 ```
 

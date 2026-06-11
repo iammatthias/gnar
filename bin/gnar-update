@@ -1,7 +1,37 @@
 #!/bin/bash
+# gnar-update [--yes|-y] — pacman -Syu + cache clean.
+#
+# Interactive by default. --yes runs unattended AND under systemd-run,
+# so the upgrade survives a dropped ssh session — pacman dying mid-
+# transaction is the one failure mode worth engineering around. snap-pac
+# wraps the transaction in btrfs snapshots either way.
 set -euo pipefail
-echo "Updating system..."
-sudo pacman -Syu
+
+if [ "${1:-}" = "--yes" ] || [ "${1:-}" = "-y" ]; then
+    UNIT=gnar-sysupgrade
+    echo "Updating system (unattended, via systemd-run)..."
+    sudo systemctl reset-failed "$UNIT.service" 2>/dev/null || true
+    sudo systemd-run --unit="$UNIT" pacman -Syu --noconfirm
+
+    # Stream progress from the journal; killing the follower (or losing
+    # the ssh session) doesn't touch the upgrade itself.
+    sudo journalctl -fu "$UNIT.service" --no-hostname -o cat &
+    follow=$!
+    while systemctl is-active --quiet "$UNIT.service"; do sleep 2; done
+    kill "$follow" 2>/dev/null || true
+    wait "$follow" 2>/dev/null || true
+
+    rc=$(systemctl show "$UNIT.service" -p ExecMainStatus --value)
+    sudo systemctl reset-failed "$UNIT.service" 2>/dev/null || true
+    if [ "${rc:-1}" != "0" ]; then
+        echo "gnar-update: upgrade FAILED (exit $rc) — see: journalctl -u $UNIT" >&2
+        exit 1
+    fi
+else
+    echo "Updating system..."
+    sudo pacman -Syu
+fi
+
 echo "Cleaning package cache..."
 sudo pacman -Sc --noconfirm
 echo "Done."
