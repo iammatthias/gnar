@@ -1,21 +1,19 @@
 #!/bin/bash
 # GNAR — spawn the six kiosk dashboard tiles in deterministic order.
 #
-# Launched by mango's exec-once (see configs/mango-config.conf). Six
-# parallel foot launches map in nondeterministic order, which scrambles
-# tile placement — so launch one at a time with a beat in between.
-# Mango's grid layout fills row-major in client order, so this
-# sequence:
-#
-#   cpu mem net disk containers status
-#
-# lands as:
+# Launched by mango's exec-once (see configs/mango-config.conf).
+# Placement is pinned per-appid by the mosaic windowrules, so spawn
+# order doesn't matter there — but the grid fallback (rules removed)
+# fills row-major in client order, and six parallel foot launches map
+# nondeterministically. Launching one at a time with a beat between
+# keeps the fallback order deterministic:
 #
 #   CPU   MEM         NET
 #   DISK  CONTAINERS  STATUS
 #
 # Each tile runs `gnar-board <panel>` in a respawn loop so a crash
-# never leaves a hole in the mosaic.
+# never leaves a hole in the mosaic. (The status tile renders the
+# HERMES panel on the kiosk.)
 
 set -u
 
