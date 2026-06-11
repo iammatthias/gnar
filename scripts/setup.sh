@@ -328,6 +328,15 @@ install -m 644 "$CONFIGS/logrotate-gnar.conf" /etc/logrotate.d/gnar
 install -m 644 "$CONFIGS/tmpfiles-gnar.conf" /etc/tmpfiles.d/gnar.conf
 systemd-tmpfiles --create /etc/tmpfiles.d/gnar.conf 2>/dev/null || true
 
+# Single-uplink box (often wifi): wait-online should be satisfied by ANY
+# online interface, or an unplugged ethernet port fails the unit every boot.
+install -d /etc/systemd/system/systemd-networkd-wait-online.service.d
+cat > /etc/systemd/system/systemd-networkd-wait-online.service.d/gnar-any.conf <<'EOF'
+[Service]
+ExecStart=
+ExecStart=/usr/lib/systemd/systemd-networkd-wait-online --any
+EOF
+
 # -----------------------------------------------------------------------------
 # yay (AUR helper)
 # -----------------------------------------------------------------------------
