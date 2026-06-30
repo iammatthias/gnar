@@ -45,7 +45,13 @@ use std::{
 };
 
 use ratatui::{
-    crossterm::event::{self, Event, KeyCode, KeyEventKind, KeyModifiers},
+    crossterm::{
+        event::{
+            self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode, KeyEventKind,
+            KeyModifiers, MouseEventKind,
+        },
+        execute,
+    },
     prelude::*,
     widgets::{Block, Paragraph},
 };
@@ -2505,6 +2511,11 @@ fn main() -> std::io::Result<()> {
     }
 
     let mut terminal = ratatui::init();
+    // Touch/mouse: each kiosk tile is its own foot window, so a tap on a
+    // tile reaches that one process. Capturing the press lets it advance
+    // its own paginated view (see `taps` below). Harmless when no pointer
+    // exists. Needs the compositor to deliver touch as pointer events.
+    execute!(std::io::stdout(), EnableMouseCapture).ok();
     // Kiosk tiles respawn inside one long-lived foot alt-screen (the
     // `while :; do gnar-board …` loop), so the buffer still holds the
     // previous run's cells. ratatui assumes a blank screen and only
@@ -2512,25 +2523,37 @@ fn main() -> std::io::Result<()> {
     // shorter. A one-time clear realigns its model with the screen.
     terminal.clear()?;
     let start = Instant::now();
+    // A tap (or a fallback key) advances every cycled list in this tile by
+    // one page. Modeled as added time so the page index jumps forward by
+    // exactly one and the gentle auto-cycle simply continues from there.
+    let mut taps: u64 = 0;
     loop {
         {
             let mut st = app.lock().unwrap();
-            st.render_secs = start.elapsed().as_secs_f64();
+            st.render_secs = start.elapsed().as_secs_f64() + taps as f64 * PAGE_SECS;
             terminal.draw(|f| ui(f, &st, mode))?;
         }
         if event::poll(Duration::from_millis(500))? {
-            if let Event::Key(k) = event::read()? {
-                if k.kind != KeyEventKind::Press {
-                    continue;
+            match event::read()? {
+                Event::Mouse(m) if matches!(m.kind, MouseEventKind::Down(_)) => taps += 1,
+                Event::Key(k) if k.kind == KeyEventKind::Press => {
+                    // Advance keys double as a keyboard fallback for the tap.
+                    if matches!(
+                        k.code,
+                        KeyCode::Char(' ') | KeyCode::Char('n') | KeyCode::Right | KeyCode::Down
+                    ) {
+                        taps += 1;
+                    } else if matches!(k.code, KeyCode::Char('q') | KeyCode::Char('Q') | KeyCode::Esc)
+                        || (k.code == KeyCode::Char('c') && k.modifiers.contains(KeyModifiers::CONTROL))
+                    {
+                        break;
+                    }
                 }
-                let quit = matches!(k.code, KeyCode::Char('q') | KeyCode::Char('Q') | KeyCode::Esc)
-                    || (k.code == KeyCode::Char('c') && k.modifiers.contains(KeyModifiers::CONTROL));
-                if quit {
-                    break;
-                }
+                _ => {}
             }
         }
     }
+    execute!(std::io::stdout(), DisableMouseCapture).ok();
     ratatui::restore();
     Ok(())
 }
