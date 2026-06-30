@@ -2261,6 +2261,12 @@ fn main() -> std::io::Result<()> {
     }
 
     let mut terminal = ratatui::init();
+    // Kiosk tiles respawn inside one long-lived foot alt-screen (the
+    // `while :; do gnar-board …` loop), so the buffer still holds the
+    // previous run's cells. ratatui assumes a blank screen and only
+    // diffs against it, leaving stale glyphs wherever the new frame is
+    // shorter. A one-time clear realigns its model with the screen.
+    terminal.clear()?;
     loop {
         {
             let st = app.lock().unwrap();
