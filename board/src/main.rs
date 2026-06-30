@@ -610,7 +610,7 @@ fn status_loop(app: Arc<Mutex<App>>, mode: Mode) {
     let shows_claude = matches!(mode, Mode::Full | Mode::Status);
     let mut tick: u64 = 0;
     let mut log_offset: u64 = 0;
-    let mut traffic_window: VecDeque<(Instant, String, u16)> = VecDeque::new();
+    let mut traffic_window: VecDeque<(f64, String, u16)> = VecDeque::new();
     loop {
         let started = Instant::now();
 
@@ -956,8 +956,12 @@ const TRAFFIC_BINS: usize = 10; // sparkline columns across the 5-min window
 /// consumed; rotation resets the offset.
 fn sample_traffic(
     offset: &mut u64,
-    window: &mut VecDeque<(Instant, String, u16)>,
+    window: &mut VecDeque<(f64, String, u16)>,
 ) -> HashMap<String, Traffic> {
+    // Age and bucket by the log's own `ts` (unix secs), not read time —
+    // otherwise a respawn dumps the whole backlog tail into "now", spiking
+    // every count and sparkline for the first five minutes.
+    let now = SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs_f64()).unwrap_or(0.0);
     if let Ok(mut f) = fs::File::open(ACCESS_LOG) {
         let len = f.metadata().map(|m| m.len()).unwrap_or(0);
         if len < *offset {
@@ -972,7 +976,6 @@ fn sample_traffic(
             if (&mut f).take(len - *offset).read_to_end(&mut buf).is_ok() {
                 // Consume only up to the last complete line.
                 if let Some(last_nl) = buf.iter().rposition(|b| *b == b'\n') {
-                    let now = Instant::now();
                     for l in String::from_utf8_lossy(&buf[..=last_nl]).lines() {
                         let Ok(v) = serde_json::from_str::<Value>(l) else { continue };
                         let host = v["request"]["host"]
@@ -985,21 +988,21 @@ fn sample_traffic(
                         if host.is_empty() {
                             continue;
                         }
+                        let ts = v["ts"].as_f64().unwrap_or(now);
                         let status = v["status"].as_u64().unwrap_or(0) as u16;
-                        window.push_back((now, host, status));
+                        window.push_back((ts, host, status));
                     }
                     *offset += last_nl as u64 + 1;
                 }
             }
         }
     }
-    while window.front().is_some_and(|(t, ..)| t.elapsed() > Duration::from_secs(300)) {
+    while window.front().is_some_and(|(t, ..)| now - t > 300.0) {
         window.pop_front();
     }
     // 404 is bucketed apart from the rest of the 4xx range: on a public
     // host it's almost entirely bot/scanner/missing-asset noise, whereas
     // 400/401/403/429 usually mean something a human should look at.
-    let now = Instant::now();
     let mut map: HashMap<String, Traffic> = HashMap::new();
     for (t, host, status) in window.iter() {
         let e = map.entry(host.clone()).or_default();
@@ -1014,7 +1017,7 @@ fn sample_traffic(
             _ => {}
         }
         // Oldest (≈300s ago) → bin 0, newest → last bin.
-        let age = now.duration_since(*t).as_secs_f64().min(300.0);
+        let age = (now - t).clamp(0.0, 300.0);
         let bin = (((300.0 - age) / 300.0) * (TRAFFIC_BINS as f64 - 1.0)).round() as usize;
         e.spark[bin.min(TRAFFIC_BINS - 1)] += 1.0;
     }
@@ -1387,6 +1390,20 @@ fn spark(vals: &VecDeque<f64>, width: usize, floor: f64, head: f64) -> String {
     s
 }
 
+/// Sparkline scaled to a FIXED absolute ceiling, not the data's own max.
+/// For level metrics (temp, watts, sockets) this is what makes a steady
+/// reading render as a calm low line instead of an alarming full-height
+/// block — auto-scaling a flat signal always pins it to the top.
+fn spark_abs(vals: &VecDeque<f64>, width: usize, max: f64) -> String {
+    let take = vals.len().min(width);
+    let max = max.max(f64::MIN_POSITIVE);
+    let mut s = " ".repeat(width - take);
+    for v in vals.iter().skip(vals.len() - take) {
+        s.push(TICKS[((v / max * 7.0).round() as usize).min(7)]);
+    }
+    s
+}
+
 /// Sparkline from a fixed slice (already bucketed), scaled to its own max
 /// with `floor` as the minimum ceiling. Width == slice length.
 fn spark_vec(vals: &[f64], floor: f64, head: f64) -> String {
@@ -1592,12 +1609,12 @@ fn render_cpu(frame: &mut Frame, cpu_a: Rect, app: &App, bordered: bool) {
     ];
     if let Some(t) = h.temp_c {
         title.push(Span::styled("· ", dim()));
-        title.push(Span::styled(spark(&h.temp_hist, 6, 30.0, 1.1), Style::new().fg(heat((t / 90.0).clamp(0.0, 1.0)))));
+        title.push(Span::styled(spark_abs(&h.temp_hist, 8, 95.0), Style::new().fg(heat((t / 90.0).clamp(0.0, 1.0)))));
         title.push(Span::styled(format!(" {t:.0}°C "), dim()));
     }
     if let Some(w) = h.watts {
         title.push(Span::styled("· ", dim()));
-        title.push(Span::styled(spark(&h.watts_hist, 6, 2.0, 1.2), Style::new().fg(C_YELLOW)));
+        title.push(Span::styled(spark_abs(&h.watts_hist, 8, 25.0), Style::new().fg(C_YELLOW)));
         title.push(Span::styled(format!(" {w:.0}W "), dim()));
     }
     // Tile mode: the kiosk has no global header, so clock + uptime ride
@@ -1810,7 +1827,7 @@ fn render_net(frame: &mut Frame, net_a: Rect, app: &App, bordered: bool) {
                 Span::styled(" · ", dim()),
                 Span::styled(format!("↑ {}", human_size(h.tx_total as f64)), Style::new().fg(C_MAGENTA)),
                 Span::styled("      tcp ", dim()),
-                Span::styled(spark(&h.tcp_hist, 10, 8.0, 1.2), Style::new().fg(C_BLUE)),
+                Span::styled(spark_abs(&h.tcp_hist, 10, 128.0), Style::new().fg(C_BLUE)),
                 Span::styled(format!(" {} estab · {} tw", h.tcp_inuse, h.tcp_tw), dim()),
             ]),
         ];
