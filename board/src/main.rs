@@ -1479,16 +1479,23 @@ fn spark_vec(vals: &[f64], floor: f64, head: f64) -> String {
 /// across `rows` lines and colored by `color(value/max)`. This is what
 /// replaced ratatui's stock Sparkline — same geometry, but the color
 /// carries the value too.
+/// `height_max` scales the bar HEIGHT (use the recent peak so an idle box's
+/// graph still fills the panel instead of collapsing to a thin line and
+/// leaving a void); `color_max` scales the COLOR independently (keep it
+/// absolute — 100% CPU, total RAM — so a full-height-but-calm graph still
+/// reads green, not red). Pass the same value for both to couple them.
 fn graph_lines(
     vals: &VecDeque<f64>,
     width: usize,
     rows: usize,
-    max: f64,
+    height_max: f64,
+    color_max: f64,
     color: impl Fn(f64) -> Color,
 ) -> Vec<Line<'static>> {
     let take = vals.len().min(width);
     let slice: Vec<f64> = vals.iter().skip(vals.len() - take).copied().collect();
-    let max = max.max(f64::MIN_POSITIVE);
+    let height_max = height_max.max(f64::MIN_POSITIVE);
+    let color_max = color_max.max(f64::MIN_POSITIVE);
     let pad = width - take;
     let mut lines = Vec::with_capacity(rows);
     for r in 0..rows {
@@ -1497,18 +1504,26 @@ fn graph_lines(
             spans.push(Span::raw(" ".repeat(pad)));
         }
         for v in &slice {
-            let t = (v / max).clamp(0.0, 1.0);
-            let eighths = (t * (rows * 8) as f64).round() as usize;
+            let th = (v / height_max).clamp(0.0, 1.0);
+            let eighths = (th * (rows * 8) as f64).round() as usize;
             let filled = eighths.saturating_sub((rows - 1 - r) * 8).min(8);
             if filled == 0 {
                 spans.push(Span::raw(" "));
             } else {
-                spans.push(Span::styled(TICKS[filled - 1].to_string(), Style::new().fg(color(t))));
+                let tc = (v / color_max).clamp(0.0, 1.0);
+                spans.push(Span::styled(TICKS[filled - 1].to_string(), Style::new().fg(color(tc))));
             }
         }
         lines.push(Line::from(spans));
     }
     lines
+}
+
+/// Height ceiling for a "fill the panel" graph: the recent peak with a
+/// little headroom, floored so a near-idle series still shows shape rather
+/// than amplifying noise to full height.
+fn fill_max(vals: &VecDeque<f64>, floor: f64) -> f64 {
+    (vals.iter().copied().fold(0.0f64, f64::max) * 1.15).max(floor)
 }
 
 const PAGE_SECS: f64 = 5.0; // seconds each page of a cycled list is shown
@@ -1721,7 +1736,7 @@ fn render_cpu(frame: &mut Frame, cpu_a: Rect, app: &App, bordered: bool) {
         ])
         .areas(cpu_inner);
         frame.render_widget(
-            Paragraph::new(graph_lines(&h.cpu, graph_a.width as usize, graph_a.height as usize, 100.0, heat)),
+            Paragraph::new(graph_lines(&h.cpu, graph_a.width as usize, graph_a.height as usize, fill_max(&h.cpu, 12.0), 100.0, heat)),
             graph_a,
         );
         let csw = ((cores_a.width as usize).saturating_sub(2 * 9 + 3) / 2).clamp(8, 32);
@@ -1758,7 +1773,7 @@ fn render_cpu(frame: &mut Frame, cpu_a: Rect, app: &App, bordered: bool) {
     } else if cpu_inner.height > 1 {
         let graph = Rect { height: cpu_inner.height - 1, ..cpu_inner };
         frame.render_widget(
-            Paragraph::new(graph_lines(&h.cpu, graph.width as usize, graph.height as usize, 100.0, heat)),
+            Paragraph::new(graph_lines(&h.cpu, graph.width as usize, graph.height as usize, fill_max(&h.cpu, 12.0), 100.0, heat)),
             graph,
         );
         let mut core_spans = vec![Span::styled("cores ", dim())];
@@ -1797,6 +1812,7 @@ fn render_mem(frame: &mut Frame, mem_a: Rect, app: &App, bordered: bool) {
                 &h.mem_used,
                 graph_a.width as usize,
                 graph_a.height as usize,
+                fill_max(&h.mem_used, h.mem_total.max(1.0) * 0.25),
                 h.mem_total.max(1.0),
                 |t| lerp(BLUE_RGB, MAGENTA_RGB, t),
             )),
@@ -1828,6 +1844,7 @@ fn render_mem(frame: &mut Frame, mem_a: Rect, app: &App, bordered: bool) {
                 &h.mem_used,
                 graph.width as usize,
                 graph.height as usize,
+                fill_max(&h.mem_used, h.mem_total.max(1.0) * 0.25),
                 h.mem_total.max(1.0),
                 |t| lerp(BLUE_RGB, MAGENTA_RGB, t),
             )),
@@ -1897,7 +1914,7 @@ fn render_net(frame: &mut Frame, net_a: Rect, app: &App, bordered: bool) {
         );
         let pk = peak(series).max(10240.0);
         frame.render_widget(
-            Paragraph::new(graph_lines(series, graph_a.width as usize, graph_a.height as usize, pk, tint(hue))),
+            Paragraph::new(graph_lines(series, graph_a.width as usize, graph_a.height as usize, pk, pk, tint(hue))),
             graph_a,
         );
     }
@@ -2037,11 +2054,11 @@ fn render_disk(frame: &mut Frame, disk_a: Rect, app: &App, bordered: bool) {
     let pk_r = peak(&h.io_r).max(1048576.0);
     let pk_w = peak(&h.io_w).max(1048576.0);
     frame.render_widget(
-        Paragraph::new(graph_lines(&h.io_r, ior_a.width as usize, ior_a.height as usize, pk_r, tint(CYAN_RGB))),
+        Paragraph::new(graph_lines(&h.io_r, ior_a.width as usize, ior_a.height as usize, pk_r, pk_r, tint(CYAN_RGB))),
         ior_a,
     );
     frame.render_widget(
-        Paragraph::new(graph_lines(&h.io_w, iow_a.width as usize, iow_a.height as usize, pk_w, tint(MAGENTA_RGB))),
+        Paragraph::new(graph_lines(&h.io_w, iow_a.width as usize, iow_a.height as usize, pk_w, pk_w, tint(MAGENTA_RGB))),
         iow_a,
     );
 }
@@ -2135,10 +2152,9 @@ fn containers_panel(app: &App, width: usize, height: usize) -> Vec<Line<'static>
     if rows.is_empty() {
         lines.push(Line::styled("(no running containers)", dim()));
     } else {
-        // Kiosk tile: cycle ~12 at a time for a calmer view, breathing room
-        // pooling at the bottom. Full board (short): just show what fits.
-        let cap = if height >= 20 { 12 } else { 0 };
-        lines.extend(paged(rows, height.saturating_sub(2), cap, app.render_secs));
+        // Cycle ONLY when the list overflows the tile (small screens) — on a
+        // big tile all 20 fit, so showing fewer would just leave a void.
+        lines.extend(paged(rows, height.saturating_sub(2), 0, app.render_secs));
     }
     lines
 }
