@@ -575,7 +575,15 @@ fn sample_containers(app: &Arc<Mutex<App>>) -> Result<(), String> {
     Ok(())
 }
 
-fn status_loop(app: Arc<Mutex<App>>, with_hermes: bool) {
+fn status_loop(app: Arc<Mutex<App>>, mode: Mode) {
+    let with_hermes = matches!(mode, Mode::Full | Mode::Status);
+    // Which hourly samples this panel actually renders. Each kiosk tile is
+    // its own process, so an ungated sampler runs once per tile — six
+    // concurrent `checkupdates` racing the temp sync DB is what produced a
+    // false "up to date". Gate each heavy sampler to the panel that shows it.
+    let shows_updates = matches!(mode, Mode::Full | Mode::Containers);
+    let shows_disk = matches!(mode, Mode::Full | Mode::Disk);
+    let shows_claude = matches!(mode, Mode::Full | Mode::Status);
     let mut tick: u64 = 0;
     let mut log_offset: u64 = 0;
     let mut traffic_window: VecDeque<(Instant, String, u16)> = VecDeque::new();
@@ -621,12 +629,12 @@ fn status_loop(app: Arc<Mutex<App>>, with_hermes: bool) {
         // network sync, smartctl wakes the drive, pacman.log is big.
         let hourly = if tick % 120 == 0 {
             Some((
-                pending_updates(),
-                security_updates(),
-                nvme_health(),
-                snapshot_count(),
-                last_update_days(),
-                claude_usage(),
+                if shows_updates { pending_updates() } else { None },
+                if shows_updates { security_updates() } else { None },
+                if shows_disk { nvme_health() } else { (None, None) },
+                if shows_disk { snapshot_count() } else { 0 },
+                if shows_updates { last_update_days() } else { None },
+                if shows_claude { claude_usage() } else { (0, 0) },
             ))
         } else {
             None
@@ -675,7 +683,7 @@ fn status_loop(app: Arc<Mutex<App>>, with_hermes: bool) {
                 a.ts_total = total;
             }
             if let Some((updates, sec_updates, (wear, temp), snaps, upd_days, (c24, ctotal))) = hourly {
-                a.updates = Some(updates);
+                a.updates = updates;
                 a.sec_updates = sec_updates;
                 a.nvme_wear = wear;
                 a.nvme_temp = temp;
@@ -779,12 +787,22 @@ fn tcp_probe(ip: &str, port: u16) -> Option<u64> {
 /// temp DB, never touches the real one). On a rolling release this is
 /// routinely dozens — informational, not an alarm; the security count
 /// below is the signal that actually warrants attention.
-fn pending_updates() -> usize {
-    Command::new("checkupdates")
-        .output()
-        .ok()
-        .map(|o| String::from_utf8_lossy(&o.stdout).lines().filter(|l| !l.trim().is_empty()).count())
-        .unwrap_or(0)
+///
+/// `None` means "couldn't tell", not "zero": checkupdates exits 0 with a
+/// list, 2 for none-pending, and 1 on failure (network, or a temp-db
+/// lock when several callers sync at once). Treating a failed run as 0
+/// would paint a false "up to date", so only 0/2 yield a count.
+fn pending_updates() -> Option<usize> {
+    let out = Command::new("checkupdates").output().ok()?;
+    match out.status.code() {
+        Some(0) | Some(2) => Some(
+            String::from_utf8_lossy(&out.stdout)
+                .lines()
+                .filter(|l| !l.trim().is_empty())
+                .count(),
+        ),
+        _ => None,
+    }
 }
 
 /// Installed packages with a known security advisory whose fix is
@@ -2232,10 +2250,10 @@ fn main() -> std::io::Result<()> {
     }
     {
         // Every panel shows something from the status loop now (procs,
-        // sites, services, disk, hermes) — hermes execs stay gated.
+        // sites, services, disk, hermes) — hermes execs and the heavy
+        // hourly samplers stay gated to the panels that render them.
         let a = app.clone();
-        let with_hermes = matches!(mode, Mode::Full | Mode::Status);
-        thread::spawn(move || status_loop(a, with_hermes));
+        thread::spawn(move || status_loop(a, mode));
     }
     if matches!(mode, Mode::Full | Mode::Cpu) {
         let a = app.clone();
