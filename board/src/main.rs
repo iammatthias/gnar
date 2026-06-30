@@ -1727,12 +1727,13 @@ fn render_cpu(frame: &mut Frame, cpu_a: Rect, app: &App, bordered: bool) {
         // Tile mode: graph + per-core sparkline grid + load + top procs.
         let ncores = h.cores_hist.len();
         let half = ncores.div_ceil(2);
-        let nprocs = app.procs_cpu.len().min(6) as u16;
+        // The per-core grid is the rich CPU view; the total-cpu history is a
+        // compact strip above it, and the top-procs table fills the rest.
         let [graph_a, cores_a, load_a, procs_a] = Layout::vertical([
-            Constraint::Min(5),
+            Constraint::Length(6),
             Constraint::Length(half as u16 + 1),
             Constraint::Length(1),
-            Constraint::Length(nprocs + 3),
+            Constraint::Min(4),
         ])
         .areas(cpu_inner);
         frame.render_widget(
@@ -1769,7 +1770,10 @@ fn render_cpu(frame: &mut Frame, cpu_a: Rect, app: &App, bordered: bool) {
             ])),
             load_a,
         );
-        frame.render_widget(Paragraph::new(proc_lines("TOP CPU", &app.procs_cpu, 6, false)), procs_a);
+        frame.render_widget(
+            Paragraph::new(proc_lines("TOP CPU", &app.procs_cpu, (procs_a.height as usize).saturating_sub(3), false)),
+            procs_a,
+        );
     } else if cpu_inner.height > 1 {
         let graph = Rect { height: cpu_inner.height - 1, ..cpu_inner };
         frame.render_widget(
