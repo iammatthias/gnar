@@ -112,6 +112,18 @@ struct Traffic {
     spark: Vec<f64>, // per-bin request counts, oldest→newest
 }
 
+/// Host alerts with actionable detail: which units, which crashed procs,
+/// and a sample of the actual error messages — not bare counts.
+#[derive(Default)]
+struct Alerts {
+    failed_units: Vec<String>, // unit names
+    crashes: Vec<String>,      // "process ×N" per coredumped process this hour
+    journal_errs: usize,
+    err_sample: Vec<String>, // a couple of recent error messages, clipped
+    banned_ips: usize,
+    ssh_fails: usize,
+}
+
 struct Prev {
     at: Instant,
     cpu_total: u64,
@@ -189,9 +201,10 @@ struct App {
     backup_size_mb: u64,
     backup_sizes: Vec<f64>, // archive sizes by age, oldest first (MB)
     traffic: HashMap<String, Traffic>, // per-host 5-minute traffic + sparkline
-    failed_units: usize,
+    failed_units: Vec<String>,
     journal_errs: usize,
-    crashes: usize,
+    crashes: Vec<String>,
+    err_sample: Vec<String>,
     banned_ips: usize,
     ssh_fails: usize,
     reboot_pending: Option<String>,
@@ -204,6 +217,7 @@ struct App {
     snapshots: usize,
     docker_err: Option<String>,
     clock: String,
+    render_secs: f64, // seconds since the process started — drives list cycling
 }
 
 // ---------------------------------------------------------------------------
@@ -645,7 +659,7 @@ fn status_loop(app: Arc<Mutex<App>>, mode: Mode) {
             .unwrap_or(0);
 
         let traffic = sample_traffic(&mut log_offset, &mut traffic_window);
-        let (failed_units, journal_errs, crashes, banned_ips, ssh_fails) = sample_alerts();
+        let alerts = sample_alerts();
         let tailscale = sample_tailscale();
         let reboot_pending = reboot_pending();
 
@@ -695,11 +709,12 @@ fn status_loop(app: Arc<Mutex<App>>, mode: Mode) {
             a.containers_total = containers_total;
             a.prune_next = prune_next;
             a.traffic = traffic;
-            a.failed_units = failed_units;
-            a.journal_errs = journal_errs;
-            a.crashes = crashes;
-            a.banned_ips = banned_ips;
-            a.ssh_fails = ssh_fails;
+            a.failed_units = alerts.failed_units;
+            a.journal_errs = alerts.journal_errs;
+            a.crashes = alerts.crashes;
+            a.err_sample = alerts.err_sample;
+            a.banned_ips = alerts.banned_ips;
+            a.ssh_fails = alerts.ssh_fails;
             a.reboot_pending = reboot_pending;
             if let Some((ip, online, total)) = tailscale {
                 a.ts_ip = ip;
@@ -948,7 +963,7 @@ fn top_procs(sort: &str, n: usize) -> Vec<String> {
 
 const ACCESS_LOG: &str = "/srv/stack/data/caddy/data/access/access.log";
 
-const TRAFFIC_BINS: usize = 10; // sparkline columns across the 5-min window
+const TRAFFIC_BINS: usize = 8; // sparkline columns across the 5-min window
 
 /// Incrementally tail caddy's shared JSON access log and aggregate a
 /// 5-minute window of per-host request counts, 404 / other-4xx / 5xx
@@ -1040,17 +1055,33 @@ fn sudo_lines(args: &[&str]) -> Vec<String> {
         .unwrap_or_default()
 }
 
-/// (failed units, journal errors/h, crashes/h, fail2ban bans,
-/// ssh failures/h). All via passwordless sudo — gnar grants it by
-/// design. Coredumps log entire stack traces at priority err, which
-/// would read as hundreds of "errors" per crash — so crashes are
-/// counted as their own signal and the trace spam is excluded from
-/// the error count.
-fn sample_alerts() -> (usize, usize, usize, usize, usize) {
-    let failed = sudo_lines(&["systemctl", "--failed", "--plain", "--no-legend"]).len();
+/// Host alerts, with enough detail to act on — not just counts. All via
+/// passwordless sudo (gnar grants it by design). Coredumps log entire
+/// stack traces at priority err, which would read as hundreds of "errors"
+/// per crash — so crashes are their own signal (grouped by process) and
+/// the trace spam is excluded from the error count + sample.
+fn sample_alerts() -> Alerts {
+    let failed_units: Vec<String> = sudo_lines(&["systemctl", "--failed", "--plain", "--no-legend"])
+        .iter()
+        .filter_map(|l| l.split_whitespace().next().map(String::from))
+        .collect();
     let p3 = sudo_lines(&["journalctl", "-p", "3", "--since", "-1 hour", "-q", "--no-pager", "-o", "cat", "-n", "1000"]);
-    let crashes = p3.iter().filter(|l| l.contains(" dumped core")).count();
-    let errs = p3
+    // Group coredumps by the "(process)" field so it reads "mango ×3".
+    let mut crash_counts: BTreeMap<String, usize> = BTreeMap::new();
+    for l in p3.iter().filter(|l| l.contains(" dumped core")) {
+        let proc = l
+            .split('(')
+            .nth(1)
+            .and_then(|s| s.split(')').next())
+            .filter(|s| !s.is_empty())
+            .unwrap_or("?");
+        *crash_counts.entry(proc.to_string()).or_default() += 1;
+    }
+    let crashes: Vec<String> = crash_counts
+        .into_iter()
+        .map(|(p, n)| if n > 1 { format!("{p} ×{n}") } else { p })
+        .collect();
+    let err_lines: Vec<&String> = p3
         .iter()
         .filter(|l| {
             let t = l.trim_start();
@@ -1059,8 +1090,20 @@ fn sample_alerts() -> (usize, usize, usize, usize, usize) {
                 || t.starts_with("Stack trace of")
                 || t.contains(" dumped core"))
         })
-        .count();
-    let banned = sudo_lines(&["fail2ban-client", "status", "sshd"])
+        .collect();
+    let journal_errs = err_lines.len();
+    // The two most recent distinct messages, clipped — what's actually wrong.
+    let mut err_sample: Vec<String> = Vec::new();
+    for l in err_lines.iter().rev() {
+        let s: String = l.trim().chars().take(64).collect();
+        if !s.is_empty() && !err_sample.contains(&s) {
+            err_sample.push(s);
+        }
+        if err_sample.len() >= 2 {
+            break;
+        }
+    }
+    let banned_ips = sudo_lines(&["fail2ban-client", "status", "sshd"])
         .iter()
         .find_map(|l| {
             l.contains("Currently banned:")
@@ -1072,7 +1115,7 @@ fn sample_alerts() -> (usize, usize, usize, usize, usize) {
         .iter()
         .filter(|l| l.contains("Failed password") || l.contains("Invalid user"))
         .count();
-    (failed, errs, crashes, banned, ssh_fails)
+    Alerts { failed_units, crashes, journal_errs, err_sample, banned_ips, ssh_fails }
 }
 
 /// (tailnet IP, peers online, peers total) from the tailscale container.
@@ -1456,6 +1499,26 @@ fn graph_lines(
     lines
 }
 
+const PAGE_SECS: f64 = 5.0; // seconds each page of a cycled list is shown
+
+/// Cycle a list of rendered lines through pages that fit `rows`, advancing
+/// every PAGE_SECS so a long list is shown in full over time rather than
+/// crammed or truncated. Appends a dim "⟳ n/m" indicator while paging.
+/// Returns the list unchanged when it already fits.
+fn paged(lines: Vec<Line<'static>>, rows: usize, secs: f64) -> Vec<Line<'static>> {
+    if rows <= 1 || lines.len() <= rows {
+        return lines;
+    }
+    let per = rows - 1; // reserve a row for the indicator
+    let pages = lines.len().div_ceil(per);
+    let page = ((secs / PAGE_SECS) as usize) % pages;
+    let start = page * per;
+    let end = (start + per).min(lines.len());
+    let mut out: Vec<Line<'static>> = lines[start..end].to_vec();
+    out.push(Line::from(Span::styled(format!("⟳ {}/{}", page + 1, pages), dim())));
+    out
+}
+
 fn human_mem(mib: f64) -> String {
     if mib < 1024.0 {
         format!("{mib:5.0}M")
@@ -1609,12 +1672,12 @@ fn render_cpu(frame: &mut Frame, cpu_a: Rect, app: &App, bordered: bool) {
     ];
     if let Some(t) = h.temp_c {
         title.push(Span::styled("· ", dim()));
-        title.push(Span::styled(spark_abs(&h.temp_hist, 8, 95.0), Style::new().fg(heat((t / 90.0).clamp(0.0, 1.0)))));
+        title.push(Span::styled(spark_abs(&h.temp_hist, 5, 95.0), Style::new().fg(heat((t / 90.0).clamp(0.0, 1.0)))));
         title.push(Span::styled(format!(" {t:.0}°C "), dim()));
     }
     if let Some(w) = h.watts {
         title.push(Span::styled("· ", dim()));
-        title.push(Span::styled(spark_abs(&h.watts_hist, 8, 25.0), Style::new().fg(C_YELLOW)));
+        title.push(Span::styled(spark_abs(&h.watts_hist, 5, 25.0), Style::new().fg(C_YELLOW)));
         title.push(Span::styled(format!(" {w:.0}W "), dim()));
     }
     // Tile mode: the kiosk has no global header, so clock + uptime ride
@@ -1785,11 +1848,10 @@ fn render_net(frame: &mut Frame, net_a: Rect, app: &App, bordered: bool) {
     // (ingress health is network business) under the graphs.
     let mut sites_a = None;
     let (body, footer) = if net_inner.height >= 22 && !app.sites.is_empty() {
-        // Show every site when the (now taller) tile has room; the graphs
-        // keep at least Min(8) so the list can't crowd them out entirely.
-        let rows = (app.sites.len() as u16 + 3).min(28);
+        // Fixed graphs band, then the rest goes to the site list — which
+        // cycles (see paged()) rather than stretching the tile to fit all.
         let [b, f, s] =
-            Layout::vertical([Constraint::Min(8), Constraint::Length(3), Constraint::Length(rows)]).areas(net_inner);
+            Layout::vertical([Constraint::Length(9), Constraint::Length(3), Constraint::Min(5)]).areas(net_inner);
         sites_a = Some(s);
         (b, Some(f))
     } else if net_inner.height >= 14 {
@@ -1870,7 +1932,8 @@ fn render_net(frame: &mut Frame, net_a: Rect, app: &App, bordered: bool) {
             header.push(Span::styled(format!(" · {down} down"), Style::new().fg(C_RED)));
         }
         let mut lines = vec![Line::default(), Line::from(header), Line::default()];
-        lines.extend(site_rows(app));
+        // Three header lines above; cycle the site rows through what's left.
+        lines.extend(paged(site_rows(app), (sa.height as usize).saturating_sub(3), app.render_secs));
         frame.render_widget(Paragraph::new(lines), sa);
     }
 }
@@ -2029,12 +2092,8 @@ fn containers_panel(app: &App, width: usize, height: usize) -> Vec<Line<'static>
         return lines;
     }
 
-    let avail = height.saturating_sub(3);
+    let mut rows: Vec<Line<'static>> = Vec::new();
     for (i, (name, s)) in app.containers.iter().enumerate() {
-        if i >= avail {
-            lines.push(Line::styled(format!("… +{} more", app.containers.len() - i), dim()));
-            break;
-        }
         let t = (s.cpu_cur / 100.0).clamp(0.0, 1.0);
         let name_color = if s.flag.is_some() {
             C_RED // restarting / unhealthy
@@ -2064,10 +2123,13 @@ fn containers_panel(app: &App, width: usize, height: usize) -> Vec<Line<'static>
         if i % 2 == 1 {
             line = line.style(Style::new().bg(C_BG_ALT));
         }
-        lines.push(line);
+        rows.push(line);
     }
-    if app.containers.is_empty() {
+    if rows.is_empty() {
         lines.push(Line::styled("(no running containers)", dim()));
+    } else {
+        // Header took two lines; cycle the rest through the remaining rows.
+        lines.extend(paged(rows, height.saturating_sub(2), app.render_secs));
     }
     lines
 }
@@ -2108,15 +2170,15 @@ fn site_rows(app: &App) -> Vec<Line<'static>> {
                 _ => C_YELLOW,
             };
             // Truncate long hostnames — format width pads but never cuts.
-            let mut host: String = site.host.chars().take(29).collect();
-            if site.host.chars().count() > 29 {
+            let mut host: String = site.host.chars().take(24).collect();
+            if site.host.chars().count() > 24 {
                 host.pop();
                 host.push('…');
             }
             let mut spans = vec![
                 Span::styled("● ".to_string(), Style::new().fg(dotc)),
-                Span::styled(format!("{host:<30}"), Style::new().fg(C_FG)),
-                Span::styled(format!("{info:<11}"), info_style),
+                Span::styled(format!("{host:<25}"), Style::new().fg(C_FG)),
+                Span::styled(format!("{info:<10}"), info_style),
             ];
             match app.traffic.get(&site.host) {
                 Some(t) if t.reqs > 0 => {
@@ -2230,8 +2292,54 @@ fn status_panel(app: &App) -> Vec<Line<'static>> {
     lines
 }
 
-/// The kiosk's HERMES tile: gateway + backup health, live claude runs,
-/// kanban tasks, and the cron schedule.
+/// The prominent ALERTS block — a red title bar plus one descriptive line
+/// per fault (which units, which crashed processes, sample error text).
+/// Empty when the host is clean, so it only appears when it matters.
+fn alert_lines(app: &App) -> Vec<Line<'static>> {
+    if app.failed_units.is_empty() && app.crashes.is_empty() && app.journal_errs == 0 {
+        return Vec::new();
+    }
+    let red_bold = Style::new().fg(C_RED).add_modifier(Modifier::BOLD);
+    let mut out = vec![
+        Line::default(),
+        Line::from(Span::styled(
+            "  ⚠  ALERTS  ",
+            Style::new().bg(C_RED).fg(Color::Black).add_modifier(Modifier::BOLD),
+        )),
+    ];
+    let bullet = || Span::styled("● ".to_string(), Style::new().fg(C_RED));
+    if !app.failed_units.is_empty() {
+        out.push(Line::from(vec![
+            bullet(),
+            Span::styled(
+                format!("{} unit{} failed", app.failed_units.len(), if app.failed_units.len() == 1 { "" } else { "s" }),
+                red_bold,
+            ),
+            Span::styled(format!(" — {}", app.failed_units.join(", ")), Style::new().fg(C_FG)),
+        ]));
+    }
+    if !app.crashes.is_empty() {
+        out.push(Line::from(vec![
+            bullet(),
+            Span::styled("crashes/h".to_string(), red_bold),
+            Span::styled(format!(" — {}", app.crashes.join(", ")), Style::new().fg(C_FG)),
+        ]));
+    }
+    if app.journal_errs > 0 {
+        out.push(Line::from(vec![
+            bullet(),
+            Span::styled(
+                format!("{} journal error{}/h", app.journal_errs, if app.journal_errs == 1 { "" } else { "s" }),
+                red_bold,
+            ),
+        ]));
+        for s in &app.err_sample {
+            out.push(Line::from(Span::styled(format!("    {s}"), dim())));
+        }
+    }
+    out
+}
+
 /// The kiosk OPS tile: Hermes gateway + backup health, live claude runs,
 /// the box's security posture, host alerts, kanban, and cron. Folds what
 /// used to be three sparse half-empty regions into one dense ops surface.
@@ -2256,24 +2364,25 @@ fn ops_panel(app: &App) -> Vec<Line<'static>> {
         status_line.push(Span::raw(" "));
         status_line.push(Span::styled(spark(&sizes, 8, 1.0, 1.25), dim()));
     }
-    let mut lines = vec![
-        Line::from(status_line),
-        if app.claude_runs > 0 {
-            Line::from(vec![
-                Span::styled("● ".to_string(), Style::new().fg(C_CYAN)),
-                Span::styled(
-                    format!(
-                        "{} claude process{} live",
-                        app.claude_runs,
-                        if app.claude_runs == 1 { "" } else { "es" }
-                    ),
-                    Style::new().fg(C_CYAN),
+    let mut lines = vec![Line::from(status_line)];
+    // Alerts ride up top, right under the gateway line, so a fault is the
+    // first thing the eye lands on.
+    lines.extend(alert_lines(app));
+    lines.push(if app.claude_runs > 0 {
+        Line::from(vec![
+            Span::styled("● ".to_string(), Style::new().fg(C_CYAN)),
+            Span::styled(
+                format!(
+                    "{} claude process{} live",
+                    app.claude_runs,
+                    if app.claude_runs == 1 { "" } else { "es" }
                 ),
-            ])
-        } else {
-            Line::from(Span::styled("○ idle — no claude processes", dim()))
-        },
-    ];
+                Style::new().fg(C_CYAN),
+            ),
+        ])
+    } else {
+        Line::from(Span::styled("○ idle — no claude processes", dim()))
+    });
     if app.claude_total > 0 {
         lines.push(Line::from(Span::styled(
             format!(
@@ -2323,23 +2432,6 @@ fn ops_panel(app: &App) -> Vec<Line<'static>> {
     ));
     lines.push(Line::from(intr));
 
-    // Host alerts — invisible when clean, loud when not.
-    let alerts: Vec<String> = [
-        (app.failed_units, "failed units"),
-        (app.crashes, "crashes/h"),
-        (app.journal_errs, "journal errors/h"),
-    ]
-    .iter()
-    .filter(|(n, _)| *n > 0)
-    .map(|(n, label)| format!("{n} {label}"))
-    .collect();
-    if !alerts.is_empty() {
-        lines.push(Line::default());
-        lines.push(Line::from(vec![
-            Span::styled("ALERTS  ".to_string(), accent(C_RED)),
-            Span::styled(alerts.join("   "), Style::new().fg(C_RED)),
-        ]));
-    }
     lines.extend([
         Line::default(),
         Line::from(vec![
@@ -2425,9 +2517,11 @@ fn main() -> std::io::Result<()> {
     // diffs against it, leaving stale glyphs wherever the new frame is
     // shorter. A one-time clear realigns its model with the screen.
     terminal.clear()?;
+    let start = Instant::now();
     loop {
         {
-            let st = app.lock().unwrap();
+            let mut st = app.lock().unwrap();
+            st.render_secs = start.elapsed().as_secs_f64();
             terminal.draw(|f| ui(f, &st, mode))?;
         }
         if event::poll(Duration::from_millis(500))? {
