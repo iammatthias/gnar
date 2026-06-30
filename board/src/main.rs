@@ -1301,6 +1301,38 @@ fn section(title: Vec<Span<'static>>) -> Block<'static> {
         .title(Line::from(title))
 }
 
+/// Panel chrome, returning the content Rect. On the kiosk, Mango already
+/// draws a 2px border + gap around every tile, so a second ratatui box in
+/// the same color is pure redundant ink (and costs two rows + two cols) —
+/// there we render only a bold header row and hand back the rest. The
+/// ssh/tmux `full` board has no compositor, so it keeps the box as its
+/// only separation between panels. `right` is an optional right-aligned
+/// header (clock, etc.).
+fn panel(
+    frame: &mut Frame,
+    area: Rect,
+    bordered: bool,
+    title: Vec<Span<'static>>,
+    right: Option<Line<'static>>,
+) -> Rect {
+    if bordered {
+        let mut block = section(title);
+        if let Some(r) = right {
+            block = block.title(r.right_aligned());
+        }
+        let inner = block.inner(area);
+        frame.render_widget(block, area);
+        inner
+    } else {
+        let hdr = Rect { height: 1, ..area };
+        frame.render_widget(Paragraph::new(Line::from(title)), hdr);
+        if let Some(r) = right {
+            frame.render_widget(Paragraph::new(r).right_aligned(), hdr);
+        }
+        Rect { y: area.y + 1, height: area.height.saturating_sub(1), ..area }
+    }
+}
+
 /// Single-row sparkline string — the per-container mini charts.
 fn spark(vals: &VecDeque<f64>, width: usize, floor: f64, head: f64) -> String {
     let take = vals.len().min(width);
@@ -1454,12 +1486,13 @@ fn ui(frame: &mut Frame, app: &App, mode: Mode) {
     let area = frame.area();
     match mode {
         Mode::Full => ui_full(frame, app),
-        Mode::Cpu => render_cpu(frame, area, app),
-        Mode::Mem => render_mem(frame, area, app),
-        Mode::Net => render_net(frame, area, app),
-        Mode::Disk => render_disk(frame, area, app),
-        Mode::Containers => render_containers(frame, area, app),
-        Mode::Status => render_status(frame, area, app, true),
+        // Kiosk tiles: Mango draws the frame, so render borderless.
+        Mode::Cpu => render_cpu(frame, area, app, false),
+        Mode::Mem => render_mem(frame, area, app, false),
+        Mode::Net => render_net(frame, area, app, false),
+        Mode::Disk => render_disk(frame, area, app, false),
+        Mode::Containers => render_containers(frame, area, app, false),
+        Mode::Status => render_status(frame, area, app, true, false),
     }
 }
 
@@ -1485,41 +1518,38 @@ fn ui_full(frame: &mut Frame, app: &App) {
     frame.render_widget(Paragraph::new(title), header);
     frame.render_widget(Paragraph::new(clock), header);
 
+    // Full board has no compositor — keep the boxes as panel separators.
     let [cpu_a, mem_a] = Layout::horizontal([Constraint::Percentage(50), Constraint::Percentage(50)]).areas(hosttop);
-    render_cpu(frame, cpu_a, app);
-    render_mem(frame, mem_a, app);
+    render_cpu(frame, cpu_a, app, true);
+    render_mem(frame, mem_a, app, true);
 
     let [net_a, disk_a] = Layout::horizontal([Constraint::Percentage(50), Constraint::Percentage(50)]).areas(hostnet);
-    render_net(frame, net_a, app);
-    render_disk(frame, disk_a, app);
+    render_net(frame, net_a, app, true);
+    render_disk(frame, disk_a, app, true);
 
     let [cont_a, stat_a] = Layout::horizontal([Constraint::Percentage(62), Constraint::Percentage(38)]).areas(lower);
-    render_containers(frame, cont_a, app);
-    render_status(frame, stat_a, app, false);
+    render_containers(frame, cont_a, app, true);
+    render_status(frame, stat_a, app, false, true);
 }
 
-fn render_cpu(frame: &mut Frame, cpu_a: Rect, app: &App) {
+fn render_cpu(frame: &mut Frame, cpu_a: Rect, app: &App, bordered: bool) {
     let h = &app.host;
     let temp = h.temp_c.map(|t| format!("· {t:.0}°C ")).unwrap_or_default();
     let watts = h.watts.map(|w| format!("· {w:.0}W ")).unwrap_or_default();
-    let mut cpu_block = section(vec![
+    let title = vec![
         Span::styled(" CPU ", accent(C_CYAN)),
         Span::styled(format!("{:.1}% ", h.cpu_cur), Style::new().fg(heat(h.cpu_cur / 100.0))),
         Span::styled(format!("{temp}{watts}"), dim()),
-    ]);
+    ];
     // Tile mode: the kiosk has no global header, so clock + uptime ride
-    // this tile's title bar.
-    if cpu_a.height >= 22 && !app.clock.is_empty() {
-        cpu_block = cpu_block.title(
-            Line::from(Span::styled(
-                format!(" {} · up {} ", app.clock, human_uptime(h.uptime)),
-                dim(),
-            ))
-            .right_aligned(),
-        );
-    }
-    let cpu_inner = cpu_block.inner(cpu_a);
-    frame.render_widget(cpu_block, cpu_a);
+    // this tile's header line.
+    let right = (cpu_a.height >= 22 && !app.clock.is_empty()).then(|| {
+        Line::from(Span::styled(
+            format!(" {} · up {} ", app.clock, human_uptime(h.uptime)),
+            dim(),
+        ))
+    });
+    let cpu_inner = panel(frame, cpu_a, bordered, title, right);
     if cpu_inner.height >= 20 && !h.cores_hist.is_empty() {
         // Tile mode: graph + per-core sparkline grid + load + top procs.
         let ncores = h.cores_hist.len();
@@ -1583,19 +1613,18 @@ fn render_cpu(frame: &mut Frame, cpu_a: Rect, app: &App) {
     }
 }
 
-fn render_mem(frame: &mut Frame, mem_a: Rect, app: &App) {
+fn render_mem(frame: &mut Frame, mem_a: Rect, app: &App, bordered: bool) {
     let h = &app.host;
     let mem_t = if h.mem_total > 0.0 { h.mem_cur / h.mem_total } else { 0.0 };
-    let mem_block = section(vec![
+    let title = vec![
         Span::styled(" MEM ", accent(C_MAGENTA)),
         Span::styled(
             format!("{} / {} ", human_mem(h.mem_cur).trim(), human_mem(h.mem_total).trim()),
             Style::new().fg(C_FG),
         ),
         Span::styled(format!("· {:.0}% ", mem_t * 100.0), dim()),
-    ]);
-    let mem_inner = mem_block.inner(mem_a);
-    frame.render_widget(mem_block, mem_a);
+    ];
+    let mem_inner = panel(frame, mem_a, bordered, title, None);
     if mem_inner.height >= 20 {
         // Tile mode: graph + breakdown gauges + top procs by memory.
         let nprocs = app.procs_mem.len().min(6) as u16;
@@ -1662,16 +1691,20 @@ fn render_mem(frame: &mut Frame, mem_a: Rect, app: &App) {
     }
 }
 
-fn render_net(frame: &mut Frame, net_a: Rect, app: &App) {
+fn render_net(frame: &mut Frame, net_a: Rect, app: &App, bordered: bool) {
     let h = &app.host;
     let peak = |v: &VecDeque<f64>| v.iter().copied().fold(0.0f64, f64::max);
 
-    let net_block = section(vec![
-        Span::styled(" NET ", accent(C_YELLOW)),
-        Span::styled(format!("{} ", h.iface), dim()),
-    ]);
-    let net_inner = net_block.inner(net_a);
-    frame.render_widget(net_block, net_a);
+    let net_inner = panel(
+        frame,
+        net_a,
+        bordered,
+        vec![
+            Span::styled(" NET ", accent(C_YELLOW)),
+            Span::styled(format!("{} ", h.iface), dim()),
+        ],
+        None,
+    );
     // Tile mode gets a totals/sockets footer and the probed site list
     // (ingress health is network business) under the graphs.
     let mut sites_a = None;
@@ -1765,7 +1798,7 @@ fn render_net(frame: &mut Frame, net_a: Rect, app: &App) {
     }
 }
 
-fn render_disk(frame: &mut Frame, disk_a: Rect, app: &App) {
+fn render_disk(frame: &mut Frame, disk_a: Rect, app: &App, bordered: bool) {
     let h = &app.host;
     let peak = |v: &VecDeque<f64>| v.iter().copied().fold(0.0f64, f64::max);
 
@@ -1774,15 +1807,19 @@ fn render_disk(frame: &mut Frame, disk_a: Rect, app: &App) {
         (Some(w), None) => format!("· wear {w}% "),
         _ => String::new(),
     };
-    let disk_block = section(vec![
-        Span::styled(" DISK ", accent(C_BLUE)),
-        Span::styled(
-            format!("/ {}% · {} · {} images {}", app.disk_pct, app.disk_detail, app.images, nvme),
-            dim(),
-        ),
-    ]);
-    let disk_inner = disk_block.inner(disk_a);
-    frame.render_widget(disk_block, disk_a);
+    let disk_inner = panel(
+        frame,
+        disk_a,
+        bordered,
+        vec![
+            Span::styled(" DISK ", accent(C_BLUE)),
+            Span::styled(
+                format!("/ {}% · {} · {} images {}", app.disk_pct, app.disk_detail, app.images, nvme),
+                dim(),
+            ),
+        ],
+        None,
+    );
     // Tile mode gets a lifetime-IO footer under the graphs.
     let (body, footer) = if disk_inner.height >= 14 {
         let [b, f] = Layout::vertical([Constraint::Min(4), Constraint::Length(2)]).areas(disk_inner);
@@ -1850,7 +1887,7 @@ fn render_disk(frame: &mut Frame, disk_a: Rect, app: &App) {
     );
 }
 
-fn render_containers(frame: &mut Frame, cont_a: Rect, app: &App) {
+fn render_containers(frame: &mut Frame, cont_a: Rect, app: &App, bordered: bool) {
     let total_mem: f64 = app.containers.values().map(|s| s.mem_cur).sum();
     let flagged = app.containers.values().filter(|s| s.flag.is_some()).count();
     let mut title = vec![
@@ -1861,9 +1898,7 @@ fn render_containers(frame: &mut Frame, cont_a: Rect, app: &App) {
     if flagged > 0 {
         title.push(Span::styled(format!("· {flagged} unhealthy "), Style::new().fg(C_RED)));
     }
-    let cont_block = section(title);
-    let cont_inner = cont_block.inner(cont_a);
-    frame.render_widget(cont_block, cont_a);
+    let cont_inner = panel(frame, cont_a, bordered, title, None);
     // Tile mode gets a host-services + docker-ops footer.
     let (body, footer) = if cont_inner.height >= 24 {
         let [b, f] = Layout::vertical([Constraint::Min(8), Constraint::Length(6)]).areas(cont_inner);
@@ -1884,7 +1919,7 @@ fn render_containers(frame: &mut Frame, cont_a: Rect, app: &App) {
     }
 }
 
-fn render_status(frame: &mut Frame, stat_a: Rect, app: &App, tile: bool) {
+fn render_status(frame: &mut Frame, stat_a: Rect, app: &App, tile: bool, bordered: bool) {
     // On the kiosk this tile is all Hermes — services/sites/docker live
     // in the NET and CONTAINERS tiles there.
     let (title, content) = if tile {
@@ -1892,9 +1927,7 @@ fn render_status(frame: &mut Frame, stat_a: Rect, app: &App, tile: bool) {
     } else {
         (" STATUS ", status_panel(app))
     };
-    let stat_block = section(vec![Span::styled(title, accent(C_MAGENTA))]);
-    let stat_inner = stat_block.inner(stat_a);
-    frame.render_widget(stat_block, stat_a);
+    let stat_inner = panel(frame, stat_a, bordered, vec![Span::styled(title, accent(C_MAGENTA))], None);
     frame.render_widget(Paragraph::new(content), stat_inner);
 }
 
