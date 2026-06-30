@@ -2229,23 +2229,8 @@ fn docker_line(app: &App) -> Line<'static> {
     if !app.prune_next.is_empty() {
         spans.push(Span::styled(format!("   prune {}", app.prune_next), dim()));
     }
-    // Routine updates are informational (dim) — on a rolling release,
-    // nagging to upgrade trades stability for novelty. Security fixes are
-    // the exception: those get a real, colored callout.
-    match app.updates {
-        Some(0) => spans.push(Span::styled("   pacman up to date", dim())),
-        Some(n) => spans.push(Span::styled(format!("   {n} updates"), dim())),
-        None => {}
-    }
-    if let Some(s) = app.sec_updates.filter(|s| *s > 0) {
-        spans.push(Span::styled(format!("   ● {s} security"), Style::new().fg(C_RED)));
-    }
-    if let Some(d) = app.last_update_days {
-        spans.push(Span::styled(format!("   updated {d}d ago"), dim()));
-    }
-    if let Some(v) = &app.reboot_pending {
-        spans.push(Span::styled(format!("   ● reboot pending ({v})"), Style::new().fg(C_YELLOW)));
-    }
+    // Updates / security / reboot live in the OPS tile's SECURITY section,
+    // which renders right below this line — no need to repeat them here.
     Line::from(spans)
 }
 
