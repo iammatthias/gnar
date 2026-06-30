@@ -17,8 +17,13 @@
 
 set -u
 
+# Small displays (set by ~/.zprofile) override the foot font so the compact
+# grid tiles stay legible; unset → foot.ini's default.
+font_args=()
+[ -n "${GNAR_KIOSK_FONT:-}" ] && font_args=(--font="$GNAR_KIOSK_FONT")
+
 for panel in cpu mem net disk containers status; do
-    foot --app-id="gnar-$panel" \
+    foot --app-id="gnar-$panel" "${font_args[@]}" \
          -e sh -c "while :; do gnar-board $panel; sleep 2; done" &
     sleep 0.5
 done

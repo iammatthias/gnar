@@ -569,6 +569,9 @@ echo -e "${GREEN}Configuring kiosk dashboard (auto-login + Mango on tty1)...${NC
 install -d -o "$REAL_USER" -g "$REAL_USER" "$REAL_HOME/.config/mango"
 install -m 644 -o "$REAL_USER" -g "$REAL_USER" \
     "$CONFIGS/mango-config.conf" "$REAL_HOME/.config/mango/config.conf"
+# Small-display (≤1366 wide) grid layout — ~/.zprofile picks it by resolution.
+install -m 644 -o "$REAL_USER" -g "$REAL_USER" \
+    "$CONFIGS/mango-config-1280.conf" "$REAL_HOME/.config/mango/config-1280.conf"
 install -d -o "$REAL_USER" -g "$REAL_USER" "$REAL_HOME/.config/foot"
 install -m 644 -o "$REAL_USER" -g "$REAL_USER" \
     "$CONFIGS/foot.ini" "$REAL_HOME/.config/foot/foot.ini"
