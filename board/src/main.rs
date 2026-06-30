@@ -1081,13 +1081,19 @@ fn sample_alerts() -> Alerts {
         .into_iter()
         .map(|(p, n)| if n > 1 { format!("{p} ×{n}") } else { p })
         .collect();
+    // Exclude every line of a systemd-coredump dump — crashes are their own
+    // signal, so the trace, module list, and the trailing "ELF object binary
+    // architecture: …" epilogue must not read as separate "journal errors".
     let err_lines: Vec<&String> = p3
         .iter()
         .filter(|l| {
             let t = l.trim_start();
             !(t.starts_with('#')
                 || t.starts_with("Module ")
+                || t.starts_with("Found module")
                 || t.starts_with("Stack trace of")
+                || t.starts_with("ELF object")
+                || t.starts_with("Stored in")
                 || t.contains(" dumped core"))
         })
         .collect();
@@ -1501,15 +1507,22 @@ fn graph_lines(
 
 const PAGE_SECS: f64 = 5.0; // seconds each page of a cycled list is shown
 
-/// Cycle a list of rendered lines through pages that fit `rows`, advancing
-/// every PAGE_SECS so a long list is shown in full over time rather than
-/// crammed or truncated. Appends a dim "⟳ n/m" indicator while paging.
-/// Returns the list unchanged when it already fits.
-fn paged(lines: Vec<Line<'static>>, rows: usize, secs: f64) -> Vec<Line<'static>> {
-    if rows <= 1 || lines.len() <= rows {
+/// Cycle a list of rendered lines through pages, advancing every PAGE_SECS
+/// so a long list is shown in full over time rather than crammed. Pages are
+/// sized to fit `rows`, or to `cap` items when `cap > 0 and < rows` — that
+/// forces a calmer page even when more would fit. Appends a dim "⟳ n/m"
+/// indicator while paging; returns the list unchanged when it all fits.
+fn paged(lines: Vec<Line<'static>>, rows: usize, cap: usize, secs: f64) -> Vec<Line<'static>> {
+    if rows <= 1 {
         return lines;
     }
-    let per = rows - 1; // reserve a row for the indicator
+    let mut per = rows - 1; // reserve a row for the indicator
+    if cap > 0 {
+        per = per.min(cap);
+    }
+    if lines.len() <= per || (cap == 0 && lines.len() <= rows) {
+        return lines;
+    }
     let pages = lines.len().div_ceil(per);
     let page = ((secs / PAGE_SECS) as usize) % pages;
     let start = page * per;
@@ -1933,7 +1946,7 @@ fn render_net(frame: &mut Frame, net_a: Rect, app: &App, bordered: bool) {
         }
         let mut lines = vec![Line::default(), Line::from(header), Line::default()];
         // Three header lines above; cycle the site rows through what's left.
-        lines.extend(paged(site_rows(app), (sa.height as usize).saturating_sub(3), app.render_secs));
+        lines.extend(paged(site_rows(app), (sa.height as usize).saturating_sub(3), 0, app.render_secs));
         frame.render_widget(Paragraph::new(lines), sa);
     }
 }
@@ -2039,24 +2052,12 @@ fn render_containers(frame: &mut Frame, cont_a: Rect, app: &App, bordered: bool)
         title.push(Span::styled(format!("· {flagged} unhealthy "), Style::new().fg(C_RED)));
     }
     let cont_inner = panel(frame, cont_a, bordered, title, None);
-    // Tile mode gets a host-services + docker-ops footer.
-    let (body, footer) = if cont_inner.height >= 24 {
-        let [b, f] = Layout::vertical([Constraint::Min(8), Constraint::Length(6)]).areas(cont_inner);
-        (b, Some(f))
-    } else {
-        (cont_inner, None)
-    };
+    // The list cycles (containers_panel) with breathing room at the bottom;
+    // host-services + docker-ops moved to the OPS tile, which had the room.
     frame.render_widget(
-        Paragraph::new(containers_panel(app, body.width as usize, body.height as usize)),
-        body,
+        Paragraph::new(containers_panel(app, cont_inner.width as usize, cont_inner.height as usize)),
+        cont_inner,
     );
-    if let Some(f) = footer {
-        let mut lines = vec![Line::default()];
-        lines.extend(service_rows(app));
-        lines.push(Line::default());
-        lines.push(docker_line(app));
-        frame.render_widget(Paragraph::new(lines), f);
-    }
 }
 
 fn render_status(frame: &mut Frame, stat_a: Rect, app: &App, tile: bool, bordered: bool) {
@@ -2128,8 +2129,10 @@ fn containers_panel(app: &App, width: usize, height: usize) -> Vec<Line<'static>
     if rows.is_empty() {
         lines.push(Line::styled("(no running containers)", dim()));
     } else {
-        // Header took two lines; cycle the rest through the remaining rows.
-        lines.extend(paged(rows, height.saturating_sub(2), app.render_secs));
+        // Kiosk tile: cycle ~12 at a time for a calmer view, breathing room
+        // pooling at the bottom. Full board (short): just show what fits.
+        let cap = if height >= 20 { 12 } else { 0 };
+        lines.extend(paged(rows, height.saturating_sub(2), cap, app.render_secs));
     }
     lines
 }
@@ -2394,6 +2397,12 @@ fn ops_panel(app: &App) -> Vec<Line<'static>> {
             dim(),
         )));
     }
+    // SERVICES + DOCKER — host units and the container-ops summary, moved
+    // here from the (now calmer, cycling) CONTAINERS tile.
+    lines.push(Line::default());
+    lines.push(Line::styled("SERVICES", accent(C_BLUE)));
+    lines.extend(service_rows(app));
+    lines.push(docker_line(app));
     // SECURITY — posture at a glance. Updates stay dim (routine on a
     // rolling release); CVE-fixing updates, a pending reboot, and live
     // intrusion counters carry color.
