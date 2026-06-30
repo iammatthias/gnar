@@ -652,8 +652,8 @@ fn status_loop(app: Arc<Mutex<App>>, mode: Mode) {
         probe_sites(&mut sites);
         let backup = backup_info();
         let (disk_pct, disk_detail) = disk_usage();
-        let procs_cpu = top_procs("-pcpu", 10);
-        let procs_mem = top_procs("-pmem", 8);
+        let procs_cpu = top_procs("-pcpu", 14);
+        let procs_mem = top_procs("-pmem", 14);
         let prune_next = prune_timer_next();
         let images = docker_get("/images/json")
             .ok()
@@ -1799,27 +1799,28 @@ fn render_mem(frame: &mut Frame, mem_a: Rect, app: &App, bordered: bool) {
     ];
     let mem_inner = panel(frame, mem_a, bordered, title, None);
     if mem_inner.height >= 20 {
-        // Tile mode: graph + breakdown gauges + top procs by memory.
-        let nprocs = app.procs_mem.len().min(6) as u16;
-        let [graph_a, brk_a, procs_a] = Layout::vertical([
-            Constraint::Min(5),
+        // Memory barely moves, so a tall area graph can only void (absolute
+        // scale) or paint a solid block (fill scale). Use a one-line trend
+        // sparkline and give the panel to the gauges + top-memory table,
+        // which carry the real detail.
+        let total = h.mem_total.max(1.0);
+        let [spark_a, brk_a, procs_a] = Layout::vertical([
+            Constraint::Length(1),
             Constraint::Length(6),
-            Constraint::Length(nprocs + 3),
+            Constraint::Min(4),
         ])
         .areas(mem_inner);
         frame.render_widget(
-            Paragraph::new(graph_lines(
-                &h.mem_used,
-                graph_a.width as usize,
-                graph_a.height as usize,
-                fill_max(&h.mem_used, h.mem_total.max(1.0) * 0.25),
-                h.mem_total.max(1.0),
-                |t| lerp(BLUE_RGB, MAGENTA_RGB, t),
-            )),
-            graph_a,
+            Paragraph::new(Line::from(vec![
+                Span::styled("trend ", dim()),
+                Span::styled(
+                    spark(&h.mem_used, (spark_a.width as usize).saturating_sub(6), total * 0.2, 1.1),
+                    Style::new().fg(C_BLUE),
+                ),
+            ])),
+            spark_a,
         );
         let w = brk_a.width as usize;
-        let total = h.mem_total.max(1.0);
         frame.render_widget(
             Paragraph::new(vec![
                 Line::default(),
@@ -1836,7 +1837,10 @@ fn render_mem(frame: &mut Frame, mem_a: Rect, app: &App, bordered: bool) {
             ]),
             brk_a,
         );
-        frame.render_widget(Paragraph::new(proc_lines("TOP MEM", &app.procs_mem, 6, true)), procs_a);
+        frame.render_widget(
+            Paragraph::new(proc_lines("TOP MEM", &app.procs_mem, (procs_a.height as usize).saturating_sub(3), true)),
+            procs_a,
+        );
     } else if mem_inner.height > 1 {
         let graph = Rect { height: mem_inner.height - 1, ..mem_inner };
         frame.render_widget(
