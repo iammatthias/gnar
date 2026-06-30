@@ -100,6 +100,18 @@ struct Site {
     ms: u64,
 }
 
+/// 5-minute traffic for one Caddy host: request total, error buckets, and
+/// a request-rate sparkline across the window. The shape makes a bot scan
+/// or a sudden spike visible where a lone "N/5m" can't.
+#[derive(Default, Clone)]
+struct Traffic {
+    reqs: u32,
+    e404: u32,
+    e4xx: u32, // 4xx that isn't 404 — the actionable ones
+    e5xx: u32,
+    spark: Vec<f64>, // per-bin request counts, oldest→newest
+}
+
 struct Prev {
     at: Instant,
     cpu_total: u64,
@@ -114,6 +126,7 @@ struct Host {
     cores: Vec<f64>,                // per-core %, latest sample
     cores_hist: Vec<VecDeque<f64>>, // per-core history (tile mode)
     temp_c: Option<f64>,
+    temp_hist: VecDeque<f64>, // package temp trend (°C)
     mem_used: VecDeque<f64>, // MiB
     mem_cur: f64,
     mem_total: f64,
@@ -132,6 +145,7 @@ struct Host {
     tx_total: u64,
     tcp_inuse: u64,
     tcp_tw: u64,
+    tcp_hist: VecDeque<f64>, // established+timewait sockets trend
     io_r: VecDeque<f64>, // bytes/sec
     io_w: VecDeque<f64>,
     io_r_cur: f64,
@@ -143,7 +157,8 @@ struct Host {
     load: f64,
     load_hist: VecDeque<f64>,
     ncpu: usize,
-    watts: Option<f64>, // CPU package draw via RAPL (None if unreadable)
+    watts: Option<f64>,       // CPU package draw via RAPL (None if unreadable)
+    watts_hist: VecDeque<f64>, // package draw trend (W)
     prev_cpu: Option<(Vec<(u64, u64)>, (u64, u64))>, // per-core + total (busy, total)
     prev_net: Option<(Instant, u64, u64)>,
     prev_io: Option<(Instant, u64, u64)>,
@@ -173,7 +188,7 @@ struct App {
     backup_age_h: Option<u64>,
     backup_size_mb: u64,
     backup_sizes: Vec<f64>, // archive sizes by age, oldest first (MB)
-    traffic: HashMap<String, (u32, u32, u32, u32)>, // host → (reqs/5m, 404, other-4xx, 5xx)
+    traffic: HashMap<String, Traffic>, // per-host 5-minute traffic + sparkline
     failed_units: usize,
     journal_errs: usize,
     crashes: usize,
@@ -425,6 +440,7 @@ fn sample_host(h: &mut Host) {
             let f: Vec<&str> = l.split_whitespace().collect();
             h.tcp_inuse = f.get(2).and_then(|v| v.parse().ok()).unwrap_or(0);
             h.tcp_tw = f.get(6).and_then(|v| v.parse().ok()).unwrap_or(0);
+            push(&mut h.tcp_hist, (h.tcp_inuse + h.tcp_tw) as f64);
         }
     }
     // Wireless link quality — this box's uplink is wifi, so the radio
@@ -465,6 +481,9 @@ fn sample_host(h: &mut Host) {
         h.hostname = fs::read_to_string("/etc/hostname").map(|s| s.trim().to_string()).unwrap_or_default();
     }
     h.temp_c = cpu_temp();
+    if let Some(t) = h.temp_c {
+        push(&mut h.temp_hist, t);
+    }
     // CPU package power via RAPL. Root-only by default; gnar ships a
     // tmpfiles.d rule opening it to 0444 — degrade silently without it.
     if let Some(e) = fs::read_to_string("/sys/class/powercap/intel-rapl:0/energy_uj")
@@ -475,7 +494,9 @@ fn sample_host(h: &mut Host) {
             let dt = now.duration_since(at).as_secs_f64();
             if dt > 0.0 && e > pe {
                 // skip wrap-around samples (e < pe)
-                h.watts = Some((e - pe) as f64 / 1e6 / dt);
+                let w = (e - pe) as f64 / 1e6 / dt;
+                h.watts = Some(w);
+                push(&mut h.watts_hist, w);
             }
         }
         h.prev_energy = Some((now, e));
@@ -581,7 +602,10 @@ fn status_loop(app: Arc<Mutex<App>>, mode: Mode) {
     // its own process, so an ungated sampler runs once per tile — six
     // concurrent `checkupdates` racing the temp sync DB is what produced a
     // false "up to date". Gate each heavy sampler to the panel that shows it.
-    let shows_updates = matches!(mode, Mode::Full | Mode::Containers);
+    // updates/security/last-update render in the OPS (Status) tile's
+    // SECURITY section, so only it runs checkupdates — keeping the one
+    // network sync off the critical path and out of a multi-tile race.
+    let shows_updates = matches!(mode, Mode::Full | Mode::Status);
     let shows_disk = matches!(mode, Mode::Full | Mode::Disk);
     let shows_claude = matches!(mode, Mode::Full | Mode::Status);
     let mut tick: u64 = 0;
@@ -924,13 +948,16 @@ fn top_procs(sort: &str, n: usize) -> Vec<String> {
 
 const ACCESS_LOG: &str = "/srv/stack/data/caddy/data/access/access.log";
 
+const TRAFFIC_BINS: usize = 10; // sparkline columns across the 5-min window
+
 /// Incrementally tail caddy's shared JSON access log and aggregate a
-/// 5-minute window of per-host request counts and 404 / other-4xx / 5xx
-/// tallies. Only complete lines are consumed; rotation resets the offset.
+/// 5-minute window of per-host request counts, 404 / other-4xx / 5xx
+/// tallies, and a request-rate sparkline. Only complete lines are
+/// consumed; rotation resets the offset.
 fn sample_traffic(
     offset: &mut u64,
     window: &mut VecDeque<(Instant, String, u16)>,
-) -> HashMap<String, (u32, u32, u32, u32)> {
+) -> HashMap<String, Traffic> {
     if let Ok(mut f) = fs::File::open(ACCESS_LOG) {
         let len = f.metadata().map(|m| m.len()).unwrap_or(0);
         if len < *offset {
@@ -972,16 +999,24 @@ fn sample_traffic(
     // 404 is bucketed apart from the rest of the 4xx range: on a public
     // host it's almost entirely bot/scanner/missing-asset noise, whereas
     // 400/401/403/429 usually mean something a human should look at.
-    let mut map: HashMap<String, (u32, u32, u32, u32)> = HashMap::new();
-    for (_, host, status) in window.iter() {
+    let now = Instant::now();
+    let mut map: HashMap<String, Traffic> = HashMap::new();
+    for (t, host, status) in window.iter() {
         let e = map.entry(host.clone()).or_default();
-        e.0 += 1;
+        if e.spark.is_empty() {
+            e.spark = vec![0.0; TRAFFIC_BINS];
+        }
+        e.reqs += 1;
         match *status {
-            404 => e.1 += 1,
-            400..=499 => e.2 += 1,
-            s if s >= 500 => e.3 += 1,
+            404 => e.e404 += 1,
+            400..=499 => e.e4xx += 1,
+            s if s >= 500 => e.e5xx += 1,
             _ => {}
         }
+        // Oldest (≈300s ago) → bin 0, newest → last bin.
+        let age = now.duration_since(*t).as_secs_f64().min(300.0);
+        let bin = (((300.0 - age) / 300.0) * (TRAFFIC_BINS as f64 - 1.0)).round() as usize;
+        e.spark[bin.min(TRAFFIC_BINS - 1)] += 1.0;
     }
     map
 }
@@ -1352,6 +1387,21 @@ fn spark(vals: &VecDeque<f64>, width: usize, floor: f64, head: f64) -> String {
     s
 }
 
+/// Sparkline from a fixed slice (already bucketed), scaled to its own max
+/// with `floor` as the minimum ceiling. Width == slice length.
+fn spark_vec(vals: &[f64], floor: f64, head: f64) -> String {
+    let mut max = floor;
+    for v in vals {
+        if *v > max {
+            max = *v;
+        }
+    }
+    max = (max * head).max(f64::MIN_POSITIVE);
+    vals.iter()
+        .map(|v| TICKS[((v / max * 7.0).round() as usize).min(7)])
+        .collect()
+}
+
 /// Multi-row graph with per-column color: each column is the newest
 /// `width` samples scaled to `max`, drawn in eighth-block resolution
 /// across `rows` lines and colored by `color(value/max)`. This is what
@@ -1534,13 +1584,22 @@ fn ui_full(frame: &mut Frame, app: &App) {
 
 fn render_cpu(frame: &mut Frame, cpu_a: Rect, app: &App, bordered: bool) {
     let h = &app.host;
-    let temp = h.temp_c.map(|t| format!("· {t:.0}°C ")).unwrap_or_default();
-    let watts = h.watts.map(|w| format!("· {w:.0}W ")).unwrap_or_default();
-    let title = vec![
+    // Sensors ride the header as Tufte word-graphics: trend sparkline then
+    // the current reading. Flat = steady, which is its own glanceable signal.
+    let mut title = vec![
         Span::styled(" CPU ", accent(C_CYAN)),
         Span::styled(format!("{:.1}% ", h.cpu_cur), Style::new().fg(heat(h.cpu_cur / 100.0))),
-        Span::styled(format!("{temp}{watts}"), dim()),
     ];
+    if let Some(t) = h.temp_c {
+        title.push(Span::styled("· ", dim()));
+        title.push(Span::styled(spark(&h.temp_hist, 6, 30.0, 1.1), Style::new().fg(heat((t / 90.0).clamp(0.0, 1.0)))));
+        title.push(Span::styled(format!(" {t:.0}°C "), dim()));
+    }
+    if let Some(w) = h.watts {
+        title.push(Span::styled("· ", dim()));
+        title.push(Span::styled(spark(&h.watts_hist, 6, 2.0, 1.2), Style::new().fg(C_YELLOW)));
+        title.push(Span::styled(format!(" {w:.0}W "), dim()));
+    }
     // Tile mode: the kiosk has no global header, so clock + uptime ride
     // this tile's header line.
     let right = (cpu_a.height >= 22 && !app.clock.is_empty()).then(|| {
@@ -1750,10 +1809,9 @@ fn render_net(frame: &mut Frame, net_a: Rect, app: &App, bordered: bool) {
                 Span::styled(format!("↓ {}", human_size(h.rx_total as f64)), Style::new().fg(C_CYAN)),
                 Span::styled(" · ", dim()),
                 Span::styled(format!("↑ {}", human_size(h.tx_total as f64)), Style::new().fg(C_MAGENTA)),
-                Span::styled(
-                    format!("      tcp {} estab · {} timewait", h.tcp_inuse, h.tcp_tw),
-                    dim(),
-                ),
+                Span::styled("      tcp ", dim()),
+                Span::styled(spark(&h.tcp_hist, 10, 8.0, 1.2), Style::new().fg(C_BLUE)),
+                Span::styled(format!(" {} estab · {} tw", h.tcp_inuse, h.tcp_tw), dim()),
             ]),
         ];
         // Radio + tailnet line: link quality colored good→bad (inverted
@@ -1920,10 +1978,10 @@ fn render_containers(frame: &mut Frame, cont_a: Rect, app: &App, bordered: bool)
 }
 
 fn render_status(frame: &mut Frame, stat_a: Rect, app: &App, tile: bool, bordered: bool) {
-    // On the kiosk this tile is all Hermes — services/sites/docker live
-    // in the NET and CONTAINERS tiles there.
+    // On the kiosk this tile is the OPS surface — services/sites/docker
+    // live in the NET and CONTAINERS tiles there.
     let (title, content) = if tile {
-        (" HERMES ", hermes_panel(app))
+        (" OPS ", ops_panel(app))
     } else {
         (" STATUS ", status_panel(app))
     };
@@ -2042,21 +2100,30 @@ fn site_rows(app: &App) -> Vec<Line<'static>> {
                 Span::styled(format!("{info:<11}"), info_style),
             ];
             match app.traffic.get(&site.host) {
-                Some((reqs, e404, e4xx, e5xx)) if *reqs > 0 => {
-                    spans.push(Span::styled(format!("{reqs:>4}/5m "), Style::new().fg(C_CYAN)));
+                Some(t) if t.reqs > 0 => {
+                    let sp = if t.spark.is_empty() {
+                        " ".repeat(TRAFFIC_BINS)
+                    } else {
+                        spark_vec(&t.spark, 1.0, 1.1)
+                    };
+                    spans.push(Span::styled(sp, dim()));
+                    spans.push(Span::styled(format!(" {:>4}/5m ", t.reqs), Style::new().fg(C_CYAN)));
                     // Priority: server errors > actionable 4xx > 404 noise.
                     // 404s are dimmed so they read as background hum, not a fault.
-                    if *e5xx > 0 {
-                        spans.push(Span::styled(format!("{e5xx}×5xx "), Style::new().fg(C_RED)));
-                    } else if *e4xx > 0 {
-                        spans.push(Span::styled(format!("{e4xx}×4xx "), Style::new().fg(C_YELLOW)));
-                    } else if *e404 > 0 {
-                        spans.push(Span::styled(format!("{e404}×404 "), dim()));
+                    if t.e5xx > 0 {
+                        spans.push(Span::styled(format!("{}×5xx ", t.e5xx), Style::new().fg(C_RED)));
+                    } else if t.e4xx > 0 {
+                        spans.push(Span::styled(format!("{}×4xx ", t.e4xx), Style::new().fg(C_YELLOW)));
+                    } else if t.e404 > 0 {
+                        spans.push(Span::styled(format!("{}×404 ", t.e404), dim()));
                     } else {
                         spans.push(Span::raw("      "));
                     }
                 }
-                _ => spans.push(Span::styled("   -/5m       ", dim())),
+                _ => {
+                    spans.push(Span::raw(" ".repeat(TRAFFIC_BINS)));
+                    spans.push(Span::styled("    -/5m      ", dim()));
+                }
             }
             spans.push(Span::styled(site.kind.clone(), Style::new().fg(kind_color)));
             Line::from(spans)
@@ -2146,7 +2213,10 @@ fn status_panel(app: &App) -> Vec<Line<'static>> {
 
 /// The kiosk's HERMES tile: gateway + backup health, live claude runs,
 /// kanban tasks, and the cron schedule.
-fn hermes_panel(app: &App) -> Vec<Line<'static>> {
+/// The kiosk OPS tile: Hermes gateway + backup health, live claude runs,
+/// the box's security posture, host alerts, kanban, and cron. Folds what
+/// used to be three sparse half-empty regions into one dense ops surface.
+fn ops_panel(app: &App) -> Vec<Line<'static>> {
     let gateway_up = app.containers.contains_key("gnar-hermes-gateway");
     let size = if app.backup_size_mb > 0 { format!(" · {}M", app.backup_size_mb) } else { String::new() };
     let backup_span = match app.backup_age_h {
@@ -2196,13 +2266,49 @@ fn hermes_panel(app: &App) -> Vec<Line<'static>> {
             dim(),
         )));
     }
-    // Host alerts — invisible when everything is clean, loud when not.
+    // SECURITY — posture at a glance. Updates stay dim (routine on a
+    // rolling release); CVE-fixing updates, a pending reboot, and live
+    // intrusion counters carry color.
+    lines.push(Line::default());
+    lines.push(Line::styled("SECURITY", accent(C_BLUE)));
+    let mut sec = Vec::new();
+    if let Some(n) = app.updates {
+        sec.push(Span::styled(format!("{n} updates"), dim()));
+    }
+    match app.sec_updates {
+        Some(s) if s > 0 => {
+            sec.push(Span::styled("   ● ".to_string(), Style::new().fg(C_RED)));
+            sec.push(Span::styled(format!("{s} security"), Style::new().fg(C_RED)));
+        }
+        Some(_) => sec.push(Span::styled("   ✓ no known CVEs".to_string(), Style::new().fg(C_GREEN))),
+        None => {}
+    }
+    if let Some(d) = app.last_update_days {
+        sec.push(Span::styled(format!("   · updated {d}d ago"), dim()));
+    }
+    if !sec.is_empty() {
+        lines.push(Line::from(sec));
+    }
+    let mut intr = Vec::new();
+    if let Some(v) = &app.reboot_pending {
+        intr.push(Span::styled(format!("● reboot pending ({v})   "), Style::new().fg(C_YELLOW)));
+    }
+    intr.push(Span::styled(
+        format!("{} banned", app.banned_ips),
+        Style::new().fg(if app.banned_ips > 0 { C_YELLOW } else { C_DIM }),
+    ));
+    intr.push(Span::styled(" · ", dim()));
+    intr.push(Span::styled(
+        format!("{} ssh fails/h", app.ssh_fails),
+        Style::new().fg(if app.ssh_fails > 0 { C_YELLOW } else { C_DIM }),
+    ));
+    lines.push(Line::from(intr));
+
+    // Host alerts — invisible when clean, loud when not.
     let alerts: Vec<String> = [
-        (app.failed_units, "failed units".to_string()),
-        (app.crashes, "crashes/h".to_string()),
-        (app.journal_errs, "journal errors/h".to_string()),
-        (app.banned_ips, "banned IPs".to_string()),
-        (app.ssh_fails, "ssh failures/h".to_string()),
+        (app.failed_units, "failed units"),
+        (app.crashes, "crashes/h"),
+        (app.journal_errs, "journal errors/h"),
     ]
     .iter()
     .filter(|(n, _)| *n > 0)
