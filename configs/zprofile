@@ -4,9 +4,9 @@
 # circuits when no monitor is connected. Plug a display into the server
 # and on next login this exec-launches the kiosk dashboard.
 #
-# The layout adapts to the panel: a small display (≤1366 wide, e.g. the
-# rack touch LCD) gets the grid config + a smaller font; a large one gets
-# the tuned 2560x1440 float mosaic.
+# The layout (mango grid) fills whatever screen is attached; here we only
+# scale the FONT to the resolution so tile density stays legible — small
+# rack LCD gets a smaller font, a desk monitor a larger one.
 if [ -z "$DISPLAY$WAYLAND_DISPLAY" ] && [ "$(tty)" = "/dev/tty1" ] && command -v mango &>/dev/null; then
     for _drm_status in /sys/class/drm/*/status; do
         [ -r "$_drm_status" ] || continue
@@ -16,16 +16,16 @@ if [ -z "$DISPLAY$WAYLAND_DISPLAY" ] && [ "$(tty)" = "/dev/tty1" ] && command -v
         _drm_dir="${_drm_status%/status}"
         _mode="$(head -n1 "$_drm_dir/modes" 2>/dev/null)"
         _width="${_mode%x*}"
-        case "$_width" in '' | *[!0-9]*) _width=0 ;; esac
+        case "$_width" in '' | *[!0-9]*) _width=2560 ;; esac
 
-        _cfg="$HOME/.config/mango/config.conf"
-        if [ "$_width" -gt 0 ] && [ "$_width" -le 1366 ] \
-            && [ -f "$HOME/.config/mango/config-1280.conf" ]; then
-            _cfg="$HOME/.config/mango/config-1280.conf"
-            # Smaller font so the compact tiles stay legible; tune for your
-            # panel's physical size / DPI.
-            export GNAR_KIOSK_FONT="JetBrainsMono Nerd Font:size=11"
+        if [ "$_width" -le 1366 ]; then
+            _size=10            # rack / small touch LCD
+        elif [ "$_width" -le 1920 ]; then
+            _size=12
+        else
+            _size=14            # desk monitor
         fi
-        exec mango -c "$_cfg"
+        export GNAR_KIOSK_FONT="JetBrainsMono Nerd Font:size=$_size"
+        exec mango -c "$HOME/.config/mango/config.conf"
     done
 fi
