@@ -88,7 +88,7 @@ pacman -S --noconfirm \
   fastfetch htop btop iotop nethogs lsof ncdu \
   tree bc rsync rclone p7zip imagemagick httpie \
   net-tools openssh ufw fail2ban nmap tcpdump wireshark-cli \
-  postgresql valkey sqlite smartmontools pacman-contrib
+  postgresql valkey sqlite smartmontools pacman-contrib arch-audit
 
 echo -e "${GREEN}Installing display stack (Mango kiosk dashboard)...${NC}"
 # Wayland terminal + fonts for the optional attached-display dashboard.

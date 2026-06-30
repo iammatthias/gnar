@@ -164,6 +164,7 @@ struct App {
     images: usize,
     prune_next: String,
     updates: Option<usize>,
+    sec_updates: Option<usize>, // packages with a known CVE fix available (arch-audit); None = unknown
     kanban_lines: Vec<String>,
     cron_lines: Vec<(bool, String, String)>,
     claude_runs: usize,
@@ -172,7 +173,7 @@ struct App {
     backup_age_h: Option<u64>,
     backup_size_mb: u64,
     backup_sizes: Vec<f64>, // archive sizes by age, oldest first (MB)
-    traffic: HashMap<String, (u32, u32, u32)>, // host → (reqs/5m, 4xx, 5xx)
+    traffic: HashMap<String, (u32, u32, u32, u32)>, // host → (reqs/5m, 404, other-4xx, 5xx)
     failed_units: usize,
     journal_errs: usize,
     crashes: usize,
@@ -621,6 +622,7 @@ fn status_loop(app: Arc<Mutex<App>>, with_hermes: bool) {
         let hourly = if tick % 120 == 0 {
             Some((
                 pending_updates(),
+                security_updates(),
                 nvme_health(),
                 snapshot_count(),
                 last_update_days(),
@@ -672,8 +674,9 @@ fn status_loop(app: Arc<Mutex<App>>, with_hermes: bool) {
                 a.ts_online = online;
                 a.ts_total = total;
             }
-            if let Some((updates, (wear, temp), snaps, upd_days, (c24, ctotal))) = hourly {
+            if let Some((updates, sec_updates, (wear, temp), snaps, upd_days, (c24, ctotal))) = hourly {
                 a.updates = Some(updates);
+                a.sec_updates = sec_updates;
                 a.nvme_wear = wear;
                 a.nvme_temp = temp;
                 a.snapshots = snaps;
@@ -773,13 +776,31 @@ fn tcp_probe(ip: &str, port: u16) -> Option<u64> {
 }
 
 /// Pending pacman updates (pacman-contrib's checkupdates; syncs to a
-/// temp DB, never touches the real one).
+/// temp DB, never touches the real one). On a rolling release this is
+/// routinely dozens — informational, not an alarm; the security count
+/// below is the signal that actually warrants attention.
 fn pending_updates() -> usize {
     Command::new("checkupdates")
         .output()
         .ok()
         .map(|o| String::from_utf8_lossy(&o.stdout).lines().filter(|l| !l.trim().is_empty()).count())
         .unwrap_or(0)
+}
+
+/// Installed packages with a known security advisory whose fix is
+/// already available to install (Arch Security Tracker, via arch-audit
+/// `-u`). `None` when arch-audit isn't installed — absence of signal,
+/// not a clean bill of health, so the UI shows nothing rather than "0".
+/// This is what separates "stay current for security" from the much
+/// noisier "stay current for everything".
+fn security_updates() -> Option<usize> {
+    let out = Command::new("arch-audit").args(["-uq"]).output().ok()?;
+    Some(
+        String::from_utf8_lossy(&out.stdout)
+            .lines()
+            .filter(|l| !l.trim().is_empty())
+            .count(),
+    )
 }
 
 fn strip_ansi(s: &str) -> String {
@@ -886,12 +907,12 @@ fn top_procs(sort: &str, n: usize) -> Vec<String> {
 const ACCESS_LOG: &str = "/srv/stack/data/caddy/data/access/access.log";
 
 /// Incrementally tail caddy's shared JSON access log and aggregate a
-/// 5-minute window of per-host request counts and 4xx/5xx tallies.
-/// Only complete lines are consumed; rotation resets the offset.
+/// 5-minute window of per-host request counts and 404 / other-4xx / 5xx
+/// tallies. Only complete lines are consumed; rotation resets the offset.
 fn sample_traffic(
     offset: &mut u64,
     window: &mut VecDeque<(Instant, String, u16)>,
-) -> HashMap<String, (u32, u32, u32)> {
+) -> HashMap<String, (u32, u32, u32, u32)> {
     if let Ok(mut f) = fs::File::open(ACCESS_LOG) {
         let len = f.metadata().map(|m| m.len()).unwrap_or(0);
         if len < *offset {
@@ -930,15 +951,18 @@ fn sample_traffic(
     while window.front().is_some_and(|(t, ..)| t.elapsed() > Duration::from_secs(300)) {
         window.pop_front();
     }
-    let mut map: HashMap<String, (u32, u32, u32)> = HashMap::new();
+    // 404 is bucketed apart from the rest of the 4xx range: on a public
+    // host it's almost entirely bot/scanner/missing-asset noise, whereas
+    // 400/401/403/429 usually mean something a human should look at.
+    let mut map: HashMap<String, (u32, u32, u32, u32)> = HashMap::new();
     for (_, host, status) in window.iter() {
         let e = map.entry(host.clone()).or_default();
         e.0 += 1;
-        if (400..500).contains(status) {
-            e.1 += 1;
-        }
-        if *status >= 500 {
-            e.2 += 1;
+        match *status {
+            404 => e.1 += 1,
+            400..=499 => e.2 += 1,
+            s if s >= 500 => e.3 += 1,
+            _ => {}
         }
     }
     map
@@ -1967,12 +1991,16 @@ fn site_rows(app: &App) -> Vec<Line<'static>> {
                 Span::styled(format!("{info:<11}"), info_style),
             ];
             match app.traffic.get(&site.host) {
-                Some((reqs, e4, e5)) if *reqs > 0 => {
+                Some((reqs, e404, e4xx, e5xx)) if *reqs > 0 => {
                     spans.push(Span::styled(format!("{reqs:>4}/5m "), Style::new().fg(C_CYAN)));
-                    if *e5 > 0 {
-                        spans.push(Span::styled(format!("{e5}×5xx "), Style::new().fg(C_RED)));
-                    } else if *e4 > 0 {
-                        spans.push(Span::styled(format!("{e4}×4xx "), Style::new().fg(C_YELLOW)));
+                    // Priority: server errors > actionable 4xx > 404 noise.
+                    // 404s are dimmed so they read as background hum, not a fault.
+                    if *e5xx > 0 {
+                        spans.push(Span::styled(format!("{e5xx}×5xx "), Style::new().fg(C_RED)));
+                    } else if *e4xx > 0 {
+                        spans.push(Span::styled(format!("{e4xx}×4xx "), Style::new().fg(C_YELLOW)));
+                    } else if *e404 > 0 {
+                        spans.push(Span::styled(format!("{e404}×404 "), dim()));
                     } else {
                         spans.push(Span::raw("      "));
                     }
@@ -1999,10 +2027,16 @@ fn docker_line(app: &App) -> Line<'static> {
     if !app.prune_next.is_empty() {
         spans.push(Span::styled(format!("   prune {}", app.prune_next), dim()));
     }
+    // Routine updates are informational (dim) — on a rolling release,
+    // nagging to upgrade trades stability for novelty. Security fixes are
+    // the exception: those get a real, colored callout.
     match app.updates {
         Some(0) => spans.push(Span::styled("   pacman up to date", dim())),
-        Some(n) => spans.push(Span::styled(format!("   {n} updates pending"), Style::new().fg(C_YELLOW))),
+        Some(n) => spans.push(Span::styled(format!("   {n} updates"), dim())),
         None => {}
+    }
+    if let Some(s) = app.sec_updates.filter(|s| *s > 0) {
+        spans.push(Span::styled(format!("   ● {s} security"), Style::new().fg(C_RED)));
     }
     if let Some(d) = app.last_update_days {
         spans.push(Span::styled(format!("   updated {d}d ago"), dim()));
