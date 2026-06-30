@@ -1785,7 +1785,9 @@ fn render_net(frame: &mut Frame, net_a: Rect, app: &App, bordered: bool) {
     // (ingress health is network business) under the graphs.
     let mut sites_a = None;
     let (body, footer) = if net_inner.height >= 22 && !app.sites.is_empty() {
-        let rows = (app.sites.len() as u16 + 3).min(16);
+        // Show every site when the (now taller) tile has room; the graphs
+        // keep at least Min(8) so the list can't crowd them out entirely.
+        let rows = (app.sites.len() as u16 + 3).min(28);
         let [b, f, s] =
             Layout::vertical([Constraint::Min(8), Constraint::Length(3), Constraint::Length(rows)]).areas(net_inner);
         sites_a = Some(s);
