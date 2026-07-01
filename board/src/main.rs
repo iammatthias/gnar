@@ -81,6 +81,87 @@ enum Mode {
 }
 
 // ---------------------------------------------------------------------------
+// Touch action buttons (rack touch LCD; enabled by GNAR_TOUCH)
+// ---------------------------------------------------------------------------
+
+/// An on-screen control the OPS tile exposes when a touchscreen is present.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Action {
+    Update,
+    Backup,
+    RestartKiosk,
+    RestartStack,
+    Prune,
+    Reboot,
+}
+
+/// Rendered order (row-major, 3 per row). Reboot last — most destructive.
+const BUTTONS: [Action; 6] = [
+    Action::Update,
+    Action::Backup,
+    Action::RestartKiosk,
+    Action::RestartStack,
+    Action::Prune,
+    Action::Reboot,
+];
+
+impl Action {
+    fn label(self) -> &'static str {
+        match self {
+            Action::Update => "Update",
+            Action::Backup => "Backup",
+            Action::RestartKiosk => "Kiosk ↻",
+            Action::RestartStack => "Stack ↻",
+            Action::Prune => "Prune",
+            Action::Reboot => "Reboot",
+        }
+    }
+    /// Destructive/disruptive actions require a second confirming tap.
+    fn confirm(self) -> bool {
+        !matches!(self, Action::Backup | Action::RestartKiosk)
+    }
+    fn color(self) -> Color {
+        match self {
+            Action::Reboot => C_RED,
+            Action::Update | Action::Prune | Action::RestartStack => C_YELLOW,
+            _ => C_CYAN,
+        }
+    }
+    fn cmd(self) -> &'static str {
+        match self {
+            // gnar-update --yes runs the upgrade as a detached systemd unit.
+            Action::Update => "gnar-update --yes",
+            // The exact nightly job (writes to the monitored backups dir).
+            Action::Backup => "docker exec gnar-hermes-gateway hermes cron run nightly-backup",
+            Action::RestartKiosk => "gnar-kiosk-restart",
+            Action::RestartStack => "sudo -n systemctl restart gnar-stack.service",
+            Action::Prune => "sudo -n systemctl start gnar-docker-prune.service",
+            Action::Reboot => "sudo -n systemctl reboot",
+        }
+    }
+    /// Fire and forget — the user has NOPASSWD sudo, so these just run.
+    fn spawn(self) {
+        let _ = Command::new("sh").arg("-c").arg(self.cmd()).spawn();
+    }
+}
+
+/// A rendered button's hit box + what it does. Populated each frame by the
+/// OPS tile's render so the event loop can map a tap to an action.
+struct Btn {
+    rect: Rect,
+    action: Action,
+}
+
+/// Touch state carried across frames: whether buttons are shown, which one
+/// is armed (waiting for its confirming tap), and this frame's hit boxes.
+#[derive(Default)]
+struct Touch {
+    enabled: bool,
+    armed: Option<(Action, Instant)>,
+    buttons: Vec<Btn>,
+}
+
+// ---------------------------------------------------------------------------
 // State
 // ---------------------------------------------------------------------------
 
@@ -1646,8 +1727,9 @@ fn dot_color(state: &str) -> Color {
     }
 }
 
-fn ui(frame: &mut Frame, app: &App, mode: Mode) {
+fn ui(frame: &mut Frame, app: &App, mode: Mode, touch: &mut Touch) {
     let area = frame.area();
+    touch.buttons.clear(); // only the OPS tile repopulates these
     match mode {
         Mode::Full => ui_full(frame, app),
         // Kiosk tiles: Mango draws the frame, so render borderless.
@@ -1656,7 +1738,7 @@ fn ui(frame: &mut Frame, app: &App, mode: Mode) {
         Mode::Net => render_net(frame, area, app, false),
         Mode::Disk => render_disk(frame, area, app, false),
         Mode::Containers => render_containers(frame, area, app, false),
-        Mode::Status => render_status(frame, area, app, true, false),
+        Mode::Status => render_status(frame, area, app, true, false, Some(touch)),
     }
 }
 
@@ -1693,7 +1775,7 @@ fn ui_full(frame: &mut Frame, app: &App) {
 
     let [cont_a, stat_a] = Layout::horizontal([Constraint::Percentage(62), Constraint::Percentage(38)]).areas(lower);
     render_containers(frame, cont_a, app, true);
-    render_status(frame, stat_a, app, false, true);
+    render_status(frame, stat_a, app, false, true, None);
 }
 
 fn render_cpu(frame: &mut Frame, cpu_a: Rect, app: &App, bordered: bool) {
@@ -2091,7 +2173,7 @@ fn render_containers(frame: &mut Frame, cont_a: Rect, app: &App, bordered: bool)
     );
 }
 
-fn render_status(frame: &mut Frame, stat_a: Rect, app: &App, tile: bool, bordered: bool) {
+fn render_status(frame: &mut Frame, stat_a: Rect, app: &App, tile: bool, bordered: bool, touch: Option<&mut Touch>) {
     // On the kiosk this tile is the OPS surface — services/sites/docker
     // live in the NET and CONTAINERS tiles there.
     let (title, content) = if tile {
@@ -2100,7 +2182,47 @@ fn render_status(frame: &mut Frame, stat_a: Rect, app: &App, tile: bool, bordere
         (" STATUS ", status_panel(app))
     };
     let stat_inner = panel(frame, stat_a, bordered, vec![Span::styled(title, accent(C_MAGENTA))], None);
-    frame.render_widget(Paragraph::new(content), stat_inner);
+    // Touch screen: reserve the bottom for the action button grid.
+    match touch {
+        Some(t) if t.enabled && stat_inner.height >= 9 => {
+            let bar = 5u16.min(stat_inner.height / 2);
+            let [content_a, bar_a] =
+                Layout::vertical([Constraint::Min(1), Constraint::Length(bar)]).areas(stat_inner);
+            frame.render_widget(Paragraph::new(content), content_a);
+            render_buttons(frame, bar_a, t);
+        }
+        _ => frame.render_widget(Paragraph::new(content), stat_inner),
+    }
+}
+
+/// Lay out the action buttons in a 3-wide grid across `area`, render each as
+/// a filled tap target, and record its hit box in `touch.buttons`. An armed
+/// button (awaiting its confirming tap) flips to amber "CONFIRM".
+fn render_buttons(frame: &mut Frame, area: Rect, touch: &mut Touch) {
+    touch.buttons.clear();
+    let cols = 3u16;
+    let rows = (BUTTONS.len() as u16).div_ceil(cols);
+    let gap = 1u16;
+    if area.width < cols * 4 || area.height < rows {
+        return;
+    }
+    let bw = (area.width - gap * (cols - 1)) / cols;
+    let bh = (area.height - gap * (rows - 1)) / rows;
+    for (i, &action) in BUTTONS.iter().enumerate() {
+        let (r, c) = (i as u16 / cols, i as u16 % cols);
+        let rect = Rect { x: area.x + c * (bw + gap), y: area.y + r * (bh + gap), width: bw, height: bh };
+        let armed = matches!(touch.armed, Some((a, _)) if a == action);
+        let (bg, label) = if armed { (C_YELLOW, "CONFIRM") } else { (action.color(), action.label()) };
+        // Vertically centre the label in the button.
+        let pad = (bh.saturating_sub(1) / 2) as usize;
+        let mut lines: Vec<Line> = vec![Line::default(); pad];
+        lines.push(
+            Line::from(Span::styled(label.to_string(), Style::new().fg(Color::Black).add_modifier(Modifier::BOLD)))
+                .centered(),
+        );
+        frame.render_widget(Paragraph::new(lines).style(Style::new().bg(bg)), rect);
+        touch.buttons.push(Btn { rect, action });
+    }
 }
 
 fn containers_panel(app: &App, width: usize, height: usize) -> Vec<Line<'static>> {
@@ -2551,15 +2673,51 @@ fn main() -> std::io::Result<()> {
     // one page. Modeled as added time so the page index jumps forward by
     // exactly one and the gentle auto-cycle simply continues from there.
     let mut taps: u64 = 0;
+    // The OPS tile shows action buttons when a touchscreen is present.
+    let mut touch = Touch {
+        enabled: std::env::var("GNAR_TOUCH").as_deref() == Ok("1"),
+        ..Touch::default()
+    };
     loop {
         {
             let mut st = app.lock().unwrap();
             st.render_secs = start.elapsed().as_secs_f64() + taps as f64 * PAGE_SECS;
-            terminal.draw(|f| ui(f, &st, mode))?;
+            terminal.draw(|f| ui(f, &st, mode, &mut touch))?;
+        }
+        // An armed button disarms itself if not confirmed within a few seconds.
+        if let Some((_, at)) = touch.armed {
+            if at.elapsed() > Duration::from_secs(4) {
+                touch.armed = None;
+            }
         }
         if event::poll(Duration::from_millis(500))? {
             match event::read()? {
-                Event::Mouse(m) if matches!(m.kind, MouseEventKind::Down(_)) => taps += 1,
+                Event::Mouse(m) if matches!(m.kind, MouseEventKind::Down(_)) => {
+                    let hit = touch
+                        .buttons
+                        .iter()
+                        .find(|b| b.rect.contains(Position { x: m.column, y: m.row }))
+                        .map(|b| b.action);
+                    match hit {
+                        Some(action) if action.confirm() => {
+                            // Two-tap: first arms, a second (same button) fires.
+                            if matches!(touch.armed, Some((a, _)) if a == action) {
+                                action.spawn();
+                                touch.armed = None;
+                            } else {
+                                touch.armed = Some((action, Instant::now()));
+                            }
+                        }
+                        Some(action) => {
+                            action.spawn(); // single-tap actions
+                            touch.armed = None;
+                        }
+                        None => {
+                            taps += 1; // tap off a button pages the lists
+                            touch.armed = None;
+                        }
+                    }
+                }
                 Event::Key(k) if k.kind == KeyEventKind::Press => {
                     // Advance keys double as a keyboard fallback for the tap.
                     if matches!(
