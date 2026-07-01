@@ -152,13 +152,26 @@ struct Btn {
     action: Action,
 }
 
-/// Touch state carried across frames: whether buttons are shown, which one
-/// is armed (waiting for its confirming tap), and this frame's hit boxes.
+/// Touch state carried across frames. A tap fullscreens a tile (via mango
+/// IPC); the roomy fullscreen view is where the OPS action buttons + a back
+/// button live. `buttons`/`back` are this frame's hit boxes.
 #[derive(Default)]
 struct Touch {
-    enabled: bool,
+    enabled: bool,           // a pointer/touchscreen is present (GNAR_TOUCH)
     armed: Option<(Action, Instant)>,
-    buttons: Vec<Btn>,
+    buttons: Vec<Btn>,       // OPS action buttons (fullscreen only)
+    back: Option<Rect>,      // back button — Some iff this frame is fullscreen
+}
+
+/// A kiosk tile wider than this (cols) is fullscreen, not a grid slot. A
+/// grid tile is ~1/3 the screen: ≈42 cols at 1280/size-10, ≈77 at
+/// 2560/size-14 — both under this; fullscreen (≈128 / ≈232) is over it.
+const FS_MIN_COLS: u16 = 90;
+
+/// Toggle the focused tile between fullscreen and its grid slot via mango's
+/// IPC. A tap focuses the tile first, so this acts on the tapped one.
+fn mango_toggle_fullscreen() {
+    let _ = Command::new("mmsg").args(["-d", "togglefullscreen"]).status();
 }
 
 // ---------------------------------------------------------------------------
@@ -1729,16 +1742,37 @@ fn dot_color(state: &str) -> Color {
 
 fn ui(frame: &mut Frame, app: &App, mode: Mode, touch: &mut Touch) {
     let area = frame.area();
-    touch.buttons.clear(); // only the OPS tile repopulates these
+    touch.buttons.clear();
+    touch.back = None;
+    if mode == Mode::Full {
+        ui_full(frame, app);
+        return;
+    }
+    // A tap zooms this tile to fullscreen (detected by its size). Then a top
+    // strip carries the back button, the panel renders below at full size
+    // (its rich layout), and the OPS tile gets the action button row.
+    let fullscreen = touch.enabled && area.width >= FS_MIN_COLS;
+    let body = if fullscreen {
+        let [bar, rest] = Layout::vertical([Constraint::Length(3), Constraint::Min(1)]).areas(area);
+        render_back(frame, bar, touch);
+        rest
+    } else {
+        area
+    };
+    // Kiosk tiles: Mango draws the frame, so render borderless.
     match mode {
-        Mode::Full => ui_full(frame, app),
-        // Kiosk tiles: Mango draws the frame, so render borderless.
-        Mode::Cpu => render_cpu(frame, area, app, false),
-        Mode::Mem => render_mem(frame, area, app, false),
-        Mode::Net => render_net(frame, area, app, false),
-        Mode::Disk => render_disk(frame, area, app, false),
-        Mode::Containers => render_containers(frame, area, app, false),
-        Mode::Status => render_status(frame, area, app, true, false, Some(touch)),
+        Mode::Cpu => render_cpu(frame, body, app, false),
+        Mode::Mem => render_mem(frame, body, app, false),
+        Mode::Net => render_net(frame, body, app, false),
+        Mode::Disk => render_disk(frame, body, app, false),
+        Mode::Containers => render_containers(frame, body, app, false),
+        Mode::Status if fullscreen => {
+            let [content, btns] = Layout::vertical([Constraint::Min(1), Constraint::Length(5)]).areas(body);
+            render_status(frame, content, app, true, false);
+            render_buttons(frame, btns, touch);
+        }
+        Mode::Status => render_status(frame, body, app, true, false),
+        Mode::Full => {}
     }
 }
 
@@ -1775,7 +1809,7 @@ fn ui_full(frame: &mut Frame, app: &App) {
 
     let [cont_a, stat_a] = Layout::horizontal([Constraint::Percentage(62), Constraint::Percentage(38)]).areas(lower);
     render_containers(frame, cont_a, app, true);
-    render_status(frame, stat_a, app, false, true, None);
+    render_status(frame, stat_a, app, false, true);
 }
 
 fn render_cpu(frame: &mut Frame, cpu_a: Rect, app: &App, bordered: bool) {
@@ -2173,56 +2207,70 @@ fn render_containers(frame: &mut Frame, cont_a: Rect, app: &App, bordered: bool)
     );
 }
 
-fn render_status(frame: &mut Frame, stat_a: Rect, app: &App, tile: bool, bordered: bool, touch: Option<&mut Touch>) {
+fn render_status(frame: &mut Frame, stat_a: Rect, app: &App, tile: bool, bordered: bool) {
     // On the kiosk this tile is the OPS surface — services/sites/docker
-    // live in the NET and CONTAINERS tiles there.
+    // live in the NET and CONTAINERS tiles there. Action buttons show only
+    // in the fullscreen view (see ui()), never crammed into the grid tile.
     let (title, content) = if tile {
         (" OPS ", ops_panel(app))
     } else {
         (" STATUS ", status_panel(app))
     };
     let stat_inner = panel(frame, stat_a, bordered, vec![Span::styled(title, accent(C_MAGENTA))], None);
-    // Touch screen: reserve the bottom for the action button grid.
-    match touch {
-        Some(t) if t.enabled && stat_inner.height >= 9 => {
-            let bar = 5u16.min(stat_inner.height / 2);
-            let [content_a, bar_a] =
-                Layout::vertical([Constraint::Min(1), Constraint::Length(bar)]).areas(stat_inner);
-            frame.render_widget(Paragraph::new(content), content_a);
-            render_buttons(frame, bar_a, t);
-        }
-        _ => frame.render_widget(Paragraph::new(content), stat_inner),
+    frame.render_widget(Paragraph::new(content), stat_inner);
+}
+
+/// A rounded, tappable control. Bordered + labelled in the action's accent
+/// colour on the dark background (matches the tiles); an armed button fills
+/// solid so the "tap again" state is unmistakable. Records the hit box.
+fn button(frame: &mut Frame, rect: Rect, action: Action, armed: bool, touch: &mut Touch) {
+    let color = if armed { C_YELLOW } else { action.color() };
+    let label = if armed { format!("{}?", action.label()) } else { action.label().to_string() };
+    let mut block = Block::bordered()
+        .border_set(ratatui::symbols::border::ROUNDED)
+        .border_style(Style::new().fg(color));
+    if armed {
+        block = block.style(Style::new().bg(color));
+    }
+    let inner = block.inner(rect);
+    frame.render_widget(block, rect);
+    let fg = if armed { Color::Black } else { color };
+    let pad = (inner.height.saturating_sub(1) / 2) as usize;
+    let mut lines: Vec<Line> = vec![Line::default(); pad];
+    lines.push(Line::from(Span::styled(label, Style::new().fg(fg).add_modifier(Modifier::BOLD))).centered());
+    frame.render_widget(Paragraph::new(lines), inner);
+    touch.buttons.push(Btn { rect, action });
+}
+
+/// The action button row across the bottom of the fullscreen OPS view.
+fn render_buttons(frame: &mut Frame, area: Rect, touch: &mut Touch) {
+    touch.buttons.clear();
+    let n = BUTTONS.len() as u16;
+    let gap = 2u16;
+    if area.width < n * 8 || area.height < 3 {
+        return;
+    }
+    let bw = (area.width - gap * (n - 1)) / n;
+    for (i, &action) in BUTTONS.iter().enumerate() {
+        let rect = Rect { x: area.x + i as u16 * (bw + gap), y: area.y, width: bw, height: area.height };
+        let armed = matches!(touch.armed, Some((a, _)) if a == action);
+        button(frame, rect, action, armed, touch);
     }
 }
 
-/// Lay out the action buttons in a 3-wide grid across `area`, render each as
-/// a filled tap target, and record its hit box in `touch.buttons`. An armed
-/// button (awaiting its confirming tap) flips to amber "CONFIRM".
-fn render_buttons(frame: &mut Frame, area: Rect, touch: &mut Touch) {
-    touch.buttons.clear();
-    let cols = 3u16;
-    let rows = (BUTTONS.len() as u16).div_ceil(cols);
-    let gap = 1u16;
-    if area.width < cols * 4 || area.height < rows {
-        return;
-    }
-    let bw = (area.width - gap * (cols - 1)) / cols;
-    let bh = (area.height - gap * (rows - 1)) / rows;
-    for (i, &action) in BUTTONS.iter().enumerate() {
-        let (r, c) = (i as u16 / cols, i as u16 % cols);
-        let rect = Rect { x: area.x + c * (bw + gap), y: area.y + r * (bh + gap), width: bw, height: bh };
-        let armed = matches!(touch.armed, Some((a, _)) if a == action);
-        let (bg, label) = if armed { (C_YELLOW, "CONFIRM") } else { (action.color(), action.label()) };
-        // Vertically centre the label in the button.
-        let pad = (bh.saturating_sub(1) / 2) as usize;
-        let mut lines: Vec<Line> = vec![Line::default(); pad];
-        lines.push(
-            Line::from(Span::styled(label.to_string(), Style::new().fg(Color::Black).add_modifier(Modifier::BOLD)))
-                .centered(),
-        );
-        frame.render_widget(Paragraph::new(lines).style(Style::new().bg(bg)), rect);
-        touch.buttons.push(Btn { rect, action });
-    }
+/// The back button in the top-left of any fullscreen tile.
+fn render_back(frame: &mut Frame, area: Rect, touch: &mut Touch) {
+    let rect = Rect { width: 12u16.min(area.width), ..area };
+    let block = Block::bordered()
+        .border_set(ratatui::symbols::border::ROUNDED)
+        .border_style(Style::new().fg(C_DIM));
+    let inner = block.inner(rect);
+    frame.render_widget(block, rect);
+    frame.render_widget(
+        Paragraph::new(Line::from(Span::styled("← back", accent(C_FG))).centered()),
+        inner,
+    );
+    touch.back = Some(rect);
 }
 
 fn containers_panel(app: &App, width: usize, height: usize) -> Vec<Line<'static>> {
@@ -2673,7 +2721,8 @@ fn main() -> std::io::Result<()> {
     // one page. Modeled as added time so the page index jumps forward by
     // exactly one and the gentle auto-cycle simply continues from there.
     let mut taps: u64 = 0;
-    // The OPS tile shows action buttons when a touchscreen is present.
+    // A tap fullscreens a tile; the fullscreen view carries the back button
+    // and (on OPS) the action buttons. Enabled when a pointer is present.
     let mut touch = Touch {
         enabled: std::env::var("GNAR_TOUCH").as_deref() == Ok("1"),
         ..Touch::default()
@@ -2692,32 +2741,29 @@ fn main() -> std::io::Result<()> {
         }
         if event::poll(Duration::from_millis(500))? {
             match event::read()? {
-                Event::Mouse(m) if matches!(m.kind, MouseEventKind::Down(_)) => {
-                    let hit = touch
-                        .buttons
-                        .iter()
-                        .find(|b| b.rect.contains(Position { x: m.column, y: m.row }))
-                        .map(|b| b.action);
-                    match hit {
-                        Some(action) if action.confirm() => {
-                            // Two-tap: first arms, a second (same button) fires.
-                            if matches!(touch.armed, Some((a, _)) if a == action) {
+                Event::Mouse(m) if matches!(m.kind, MouseEventKind::Down(_)) && touch.enabled => {
+                    let pos = Position { x: m.column, y: m.row };
+                    // `back` is set by render only when this tile is fullscreen.
+                    if touch.back.is_some() {
+                        if touch.back.is_some_and(|r| r.contains(pos)) {
+                            mango_toggle_fullscreen(); // back to the grid
+                            touch.armed = None;
+                        } else if let Some(action) =
+                            touch.buttons.iter().find(|b| b.rect.contains(pos)).map(|b| b.action)
+                        {
+                            // Two-tap confirm on the destructive actions.
+                            if action.confirm() && !matches!(touch.armed, Some((a, _)) if a == action) {
+                                touch.armed = Some((action, Instant::now()));
+                            } else {
                                 action.spawn();
                                 touch.armed = None;
-                            } else {
-                                touch.armed = Some((action, Instant::now()));
                             }
                         }
-                        Some(action) => {
-                            action.spawn(); // single-tap actions
-                            touch.armed = None;
-                        }
-                        None => {
-                            taps += 1; // tap off a button pages the lists
-                            touch.armed = None;
-                        }
+                    } else {
+                        mango_toggle_fullscreen(); // grid tap zooms this tile
                     }
                 }
+                Event::Mouse(_) => {}
                 Event::Key(k) if k.kind == KeyEventKind::Press => {
                     // Advance keys double as a keyboard fallback for the tap.
                     if matches!(
