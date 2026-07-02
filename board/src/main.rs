@@ -278,6 +278,7 @@ struct App {
     host: Host,
     containers: BTreeMap<String, Series>,
     containers_total: usize,
+    containers_running: usize, // cheap list-count (no per-container stats)
     services: Vec<(String, String)>,
     sites: Vec<Site>,
     procs_cpu: Vec<String>,
@@ -746,6 +747,13 @@ fn status_loop(app: Arc<Mutex<App>>, mode: Mode) {
             .ok()
             .and_then(|v| v.as_array().map(|a| a.len()))
             .unwrap_or(0);
+        // Running count via the cheap list endpoint — the OPS tile shows
+        // only this number, so it doesn't need the per-container stats
+        // loop (which costs dockerd a cgroup sweep per container per 2s).
+        let containers_running = docker_get("/containers/json")
+            .ok()
+            .and_then(|v| v.as_array().map(|a| a.len()))
+            .unwrap_or(0);
 
         let traffic = sample_traffic(&mut log_offset, &mut traffic_window);
         let alerts = sample_alerts();
@@ -781,6 +789,7 @@ fn status_loop(app: Arc<Mutex<App>>, mode: Mode) {
             a.disk_detail = disk_detail;
             a.images = images;
             a.containers_total = containers_total;
+            a.containers_running = containers_running;
             a.prune_next = prune_next;
             a.traffic = traffic;
             a.failed_units = alerts.failed_units;
@@ -1450,28 +1459,26 @@ fn spark_vec(vals: &[f64], floor: f64, head: f64) -> String {
         .collect()
 }
 
-/// Multi-row graph with per-column color: each column is the newest
-/// `width` samples scaled to `max`, drawn in eighth-block resolution
-/// across `rows` lines and colored by `color(value/max)`. This is what
-/// replaced ratatui's stock Sparkline — same geometry, but the color
-/// carries the value too.
-/// `height_max` scales the bar HEIGHT (use the recent peak so an idle box's
-/// graph still fills the panel instead of collapsing to a thin line and
-/// leaving a void); `color_max` scales the COLOR independently (keep it
-/// absolute — 100% CPU, total RAM — so a full-height-but-calm graph still
-/// reads green, not red). Pass the same value for both to couple them.
+/// Multi-row graph with per-column color, drawn in eighth-block resolution
+/// across `rows` lines. `scale` maps a RAW sample to a 0..1 fill fraction
+/// and `color` maps the same raw sample to its color.
+///
+/// Scales are FIXED, not peak-relative. Peak-relative height made an idle
+/// box look busy — a 100 KB/s journal blip filled the whole panel because
+/// nothing bigger had happened lately, and the same bar height meant a
+/// different magnitude every few minutes. With a fixed axis a given height
+/// always means the same thing; compression curves (sqrt for percentages,
+/// log for throughput) keep small activity visible as low texture without
+/// inflating it. Exact numbers live in the panel headers.
 fn graph_lines(
     vals: &VecDeque<f64>,
     width: usize,
     rows: usize,
-    height_max: f64,
-    color_max: f64,
+    scale: impl Fn(f64) -> f64,
     color: impl Fn(f64) -> Color,
 ) -> Vec<Line<'static>> {
     let take = vals.len().min(width);
     let slice: Vec<f64> = vals.iter().skip(vals.len() - take).copied().collect();
-    let height_max = height_max.max(f64::MIN_POSITIVE);
-    let color_max = color_max.max(f64::MIN_POSITIVE);
     let pad = width - take;
     let mut lines = Vec::with_capacity(rows);
     for r in 0..rows {
@@ -1480,14 +1487,13 @@ fn graph_lines(
             spans.push(Span::raw(" ".repeat(pad)));
         }
         for v in &slice {
-            let th = (v / height_max).clamp(0.0, 1.0);
+            let th = scale(*v).clamp(0.0, 1.0);
             let eighths = (th * (rows * 8) as f64).round() as usize;
             let filled = eighths.saturating_sub((rows - 1 - r) * 8).min(8);
             if filled == 0 {
                 spans.push(Span::raw(" "));
             } else {
-                let tc = (v / color_max).clamp(0.0, 1.0);
-                spans.push(Span::styled(TICKS[filled - 1].to_string(), Style::new().fg(color(tc))));
+                spans.push(Span::styled(TICKS[filled - 1].to_string(), Style::new().fg(color(*v))));
             }
         }
         lines.push(Line::from(spans));
@@ -1495,12 +1501,25 @@ fn graph_lines(
     lines
 }
 
-/// Height ceiling for a "fill the panel" graph: the recent peak with a
-/// little headroom, floored so a near-idle series still shows shape rather
-/// than amplifying noise to full height.
-fn fill_max(vals: &VecDeque<f64>, floor: f64) -> f64 {
-    (vals.iter().copied().fold(0.0f64, f64::max) * 1.15).max(floor)
+/// 0..1 position of throughput `v` (bytes/s) on a fixed log axis from
+/// `floor` to `ceil`. Throughput spans five orders of magnitude, so a
+/// linear axis is useless at both ends; log keeps 100 KB/s visible (~⅓
+/// height on the net axis) while 100 MB/s still reads clearly bigger.
+fn log_t(v: f64, floor: f64, ceil: f64) -> f64 {
+    if v <= floor {
+        0.0
+    } else {
+        ((v / floor).ln() / (ceil / floor).ln()).clamp(0.0, 1.0)
+    }
 }
+
+/// Fixed throughput axes. NET tops out at 1 GbE line rate; DISK at a
+/// realistic NVMe sequential-write ceiling. Floors are where the bar
+/// starts registering — below that is noise.
+const NET_FLOOR: f64 = 1024.0; // 1 KB/s
+const NET_CEIL: f64 = 125.0 * 1_000_000.0; // 1 GbE ≈ 125 MB/s
+const IO_FLOOR: f64 = 10.0 * 1024.0; // 10 KB/s
+const IO_CEIL: f64 = 2.0 * 1_073_741_824.0; // ~2 GB/s NVMe
 
 const PAGE_SECS: f64 = 5.0; // seconds each page of a cycled list is shown
 
@@ -1735,7 +1754,9 @@ fn render_cpu(frame: &mut Frame, cpu_a: Rect, app: &App, bordered: bool) {
         ])
         .areas(cpu_inner);
         frame.render_widget(
-            Paragraph::new(graph_lines(&h.cpu, graph_a.width as usize, graph_a.height as usize, fill_max(&h.cpu, 12.0), 100.0, heat)),
+            // Fixed 0–100% axis, sqrt-compressed: 4% renders at 20% height
+            // (visible texture), 25% at half, 100% full. Color stays linear.
+            Paragraph::new(graph_lines(&h.cpu, graph_a.width as usize, graph_a.height as usize, |v| (v / 100.0).sqrt(), |v| heat(v / 100.0))),
             graph_a,
         );
         let csw = ((cores_a.width as usize).saturating_sub(2 * 9 + 3) / 2).clamp(8, 32);
@@ -1775,7 +1796,7 @@ fn render_cpu(frame: &mut Frame, cpu_a: Rect, app: &App, bordered: bool) {
     } else if cpu_inner.height > 1 {
         let graph = Rect { height: cpu_inner.height - 1, ..cpu_inner };
         frame.render_widget(
-            Paragraph::new(graph_lines(&h.cpu, graph.width as usize, graph.height as usize, fill_max(&h.cpu, 12.0), 100.0, heat)),
+            Paragraph::new(graph_lines(&h.cpu, graph.width as usize, graph.height as usize, |v| (v / 100.0).sqrt(), |v| heat(v / 100.0))),
             graph,
         );
         let mut core_spans = vec![Span::styled("cores ", dim())];
@@ -1845,14 +1866,14 @@ fn render_mem(frame: &mut Frame, mem_a: Rect, app: &App, bordered: bool) {
         );
     } else if mem_inner.height > 1 {
         let graph = Rect { height: mem_inner.height - 1, ..mem_inner };
+        let total = h.mem_total.max(1.0);
         frame.render_widget(
             Paragraph::new(graph_lines(
                 &h.mem_used,
                 graph.width as usize,
                 graph.height as usize,
-                fill_max(&h.mem_used, h.mem_total.max(1.0) * 0.25),
-                h.mem_total.max(1.0),
-                |t| lerp(BLUE_RGB, MAGENTA_RGB, t),
+                move |v| (v / total).sqrt(),
+                move |v| lerp(BLUE_RGB, MAGENTA_RGB, v / total),
             )),
             graph,
         );
@@ -1918,9 +1939,17 @@ fn render_net(frame: &mut Frame, net_a: Rect, app: &App, bordered: bool) {
             ])),
             label_a,
         );
-        let pk = peak(series).max(10240.0);
+        // Fixed log axis (1 KB/s → 1 GbE): a given bar height always means
+        // the same rate, so idle chatter reads low regardless of history.
+        let tint_hue = tint(hue);
         frame.render_widget(
-            Paragraph::new(graph_lines(series, graph_a.width as usize, graph_a.height as usize, pk, pk, tint(hue))),
+            Paragraph::new(graph_lines(
+                series,
+                graph_a.width as usize,
+                graph_a.height as usize,
+                |v| log_t(v, NET_FLOOR, NET_CEIL),
+                move |v| tint_hue(log_t(v, NET_FLOOR, NET_CEIL)),
+            )),
             graph_a,
         );
     }
@@ -2057,14 +2086,28 @@ fn render_disk(frame: &mut Frame, disk_a: Rect, app: &App, bordered: bool) {
     );
     let [ior_a, iow_a] =
         Layout::horizontal([Constraint::Percentage(50), Constraint::Percentage(50)]).areas(iograph_a);
-    let pk_r = peak(&h.io_r).max(1048576.0);
-    let pk_w = peak(&h.io_w).max(1048576.0);
+    // Fixed log axis (10 KB/s → ~2 GB/s NVMe): journal/container-log
+    // trickle reads as low texture, real transfers climb the panel.
+    let tint_r = tint(CYAN_RGB);
+    let tint_w = tint(MAGENTA_RGB);
     frame.render_widget(
-        Paragraph::new(graph_lines(&h.io_r, ior_a.width as usize, ior_a.height as usize, pk_r, pk_r, tint(CYAN_RGB))),
+        Paragraph::new(graph_lines(
+            &h.io_r,
+            ior_a.width as usize,
+            ior_a.height as usize,
+            |v| log_t(v, IO_FLOOR, IO_CEIL),
+            move |v| tint_r(log_t(v, IO_FLOOR, IO_CEIL)),
+        )),
         ior_a,
     );
     frame.render_widget(
-        Paragraph::new(graph_lines(&h.io_w, iow_a.width as usize, iow_a.height as usize, pk_w, pk_w, tint(MAGENTA_RGB))),
+        Paragraph::new(graph_lines(
+            &h.io_w,
+            iow_a.width as usize,
+            iow_a.height as usize,
+            |v| log_t(v, IO_FLOOR, IO_CEIL),
+            move |v| tint_w(log_t(v, IO_FLOOR, IO_CEIL)),
+        )),
         iow_a,
     );
 }
@@ -2303,7 +2346,7 @@ fn docker_line(app: &App) -> Line<'static> {
     let mut spans = vec![
         Span::styled("● ".to_string(), Style::new().fg(C_GREEN)),
         Span::styled(
-            format!("{}/{} containers running", app.containers.len(), app.containers_total),
+            format!("{}/{} containers running", app.containers_running, app.containers_total),
             Style::new().fg(C_FG),
         ),
         Span::styled(format!("   {} images", app.images), dim()),
@@ -2493,7 +2536,11 @@ fn main() -> std::io::Result<()> {
         let a = app.clone();
         thread::spawn(move || host_loop(a));
     }
-    if matches!(mode, Mode::Full | Mode::Containers | Mode::Status) {
+    // Per-container stats are expensive for dockerd (a cgroup sweep per
+    // container per 2s) — only the panels that RENDER per-container rows
+    // run the stats loop. The OPS tile's running-count comes from the
+    // cheap list endpoint in status_loop.
+    if matches!(mode, Mode::Full | Mode::Containers) {
         let a = app.clone();
         thread::spawn(move || docker_loop(a));
     }
