@@ -1,13 +1,13 @@
-# GNAR — auto-start mango on tty1 when a display is actually plugged in.
+# GNAR — auto-start the sway kiosk on tty1 when a display is plugged in.
 #
-# Headless boxes never reach mango: the DRM-status check below short-
-# circuits when no monitor is connected. Plug a display into the server
-# and on next login this exec-launches the kiosk dashboard.
+# Headless boxes never reach sway: the DRM-status check below short-circuits
+# when no monitor is connected. Plug a display into the server and on next
+# login this exec-launches the kiosk dashboard.
 #
-# The layout (mango grid) fills whatever screen is attached; here we only
-# scale the FONT to the resolution so tile density stays legible — small
-# rack LCD gets a smaller font, a desk monitor a larger one.
-if [ -z "$DISPLAY$WAYLAND_DISPLAY" ] && [ "$(tty)" = "/dev/tty1" ] && command -v mango &>/dev/null; then
+# sway (not mango) so the rack touchscreen actually works — it exposes
+# wl_touch, which foot turns into clicks for gnar-board's buttons. We scale
+# the FONT to the resolution here so tile density stays legible.
+if [ -z "$DISPLAY$WAYLAND_DISPLAY" ] && [ "$(tty)" = "/dev/tty1" ] && command -v sway &>/dev/null; then
     for _drm_status in /sys/class/drm/*/status; do
         [ -r "$_drm_status" ] || continue
         [ "$(cat "$_drm_status")" = "connected" ] || continue
@@ -40,6 +40,6 @@ if [ -z "$DISPLAY$WAYLAND_DISPLAY" ] && [ "$(tty)" = "/dev/tty1" ] && command -v
         done
         export GNAR_TOUCH
 
-        exec mango -c "$HOME/.config/mango/config.conf"
+        exec sway
     done
 fi

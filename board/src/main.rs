@@ -168,10 +168,11 @@ struct Touch {
 /// 2560/size-14 — both under this; fullscreen (≈128 / ≈232) is over it.
 const FS_MIN_COLS: u16 = 90;
 
-/// Toggle the focused tile between fullscreen and its grid slot via mango's
-/// IPC. A tap focuses the tile first, so this acts on the tapped one.
-fn mango_toggle_fullscreen() {
-    let _ = Command::new("mmsg").args(["-d", "togglefullscreen"]).status();
+/// Toggle the focused tile between fullscreen and its grid slot via the
+/// compositor's IPC. A tap focuses the tile first, so this acts on the
+/// tapped one.
+fn wm_toggle_fullscreen() {
+    let _ = Command::new("swaymsg").args(["fullscreen", "toggle"]).status();
 }
 
 // ---------------------------------------------------------------------------
@@ -2746,7 +2747,7 @@ fn main() -> std::io::Result<()> {
                     // `back` is set by render only when this tile is fullscreen.
                     if touch.back.is_some() {
                         if touch.back.is_some_and(|r| r.contains(pos)) {
-                            mango_toggle_fullscreen(); // back to the grid
+                            wm_toggle_fullscreen(); // back to the grid
                             touch.armed = None;
                         } else if let Some(action) =
                             touch.buttons.iter().find(|b| b.rect.contains(pos)).map(|b| b.action)
@@ -2760,7 +2761,7 @@ fn main() -> std::io::Result<()> {
                             }
                         }
                     } else {
-                        mango_toggle_fullscreen(); // grid tap zooms this tile
+                        wm_toggle_fullscreen(); // grid tap zooms this tile
                     }
                 }
                 Event::Mouse(_) => {}

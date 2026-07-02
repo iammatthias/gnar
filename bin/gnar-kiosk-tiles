@@ -1,30 +1,48 @@
 #!/bin/bash
-# GNAR — spawn the six kiosk dashboard tiles in deterministic order.
+# GNAR — spawn the six kiosk dashboard tiles and arrange them 3x2 under sway.
 #
-# Launched by mango's exec-once (see configs/mango-config.conf).
-# Placement is pinned per-appid by the mosaic windowrules, so spawn
-# order doesn't matter there — but the grid fallback (rules removed)
-# fills row-major in client order, and six parallel foot launches map
-# nondeterministically. Launching one at a time with a beat between
-# keeps the fallback order deterministic:
+# Launched by sway's `exec` (see configs/sway-config). sway has no auto-grid,
+# so the grid is built explicitly: three columns across the top (cpu mem net),
+# then each column is split into two rows (disk containers status below).
 #
 #   CPU   MEM         NET
-#   DISK  CONTAINERS  STATUS
+#   DISK  CONTAINERS  STATUS(OPS)
 #
-# Each tile runs `gnar-board <panel>` in a respawn loop so a crash
-# never leaves a hole in the mosaic. (The status tile renders the
-# HERMES panel on the kiosk.)
+# Each tile runs `gnar-board <panel>` (single-panel mode) in a respawn loop so
+# a crash never leaves a hole in the mosaic. A tap fullscreens a tile; the
+# fullscreen OPS view carries the action buttons.
 
 set -u
 
-# Small displays (set by ~/.zprofile) override the foot font so the compact
-# grid tiles stay legible; unset → foot.ini's default.
+# Small displays (set by ~/.zprofile) override the foot font; unset → foot.ini.
 font_args=()
 [ -n "${GNAR_KIOSK_FONT:-}" ] && font_args=(--font="$GNAR_KIOSK_FONT")
 
-for panel in cpu mem net disk containers status; do
-    foot --app-id="gnar-$panel" "${font_args[@]}" \
-         -e sh -c "while :; do gnar-board $panel; sleep 2; done" &
-    sleep 0.5
-done
+launch() {
+    foot --app-id="gnar-$1" "${font_args[@]}" \
+         -e sh -c "while :; do gnar-board $1; sleep 2; done" &
+}
+
+# Block until a panel's window is present in sway's tree, so the next
+# swaymsg acts on the intended layout state (spawns are async).
+wait_win() {
+    local p
+    for _ in $(seq 1 30); do
+        p=$(swaymsg -t get_tree 2>/dev/null | grep -c "\"gnar-$1\"")
+        [ "${p:-0}" -ge 1 ] && return 0
+        sleep 0.2
+    done
+}
+focus() { swaymsg "[app_id=\"gnar-$1\"] focus" >/dev/null 2>&1; }
+
+# Top row: three columns.
+launch cpu; wait_win cpu
+launch mem; wait_win mem
+launch net; wait_win net
+
+# Split each column into two rows (bottom-row panel under each top one).
+focus cpu; swaymsg splitv >/dev/null 2>&1; launch disk;       wait_win disk
+focus mem; swaymsg splitv >/dev/null 2>&1; launch containers; wait_win containers
+focus net; swaymsg splitv >/dev/null 2>&1; launch status;     wait_win status
+
 wait
