@@ -1,8 +1,8 @@
 #!/bin/bash
 # GNAR — service + Caddy-site health for the dashboard pane.
 #
-# Host services run via systemd. The container stack (caddy + tailscale +
-# hermes-gateway + hermes-dashboard) lives under /srv/stack and is reported
+# Host services run via systemd. The container stack (tailscale + caddy +
+# cloudflared) lives under /srv/stack and is reported
 # via `docker compose ps`.
 
 set -uo pipefail

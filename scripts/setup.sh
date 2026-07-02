@@ -70,10 +70,10 @@ systemd-tmpfiles --create --prefix /var/log/journal &>/dev/null || true
 systemctl kill --kill-whom=main -s USR1 systemd-journald &>/dev/null || true
 
 echo -e "${GREEN}Installing core packages...${NC}"
-# caddy + tailscale + hermes live in the /srv/stack docker compose now,
+# caddy + tailscale + cloudflared live in the /srv/stack docker compose,
 # not on the host. Docker is the only network-layer thing we install
 # directly.
-pacman -S --noconfirm \
+pacman -S --noconfirm --needed \
   zsh tmux neovim git curl wget unzip \
   docker docker-compose \
   nodejs npm \
@@ -83,7 +83,7 @@ pacman -S --noconfirm \
   base-devel man-db man-pages
 
 echo -e "${GREEN}Installing development tools...${NC}"
-pacman -S --noconfirm \
+pacman -S --noconfirm --needed \
   eza bat fd fzf zoxide ripgrep jq yq \
   fastfetch htop btop iotop nethogs lsof ncdu \
   tree bc rsync rclone p7zip imagemagick httpie \
@@ -96,7 +96,7 @@ echo -e "${GREEN}Installing display stack (sway kiosk dashboard)...${NC}"
 # wl_touch — required for the rack touch panel's tap interactions. Fonts:
 # JetBrainsMono Nerd has the box-drawing + icon glyphs that btop, tmux, and
 # the spaceship zsh prompt rely on.
-pacman -S --noconfirm sway foot \
+pacman -S --noconfirm --needed sway foot \
     ttf-jetbrains-mono-nerd ttf-firacode-nerd \
     noto-fonts noto-fonts-emoji
 
@@ -114,13 +114,13 @@ if [ "$ROOT_FS" = "btrfs" ]; then
 
     # snap-pac auto-snapshots before/after every pacman transaction; once
     # it's installed, every subsequent pacman call below will snapshot.
-    pacman -S --noconfirm snapper snap-pac inotify-tools
+    pacman -S --noconfirm --needed snapper snap-pac inotify-tools
 
     # grub-btrfs adds a "Snapshots" submenu to GRUB so you can boot into
     # any snapshot when an update breaks the system. Only meaningful on
     # GRUB; systemd-boot has no equivalent.
     if command -v grub-mkconfig &>/dev/null; then
-        pacman -S --noconfirm grub-btrfs
+        pacman -S --noconfirm --needed grub-btrfs
     else
         echo -e "${YELLOW}Not on GRUB — skipping grub-btrfs.${NC}"
         echo -e "${YELLOW}For boot-into-snapshot on systemd-boot, see https://wiki.archlinux.org/title/Snapper${NC}"
@@ -384,15 +384,21 @@ fi
 # compositor that delivers touch to clients.
 
 # -----------------------------------------------------------------------------
-# Container stack (caddy + tailscale + hermes — see /srv/stack/README)
+# Container stack (tailscale + caddy + cloudflared — see /srv/stack/README)
 # -----------------------------------------------------------------------------
-# Everything that the orchestrator + network-ingress layer needs runs as a
-# docker-compose stack out of /srv/stack. Updating the stack is `git pull
-# && docker compose up -d --build` — atomic, easy rollback, isolated from
-# the host.
+# The network-ingress layer runs as a docker-compose stack out of
+# /srv/stack. Updating the stack is `git pull && docker compose up -d
+# --build` — atomic, easy rollback, isolated from the host.
 echo -e "${GREEN}Deploying container stack to /srv/stack...${NC}"
 install -d -o "$REAL_USER" -g "$REAL_USER" /srv/stack
-cp -r "$REPO_ROOT/stack/." /srv/stack/
+# The live Caddyfile accumulates add-site / add-public-site blocks at
+# runtime — clobbering it with the repo boilerplate on a re-run would
+# silently drop every configured site. Preserve it if it exists.
+if [ -f /srv/stack/Caddyfile ]; then
+    rsync -a --exclude Caddyfile "$REPO_ROOT/stack/." /srv/stack/
+else
+    cp -r "$REPO_ROOT/stack/." /srv/stack/
+fi
 chown -R "$REAL_USER:$REAL_USER" /srv/stack
 
 # .env is sensitive (TS_AUTHKEY) — start from .env.example if not present.
@@ -402,15 +408,6 @@ if [ ! -f /srv/stack/.env ]; then
     chown "$REAL_USER:$REAL_USER" /srv/stack/.env
 fi
 
-# Write the user's actual home dir into .env so docker compose binds
-# /home/<user>/.ssh + .gitconfig (not /root/...) even when started by a
-# root systemd unit. Replace any existing USER_HOME= line, append if new.
-if grep -q '^USER_HOME=' /srv/stack/.env; then
-    sed -i "s|^USER_HOME=.*|USER_HOME=$REAL_HOME|" /srv/stack/.env
-else
-    echo "USER_HOME=$REAL_HOME" >> /srv/stack/.env
-fi
-
 # Bind-mount target dirs (created with the right ownership before
 # docker auto-creates them with root).
 install -d -o "$REAL_USER" -g "$REAL_USER" \
@@ -418,14 +415,9 @@ install -d -o "$REAL_USER" -g "$REAL_USER" \
     /srv/stack/data/tailscale \
     /srv/stack/data/caddy \
     /srv/stack/data/caddy/data \
-    /srv/stack/data/caddy/config \
-    /srv/stack/data/hermes \
-    /srv/stack/data/claude \
-    /srv/stack/data/agent-tools
+    /srv/stack/data/caddy/config
 
-# ~/.gitconfig on the host: the agent container doesn't bind to this file
-# directly any more (single-file binds break rename()), but it's still
-# useful for the host user. Drop a stub if missing.
+# ~/.gitconfig stub so git works out of the box. Edit to your identity.
 if [ ! -f "$REAL_HOME/.gitconfig" ]; then
     cat > "$REAL_HOME/.gitconfig" <<EOF
 # Edit user.name + user.email to your identity.
@@ -438,31 +430,22 @@ EOF
     chown "$REAL_USER:$REAL_USER" "$REAL_HOME/.gitconfig"
 fi
 
-# Seed the agent's git config (lives at /srv/stack/data/agent-tools/git/config,
-# pointed at by GIT_CONFIG_GLOBAL in the hermes container). gh + git inside
-# the container write here, surviving compose down/up.
-install -d -o "$REAL_USER" -g "$REAL_USER" /srv/stack/data/agent-tools/git
-if [ ! -s /srv/stack/data/agent-tools/git/config ] && [ -s "$REAL_HOME/.gitconfig" ]; then
-    cp "$REAL_HOME/.gitconfig" /srv/stack/data/agent-tools/git/config
-    chown "$REAL_USER:$REAL_USER" /srv/stack/data/agent-tools/git/config
-fi
-
 # systemd unit that runs `docker compose up -d --build` at boot.
 install -m 644 "$CONFIGS/gnar-stack.service" /etc/systemd/system/gnar-stack.service
 
 # Weekly prune of dangling images + old stopped containers — every
-# `--build` strands the previous image as untagged layers (multi-GB for
-# the hermes image), which otherwise accumulate unbounded.
+# `--build` strands the previous image as untagged layers, which
+# otherwise accumulate unbounded.
 install -m 644 "$CONFIGS/gnar-docker-prune.service" /etc/systemd/system/gnar-docker-prune.service
 install -m 644 "$CONFIGS/gnar-docker-prune.timer" /etc/systemd/system/gnar-docker-prune.timer
 
-# Passwordless sudo for the user. Required so the Hermes orchestrator (which
-# runs inside the gnar-hermes-gateway container with /var/run/docker.sock
-# mounted, but also needs to poke host things via `sudo` over docker exec
-# from helper scripts) can manage the box without hanging on a password.
-# The auth surface for "root-on-this-box" was already (a) the user's SSH
-# key and (b) the Telegram allowlist on the bot — both compromises imply
-# full host access — so this doesn't materially widen the threat model.
+# Passwordless sudo for the user. The box is managed non-interactively —
+# Claude Code over SSH, the kiosk's touch action buttons (update / reboot /
+# prune run `sudo -n`), and gnar-board's samplers (journalctl, smartctl,
+# fail2ban-client) — none of which can answer a password prompt. The auth
+# surface for "root-on-this-box" is already the user's SSH key (a compromise
+# implies full host access), so this doesn't materially widen the threat
+# model on a single-tenant server.
 SUDOERS_FILE=/etc/sudoers.d/gnar-${REAL_USER}-nopasswd
 echo "$REAL_USER ALL=(ALL) NOPASSWD: ALL" > "$SUDOERS_FILE"
 chmod 440 "$SUDOERS_FILE"
@@ -510,11 +493,6 @@ command -v rustup &>/dev/null && rustup default stable || true
 export GOPATH="$HOME/go"
 mkdir -p "$GOPATH/bin"
 go install github.com/go-delve/delve/cmd/dlv@latest || true
-
-# chainlink — per-project issue tracker, used by the Hermes skill below.
-[ -f "$HOME/.cargo/env" ] && . "$HOME/.cargo/env"
-command -v cargo &>/dev/null && \
-    cargo install --git https://github.com/dollspace-gay/chainlink chainlink || true
 EOF
 
 # -----------------------------------------------------------------------------
@@ -533,7 +511,6 @@ install -m 755 "$BIN/gnar-kiosk-tiles"      /usr/local/bin/gnar-kiosk-tiles
 install -m 755 "$BIN/gnar-kiosk-restart"    /usr/local/bin/gnar-kiosk-restart
 install -m 755 "$BIN/gnar-kiosk-shot"       /usr/local/bin/gnar-kiosk-shot
 install -m 755 "$BIN/gnar-claude-stats"     /usr/local/bin/gnar-claude-stats
-install -m 755 "$BIN/gnar-hermes-status"    /usr/local/bin/gnar-hermes-status
 install -m 755 "$BIN/gnar-project-init"     /usr/local/bin/gnar-project-init
 install -m 755 "$BIN/gnar-bootstrap"        /usr/local/bin/gnar-bootstrap
 install -m 755 "$BIN/gnar-preview-site"     /usr/local/bin/gnar-preview-site
@@ -553,8 +530,8 @@ else
     echo -e "${YELLOW}cargo not found — skipping gnar-board build${NC}"
 fi
 
-# Default project root for Hermes-managed work. Owned by the user so
-# `gnar-project-init` doesn't need sudo to create new projects under it.
+# Default project root. Owned by the user so `gnar-project-init` doesn't
+# need sudo to create new projects under it.
 install -d -o "$REAL_USER" -g "$REAL_USER" /srv/projects
 
 # -----------------------------------------------------------------------------
@@ -637,12 +614,10 @@ echo "After this reboot, run:"
 echo
 echo "  gnar-bootstrap"
 echo
-echo "It walks tailscale auth → claude login → hermes brain auth →"
-echo "Telegram setup → optional gh + cloudflared. Idempotent — re-run"
-echo "any time and it skips steps that are already done."
+echo "It walks tailscale auth → claude login → optional gh + cloudflared."
+echo "Idempotent — re-run any time and it skips steps already done."
 echo
-echo "From there, talk to your bot. Hermes can set up new projects,"
-echo "deploy sites, manage docker, etc. — the agent calls its own tools."
+echo "Day-to-day management is Claude Code over SSH: ssh in, run \`claude\`."
 if [ "$ROOT_FS" = "btrfs" ]; then
     echo
     echo "Btrfs detected — Snapper is enabled. Useful commands:"

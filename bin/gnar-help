@@ -10,27 +10,25 @@ Core
                               kill pacman mid-transaction)
   gnar-help                   This reference
   gnar-dashboard              tmux session running the full gnar-board
-                              (ssh view; the kiosk uses mango tiles)
+                              (ssh view; the kiosk uses sway tiles)
   gnar-board [panel]          Ratatui dashboard. No args = full board;
                               cpu|mem|net|disk|containers|status render
-                              one panel (the kiosk runs six as mango
+                              one panel (the kiosk runs six as sway
                               grid tiles). q quits.
   gnar-metrics-board          Container CPU/MEM sparklines + net rates +
                               host line (one-shot fallback)
   gnar-kiosk-restart          Gracefully restart the kiosk compositor
-                              (mmsg -q; getty autologin respawns it)
+                              (swaymsg exit; getty autologin respawns it)
   gnar-kiosk-shot [out.png]   Screenshot the kiosk display via grim
   gnar-services-status        Caddy sites + service health (one-shot)
-  gnar-hermes-status          Hermes auth + kanban + cron (one-shot)
   gnar-claude-stats           Claude Code session + token stats (one-shot)
   gnar-project-init <path> [desc]
-                              Manual project bootstrap (rare — usually
-                              ask Hermes "set up a project at /srv/..."
-                              and it'll use the init-project skill).
+                              Bootstrap a project dir: git init + a
+                              starter CLAUDE.md for agent-assisted work.
   gnar-bootstrap              Interactive post-install wizard:
-                              tailscale + claude + hermes brain auth +
-                              Telegram bot + optional gh / cloudflared.
-                              Idempotent — re-run any time.
+                              tailscale + claude login + optional
+                              gh / cloudflared. Idempotent — re-run
+                              any time.
 
 System info / status
   ff, nf                      fastfetch
@@ -62,30 +60,24 @@ PM2
   pm2-status                  PM2 + Caddy sites
 
 Kiosk dashboard (attached display)
-  Auto-login + Mango (Wayland WM) on tty1; runs `gnar-dashboard` fullscreen.
-  Run `gnar-dashboard` from any shell to attach the same session.
-  Edit ~/.config/mango/config.conf to change behavior.
+  Auto-login + sway on tty1; tiles six gnar-board panels in a 3x2 grid.
+  On a touch panel: tap a tile to fullscreen it (back button top-left);
+  the fullscreen OPS view has action buttons (two-tap confirm on the
+  destructive ones). Edit ~/.config/sway/config to change behavior.
   Alt+Return                  Open another foot terminal
   Alt+Q                       Close window
   Super+F                     Toggle fullscreen
-  Super+M                     Quit Mango
-  Super+Shift+R               Reload mango config
+  Super+Shift+R               Reload sway config
+  Super+Shift+Q               Quit sway
 
-AI / LLM (Hermes orchestrator + Claude Code, both in /srv/stack containers)
-  Stack lifecycle:
+AI / LLM (Claude Code on the host)
+  Manage the box: ssh in, run `claude`. Auth once via gnar-bootstrap
+  (or `claude` → /login). Session stats: gnar-claude-stats.
+  Stack lifecycle (tailscale + caddy + cloudflared):
     sudo systemctl status gnar-stack
     cd /srv/stack && docker compose ps
-    cd /srv/stack && docker compose logs -f hermes-gateway
+    cd /srv/stack && docker compose logs -f caddy
     cd /srv/stack && docker compose pull && docker compose up -d --build
-  Inside the gateway:
-    docker compose exec hermes-gateway hermes ask "..."
-    docker compose exec hermes-gateway hermes skills list
-    docker compose exec hermes-gateway hermes kanban list
-    docker compose exec hermes-gateway claude   # subscription-auth tool
-  Dashboard: http://<tailnet-ip> (caddy → hermes.local → :9119)
-  Per-project tracker (host shell, inside the project):
-    chainlink list              # not on host PATH; use docker exec
-    docker compose exec hermes-gateway chainlink list
 
 Python (uv)
   uv venv                     Create a virtualenv

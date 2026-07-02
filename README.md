@@ -4,16 +4,16 @@
 
 A single setup script that turns a fresh Arch install into a headless
 home server for remote development over SSH. Spaceship + Zsh + Tmux,
-Docker, PostgreSQL + Valkey, a full set of language runtimes,
-and a docker-compose stack (Tailscale + Caddy + Hermes orchestrator)
-that ships the agent + network surface.
+Docker, PostgreSQL + Valkey, a full set of language runtimes, and a
+docker-compose stack (Tailscale + Caddy + Cloudflare Tunnel) that ships
+the network surface. Day-to-day management is Claude Code over SSH.
 
 This is intentionally opinionated and intentionally heavy — it's a
 personal home-server bootstrap, not a minimal TTY distribution.
 
 ## What You Get
 
-- **Kiosk Dashboard** - Mango (Wayland WM) + foot auto-launches `gnar-dashboard` (two-pane TUI: full-width btop + a unified status board — services, containers, Caddy sites, Hermes) on an attached display (no-op when headless)
+- **Kiosk Dashboard** - sway (Wayland) + foot tile six `gnar-board` panels (CPU/MEM/NET, DISK/CONTAINERS/OPS) on an attached display, with touch support — tap a tile to fullscreen it, on-screen action buttons (no-op when headless)
 - **Spaceship Prompt** - Beautiful, fast, and customizable Zsh prompt
 - **Zsh with Essential Plugins** - Autosuggestions, syntax highlighting, completions
 - **Tmux as Default** - Tiling terminal multiplexer with vim keybindings
@@ -23,7 +23,8 @@ personal home-server bootstrap, not a minimal TTY distribution.
 - **Btrfs + Snapper** - Auto-snapshot before/after every pacman transaction; boot-into-snapshot via GRUB submenu when an update breaks the system (only when root is btrfs)
 - **Security Features** - UFW firewall, Fail2ban, SSH hardening
 - **System Monitoring** - btop, iotop, nethogs, smartmontools
-- **AI Orchestrator stack** - docker-compose at `/srv/stack/`: Tailscale + Caddy + Hermes (Telegram bot, Kanban dashboard) with Claude Code as a subprocess tool inside the hermes container, chainlink for per-project issue tracking. `git pull && docker compose up -d --build` to update.
+- **Ingress stack** - docker-compose at `/srv/stack/`: Tailscale (tailnet identity) + Caddy (reverse proxy, LE wildcard certs) + Cloudflare Tunnel (opt-in public sites). `git pull && docker compose up -d --build` to update.
+- **Claude Code** - installed npm-global on the host; ssh in and run `claude` to manage the box or work on projects.
 - **Runtime Support** - Node.js, Bun, Python, Ruby, Rust, Go, Java, Docker
 - **Development Tools** - eza, bat, fd, fzf, zoxide, ripgrep, and more
 

@@ -32,17 +32,10 @@ services:
       - NET_RAW
     # `extra_hosts` MUST live on the netns owner. Sibling containers
     # using `network_mode: service:tailscale` share /etc/hosts, so this
-    # propagates automatically.
+    # propagates automatically. (Published ports would also have to live
+    # here — none are published: ingress is tailnet + cloudflared only.)
     extra_hosts:
       - "host.docker.internal:host-gateway"
-    # Published host ports also MUST live on the netns owner — sibling
-    # containers can't publish their own. 8642 is the Hermes OpenAI-compatible
-    # API server (run by hermes-gateway; enable via API_SERVER_* in
-    # data/hermes/.env). Reachable on the LAN at http://<host>:8642 for
-    # non-tailnet clients (e.g. an ESP32 dashboard). Docker's publish bypasses
-    # UFW, so the API_SERVER_KEY bearer token is the access control.
-    ports:
-      - "8642:8642"
     restart: unless-stopped
 
   # Reverse proxy for everything served from the box. Edits to ./Caddyfile
@@ -70,7 +63,7 @@ services:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
       - ./data/caddy/data:/data
       - ./data/caddy/config:/config
-      # Static "online" homepage served at the preview apex.
+      # Static "online" homepage served at the preview apex + default :80.
       - ./homepage:/srv/homepage:ro
       # Project files — so `add-preview-site hello /srv/projects/foo`
       # can serve straight out of the project's own dir without copying.
@@ -81,97 +74,6 @@ services:
       - ./preview-handles:/etc/caddy/preview-handles:ro
     # host.docker.internal resolution comes from the tailscale service
     # — containers sharing its netns inherit /etc/hosts.
-    restart: unless-stopped
-
-  # Hermes orchestrator: Telegram bot + agent brain. Calls the bundled
-  # `claude` and `chainlink` binaries inside this container.
-  hermes-gateway:
-    build:
-      context: ./hermes
-      dockerfile: Dockerfile
-    image: gnar-hermes:latest
-    container_name: gnar-hermes-gateway
-    logging: *default-logging
-    network_mode: service:tailscale
-    depends_on: [tailscale]
-    command: ["hermes", "gateway", "run"]
-    volumes:
-      # Persistent ~/.hermes (auth.json, MEMORY.md, kanban.db, sessions).
-      - ./data/hermes:/root/.hermes
-      # Persistent ~/.claude (subscription auth, project session transcripts).
-      - ./data/claude:/root/.claude
-      # Backup target for the nightly `hermes backup` cron. Kept OUTSIDE
-      # ~/.hermes so a full backup (which zips ~/.hermes) doesn't nest the
-      # previous archives. Written by ~/.hermes/scripts/backup.sh.
-      - ./data/backups:/root/backups
-      # Skills shipped with the repo, mounted read-only so updates land via
-      # `git pull && docker compose restart hermes-gateway`.
-      - ./skills:/root/.hermes/skills/gnar:ro
-      # Project files. Same path on host + container so paths match what
-      # the user (and the rest of gnar — `gnar-deploy`, `cdp`, etc.) uses.
-      - ${USER_HOME:-/root}/projects:${USER_HOME:-/root}/projects:rw
-      # gnar helper scripts (gnar-deploy, gnar-project-init, gnar-preview-site,
-      # ...). Mounted read-only so `git pull` on the host immediately reflects
-      # inside the container; PATH is prepended below.
-      - ${USER_HOME:-/root}/gnar/bin:/opt/gnar-bin:ro
-      # So the agent can `docker ps` etc. on the host docker.
-      - /var/run/docker.sock:/var/run/docker.sock
-      # Git/SSH: share the host user's SSH keys so `git push` over SSH
-      # works as the gnar user. .ssh is a DIRECTORY so a bind-mount is
-      # fine; .gitconfig has to live elsewhere because single-file binds
-      # break rename() (git + gh write by rename).
-      # USER_HOME is set in .env by setup.sh — without it $HOME would
-      # be /root when compose runs from the gnar-stack systemd unit.
-      - ${USER_HOME:-/root}/.ssh:/root/.ssh:ro
-      # gh CLI auth + cloudflared cert (created by interactive `gh auth login`
-      # / `cloudflared tunnel login` from inside the container). Both persist
-      # across rebuilds via this bind mount.
-      - ./data/agent-tools:/root/.config
-    # host.docker.internal inherited from the tailscale service via netns.
-    environment:
-      # Point git's "global config" at the persisted .config directory
-      # (mounted from ./data/agent-tools). gh and git both write here;
-      # no single-file bind mount, so rename() works.
-      GIT_CONFIG_GLOBAL: /root/.config/git/config
-      # gnar-deploy and friends look here for project checkouts. $HOME is
-      # /root inside the container, but the bind-mount lives at /home/iam.
-      GNAR_PROJECTS: ${USER_HOME:-/root}/projects
-      # Prepend the bind-mounted gnar bin so `gnar-deploy` etc. are on PATH.
-      PATH: /opt/gnar-bin:/root/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
-      # The gateway runs as root, but the `claude-with-chainlink` skill shells
-      # out to `claude -p --permission-mode bypassPermissions`, which Claude
-      # Code refuses under root ("--dangerously-skip-permissions cannot be used
-      # with root/sudo privileges"). Without this, every delegated coding task
-      # fails and the orchestrator falls back to hand-editing repos itself.
-      # This container IS a sandbox, so opt into the documented escape hatch.
-      IS_SANDBOX: "1"
-    restart: unless-stopped
-
-  # Web UI for the kanban board + session inspector.
-  hermes-dashboard:
-    image: gnar-hermes:latest
-    container_name: gnar-hermes-dashboard
-    logging: *default-logging
-    network_mode: service:tailscale
-    depends_on: [tailscale, hermes-gateway]
-    # Bind to localhost only — Hermes refuses 0.0.0.0 (dashboard exposes
-    # API keys without auth). caddy reverse-proxies hermes.local → :9119
-    # in the same netns, so external access still works via caddy.
-    command: ["hermes", "dashboard", "--host", "127.0.0.1", "--port", "9119"]
-    volumes:
-      - ./data/hermes:/root/.hermes
-      - ./data/claude:/root/.claude
-      - ./skills:/root/.hermes/skills/gnar:ro
-    environment:
-      # Pin a stable dashboard session token + allow a remote origin so the
-      # Hermes desktop app can connect over the tailnet. The token override
-      # is native upstream as of v2026.6.5 (HERMES_DASHBOARD_SESSION_TOKEN);
-      # the CORS/WS-origin relaxation is a hermes/Dockerfile patch. The .env
-      # var keeps its original HERMES_DASHBOARD_TOKEN name. Both empty by
-      # default = upstream localhost-only behavior. (The embedded chat
-      # sidecar /api/ws is always-on upstream now; no TUI flag needed.)
-      HERMES_DASHBOARD_SESSION_TOKEN: ${HERMES_DASHBOARD_TOKEN:-}
-      HERMES_DASHBOARD_CORS_REGEX: ${HERMES_DASHBOARD_CORS_REGEX:-}
     restart: unless-stopped
 
   # Cloudflare Tunnel connector — always on. Token-managed: the tunnel and

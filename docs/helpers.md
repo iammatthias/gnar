@@ -59,12 +59,12 @@ caddy-logs                     # journalctl -fu caddy
 
 ## Kiosk dashboard (attached display)
 
-GNAR is headless by default, but `setup.sh` also installs **Mango**
-(Wayland WM, AUR `mangowm-git`) + `foot` and configures `getty@tty1`
-to auto-log the user in. When a display is plugged into the box, on
-next login `~/.zprofile` exec's `mango`, which composites the
+GNAR is headless by default, but `setup.sh` also installs **sway**
+(Wayland compositor) + `foot` and configures `getty@tty1` to auto-log
+the user in. When a display is plugged into the box, on next login
+`~/.zprofile` exec's `sway`, and `gnar-kiosk-tiles` arranges the
 dashboard as **six tiles** — one foot window per `gnar-board` panel,
-arranged by mango's grid layout with gaps and Tokyo Night borders:
+in a 3×2 grid with gaps and Tokyo Night borders:
 
 ```
 ╭ CPU ─────────╮ ╭ MEM ─────────╮ ╭ NET ─────────╮
@@ -78,8 +78,12 @@ arranged by mango's grid layout with gaps and Tokyo Night borders:
 ```
 
 The compositor owns the mosaic: every tile is a real window you can
-focus, swap, zoom, or kill (it respawns), and mango supplies the
-gaps, borders, and animations. Each panel process only runs the
+focus, swap, zoom, or kill (it respawns), and sway supplies the gaps
+and borders. sway (rather than a minimal dwl-style WM) because it
+exposes `wl_touch` — on a touch panel, tapping a tile fullscreens it
+(back button top-left), and the fullscreen OPS view carries on-screen
+action buttons (update / kiosk↻ / stack↻ / prune / reboot, two-tap
+confirm on the destructive ones). Each panel process only runs the
 samplers it displays. `gnar-board` (no args) renders the whole board
 in one terminal — that's what `gnar-dashboard` runs in tmux for ssh
 sessions, where there's no compositor:
@@ -106,7 +110,6 @@ gnar-metrics-board     # container CPU/MEM sparklines + net + host (one-shot)
 gnar-status-board      # the unified dashboard board (one-shot)
 gnar-services-status   # Caddy sites + service health (one-shot)
 gnar-docker-status     # docker containers + pm2 processes
-gnar-hermes-status     # Hermes containers, auth, kanban, cron
 gnar-claude-stats      # Claude Code sessions + token usage
 ```
 
@@ -116,24 +119,23 @@ and break down sessions by project. Token computation is skipped if
 total session data exceeds 50 MB.
 
 To swap the dashboard for something else, edit
-`~/.config/mango/config.conf` and change the `exec-once` line:
+`~/.config/sway/config` and change the `exec` line:
 
-```ini
-exec-once=foot --fullscreen -e gnar-dashboard
-exec-once=foot --fullscreen -e btop
-exec-once=foot --fullscreen -e glances
-exec-once=foot --fullscreen -e tmux new -A -s dash
+```
+exec foot --fullscreen -e gnar-dashboard
+exec foot --fullscreen -e btop
+exec foot --fullscreen -e tmux new -A -s dash
 ```
 
-In-Mango keybindings (only matter if you walk up to the box):
+In-sway keybindings (only matter if you walk up to the box):
 
 | Keybinding | Action |
 |---|---|
 | `Alt + Return` | Open another `foot` terminal |
 | `Alt + Q` | Close the focused window |
 | `Super + F` | Toggle fullscreen |
-| `Super + Shift + R` | Reload `config.conf` |
-| `Super + M` | Quit Mango |
+| `Super + Shift + R` | Reload the sway config |
+| `Super + Shift + Q` | Quit sway |
 
 ## Snapshots (btrfs only)
 

@@ -8,8 +8,8 @@ GNAR is an opinionated home-server bootstrap for Arch Linux. One script
 provisions a headless Arch box for remote development over SSH: enhanced
 zsh, tmux, Docker, PostgreSQL + Valkey, a broad set of language runtimes
 (Node, Python via uv, Ruby, Rust, Go, Java), plus a docker-compose stack
-under /srv/stack for the network-ingress + agent layer (Tailscale, Caddy,
-Hermes orchestrator, Claude Code).
+under /srv/stack for the network-ingress layer (Tailscale, Caddy,
+Cloudflare Tunnel). Day-to-day management is Claude Code over SSH.
 
 It also installs sway (Wayland compositor) + foot so an optional attached
 display becomes a live kiosk dashboard (auto-login on tty1 → sway → six
@@ -23,47 +23,39 @@ work under a compositor that delivers touch to clients.
 
 ### Container stack (`/srv/stack`)
 
-The network ingress + agent surface is a docker-compose stack — atomically
-updatable via `git pull && docker compose up -d --build` and isolated from
-the host substrate.
+The network ingress layer is a docker-compose stack — atomically updatable
+via `git pull && docker compose up -d --build` and isolated from the host
+substrate.
 
 - `gnar-tailscale` (image: `tailscale/tailscale`) — tailnet identity. Other
   services share its network namespace (`network_mode: service:tailscale`)
   so they reach the tailnet directly + can talk to one another on
   `localhost`.
-- `gnar-caddy` (image: `caddy:latest`) — reverse proxy. Caddyfile lives at
+- `gnar-caddy` (image: built from `stack/caddy/Dockerfile`, adds the
+  Cloudflare DNS module) — reverse proxy. Caddyfile lives at
   `/srv/stack/Caddyfile`, mounted into the container.
   `add-site`/`remove-site` shell helpers edit it and reload via
   `docker compose exec`.
-- `gnar-hermes-gateway` + `gnar-hermes-dashboard` (image: built from
-  `stack/hermes/Dockerfile`) — Telegram-bot orchestrator brain + web UI.
-  Bundles `hermes-cli`, `claude` (Claude Code), `chainlink`. `~/.hermes` and
-  `~/.claude` mount from `/srv/stack/data/{hermes,claude}` so state is
-  inspectable on host and survives rebuilds.
+- `gnar-cloudflared` (image: `cloudflare/cloudflared`) — Cloudflare Tunnel
+  connector for opt-in public sites (`add-public-site`).
 
 State on host:
-- `/srv/stack/Caddyfile` — caddy config (user-editable)
-- `/srv/stack/.env` — TS_AUTHKEY, TS_HOSTNAME (chmod 600)
+- `/srv/stack/Caddyfile` — caddy config. The LIVE copy accumulates
+  add-site blocks at runtime — never clobber it with the repo boilerplate.
+- `/srv/stack/.env` — TS_AUTHKEY, CF_API_TOKEN, CLOUDFLARED_TOKEN (chmod 600)
 - `/srv/stack/data/tailscale/` — tailnet identity
 - `/srv/stack/data/caddy/{data,config}/` — caddy data + cert cache
-- `/srv/stack/data/hermes/{auth.json,MEMORY.md,kanban.db,...}`
-- `/srv/stack/data/claude/` — subscription auth + session transcripts
-- `/srv/stack/skills/` — skill files shipped with the repo (read-only mount)
-- `/srv/projects/` — bind-mounted into hermes-gateway at the same path
+- `/srv/projects/` — project checkouts (served by preview sites)
 
 When root is btrfs, the script installs Snapper + snap-pac (auto-snapshot
 on every pacman transaction) and grub-btrfs (boot-into-snapshot from GRUB).
 `/var/lib/{postgres,valkey,docker}` get `chattr +C` to skip CoW on
 high-churn database/container files.
 
-The top-level AI surface is **Hermes** (`hermes` CLI; AUR `hermes-agent`),
-not Claude Code directly. Hermes runs the orchestrator brain on a ChatGPT
-OAuth credential and exposes a Telegram bot + Kanban dashboard (port 9119,
-expected to be Tailscale-gated). Claude Code is still installed and used
-by Hermes as a subprocess tool via the `claude-with-chainlink` skill;
-`chainlink` (cargo install) provides per-project issue tracking that the
-skill threads through. OAuth + Telegram setup is interactive and not
-automated by `setup.sh` — see the closing banner.
+The AI surface is **Claude Code on the host** (`claude`, installed
+npm-global): ssh in and run `claude` to manage the box or work on
+projects. Auth (subscription OAuth) is interactive — `gnar-bootstrap`
+walks it once post-install.
 
 It is intentionally heavy — this is a personal home-server bootstrap, not a
 "minimal TTY" distribution.
@@ -153,7 +145,7 @@ all per-user work runs through `sudo -u "$REAL_USER"`.
   general-purpose distribution.
 - **Idempotent-ish** — re-running setup.sh re-applies configs, backing up
   existing `~/.zshrc` first. Most steps tolerate already-configured state.
-- **No secrets in repo** — Hermes OAuth tokens land at `~/.hermes/auth.json`
+- **No secrets in repo** — stack secrets land in `/srv/stack/.env`
   (chmod 600) at runtime, never committed.
 - **Configs are tracked** — every file the bootstrap installs lives under
   `configs/` so changes are reviewable in diff form rather than buried in

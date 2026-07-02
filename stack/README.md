@@ -1,20 +1,20 @@
 # GNAR stack
 
-Single-host docker-compose for the network ingress + agent surface.
+Single-host docker-compose for the network ingress surface.
 
 ```
-┌──────────────────────────── tailscale (network namespace) ─────────────────────────────┐
-│                                                                                        │
-│  caddy            hermes-gateway        hermes-dashboard                               │
-│  :80, :443        Telegram poller       :9119                                          │
-│                                                                                        │
-└────────────────────────────────────────────────────────────────────────────────────────┘
+┌────────────── tailscale (network namespace) ──────────────┐
+│                                                           │
+│  caddy                     cloudflared                    │
+│  :80, :443, :8080          tunnel connector               │
+│                                                           │
+└───────────────────────────────────────────────────────────┘
 ```
 
-All four containers share the `tailscale` container's network namespace
+The containers share the `tailscale` container's network namespace
 (`network_mode: service:tailscale`). They reach each other on `localhost`,
 and the outside world reaches them via the tailnet IP / hostname tailscale
-hands out.
+hands out — or, for opt-in public sites, via the Cloudflare tunnel.
 
 ## Layout
 
@@ -22,21 +22,21 @@ hands out.
 /srv/stack/
 ├── docker-compose.yml
 ├── Caddyfile                # bind-mounted into caddy:/etc/caddy/Caddyfile
-├── .env                     # TS_AUTHKEY, TS_HOSTNAME — copy from .env.example
-├── hermes/Dockerfile        # custom image: hermes + claude + chainlink
-├── skills/                  # mounted read-only into /root/.hermes/skills/gnar
-│   └── claude-with-chainlink/SKILL.md
+│                            # LIVE copy accumulates add-site blocks — the
+│                            # repo version is boilerplate only
+├── .env                     # secrets — copy from .env.example, chmod 600
+├── caddy/Dockerfile         # custom image: + caddy-dns/cloudflare module
+├── homepage/                # static "online" page (default :80 + apex)
+├── preview-handles/         # one .caddy fragment per preview site
 └── data/                    # bind-mounted state (persists across `compose down`)
     ├── tailscale/           # tailscale identity
-    ├── caddy/               # caddy data + config
-    ├── hermes/              # ~/.hermes (auth, MEMORY.md, kanban.db)
-    └── claude/              # ~/.claude (subscription auth, sessions)
+    └── caddy/               # caddy data + config (certs)
 ```
 
 ## Lifecycle
 
 ```
-docker compose up -d --build      # bring up, build hermes image if needed
+docker compose up -d --build      # bring up, build caddy image if needed
 docker compose ps                 # what's running
 docker compose logs -f tailscale  # follow one service
 docker compose pull               # newer base images
@@ -48,26 +48,15 @@ docker compose down               # stop everything
 
 ## First-boot interactive
 
-Three things have to happen interactively, once. Easiest is to do them via
-`docker compose exec` so they happen in the right container.
+One thing has to happen interactively, once:
 
-1. **Tailscale.** Either fill `TS_AUTHKEY=` in `.env` and let it auto-auth on
-   first boot, or:
-   ```
-   docker compose exec tailscale tailscale up
-   ```
-2. **Claude Code subscription.** From inside hermes-gateway:
-   ```
-   docker compose exec hermes-gateway claude
-   # /login, finish browser flow, /exit
-   ```
-3. **Hermes brain auth.** Pick a provider:
-   ```
-   docker compose exec hermes-gateway hermes auth add anthropic --type oauth
-   docker compose exec hermes-gateway hermes gateway setup    # Telegram
-   ```
+**Tailscale.** Either fill `TS_AUTHKEY=` in `.env` and let it auto-auth on
+first boot, or:
+```
+docker compose exec tailscale tailscale up
+```
 
-After all three: `docker compose restart hermes-gateway hermes-dashboard`.
+`gnar-bootstrap` walks this (plus Claude Code login on the host).
 
 ## Adding a website
 
@@ -81,21 +70,18 @@ The `add-site myapp 3000` zsh helper does this for you.
 
 ## Two listeners: private vs public
 
-Caddy listens on two separate ports inside the tailscale netns:
+Caddy listens on separate ports inside the tailscale netns:
 
-| Port  | Listener  | Reached by             | Helper            |
-|-------|-----------|------------------------|-------------------|
-| 80    | private   | tailnet                | `add-site`        |
-| 8080  | public    | cloudflared tunnel     | `add-public-site` |
+| Port  | Listener  | Reached by             | Helper                |
+|-------|-----------|------------------------|-----------------------|
+| 80    | private   | tailnet                | `add-site`            |
+| 443   | private   | tailnet (LE wildcard)  | `add-preview-site`    |
+| 8080  | public    | cloudflared tunnel     | `add-public-site`     |
 
 The split is intentional. Cloudflared only ever delivers traffic to
-`localhost:8080`, so it physically can't reach the dashboard or any
-other private vhost — the dashboard isn't on that listener.
+`localhost:8080`, so it physically can't reach any private vhost.
 
-## Public sites via Cloudflare Tunnel (optional)
-
-The cloudflared service is in the compose file but disabled (behind the
-`cloudflared` profile). To turn it on:
+## Public sites via Cloudflare Tunnel
 
 1. **Create a tunnel.** Cloudflare Zero Trust dashboard → Networks →
    Tunnels → Create a tunnel. Save the connector token.
@@ -105,11 +91,8 @@ The cloudflared service is in the compose file but disabled (behind the
    the tunnel side — caddy distinguishes them by Host header.
 3. **Set the token.** In `/srv/stack/.env`, set
    `CLOUDFLARED_TOKEN=...`.
-4. **Start the connector.**
-   ```
-   cd /srv/stack
-   docker compose --profile cloudflared up -d
-   ```
+4. **Bring the stack up** (the connector is always-on once the token
+   is set): `cd /srv/stack && docker compose up -d`.
 5. **Publish a site.** From a shell on the box:
    ```
    add-public-site myapp.example.com 3000
@@ -119,27 +102,3 @@ The cloudflared service is in the compose file but disabled (behind the
 
 One tunnel covers every site you publish — `add-public-site` per
 hostname.
-
-## Agent has git + gh + cloudflared
-
-The hermes container ships with `git`, `gh` (GitHub CLI), `cloudflared`,
-and `openssh`. Host's `~/.ssh` and `~/.gitconfig` bind-mount in read-only,
-so anything the agent does over SSH/git authenticates as you.
-
-GitHub API access (issues, PRs, releases) needs an interactive
-`gh auth login` once:
-
-```
-docker compose exec hermes-gateway gh auth login
-```
-
-Cloudflared CLI tunnel management (creating/listing/deleting tunnels,
-not the long-running connector) similarly:
-
-```
-docker compose exec hermes-gateway cloudflared tunnel login
-```
-
-Both store credentials in `data/agent-tools/` on host (mounted as
-`/root/.config` in the container), so they survive `docker compose down`
-and image rebuilds.

@@ -1,9 +1,12 @@
 #!/bin/bash
-# GNAR — interactive post-install: tailscale up, claude /login, hermes
-# brain auth, telegram setup, optional gh + cloudflared. Idempotent.
+# GNAR — interactive post-install: tailscale auth, Claude Code login,
+# optional gh + cloudflared. Idempotent.
 #
 # Run once after `sudo reboot` from setup.sh. Re-runnable any time —
 # steps already complete are skipped automatically.
+#
+# Day-to-day management of the box is Claude Code over SSH (ssh in, run
+# `claude`) — this wizard just gets the auth in place.
 
 set -uo pipefail
 
@@ -11,14 +14,12 @@ STACK=/srv/stack
 COMPOSE=(docker compose -f "$STACK/docker-compose.yml")
 
 # For non-interactive reads (state checks), use `compose exec -T`.
-EXEC_GW=("${COMPOSE[@]}" exec -T hermes-gateway)
 EXEC_TS=("${COMPOSE[@]}" exec -T tailscale)
 
 # For interactive flows, use raw `docker exec -it <container-name>`.
 # `docker compose exec` without -T is supposed to allocate a TTY, but in
 # practice (especially inside scripts) it often doesn't pass through stdin
 # correctly. Raw `docker exec -it` is more reliable.
-EXEC_GW_IT=(docker exec -it gnar-hermes-gateway)
 EXEC_TS_IT=(docker exec -it gnar-tailscale)
 
 GREEN='\033[0;32m'
@@ -58,7 +59,7 @@ if [ ! -d "$STACK" ]; then
 fi
 
 if ! systemctl is-active --quiet gnar-stack; then
-    warn "gnar-stack.service inactive. Starting it now (image build can take ~10 min on first run)..."
+    warn "gnar-stack.service inactive. Starting it now..."
     sudo systemctl start gnar-stack
 fi
 
@@ -113,101 +114,35 @@ else
 fi
 
 # ---------------------------------------------------------------------------
-# Claude Code subscription auth
+# Claude Code (host)
 # ---------------------------------------------------------------------------
-step "Claude Code subscription"
+step "Claude Code"
 
-if "${EXEC_GW[@]}" test -f /root/.claude/.credentials.json 2>/dev/null || \
-   "${EXEC_GW[@]}" test -f /root/.claude/auth.json 2>/dev/null; then
+if [ -f "$HOME/.claude/.credentials.json" ] || [ -f "$HOME/.claude/auth.json" ]; then
     ok "Already authenticated"
+elif ! command -v claude &>/dev/null; then
+    warn "claude not on PATH — log out/in to pick up ~/.npm-global/bin, then re-run."
 else
-    warn "Claude isn't logged in. The agent uses claude as a subprocess tool."
-    info "Inside the claude prompt: type /login, finish browser flow, then /exit."
+    warn "Claude Code isn't logged in."
+    info "Inside the claude prompt: type /login, finish the browser flow, then /exit."
     if ask "Run claude now?"; then
-        "${EXEC_GW_IT[@]}" claude
+        claude
     else
         skip "Claude — re-run gnar-bootstrap later."
     fi
 fi
 
 # ---------------------------------------------------------------------------
-# Hermes brain auth
-# ---------------------------------------------------------------------------
-step "Hermes brain provider"
-
-if "${EXEC_GW[@]}" hermes auth list 2>/dev/null | grep -vE '^(No |Provider|$)' | grep -q .; then
-    PROVIDERS=$("${EXEC_GW[@]}" hermes auth list 2>/dev/null | tail -n +2 | awk '{print $1}' | sort -u | tr '\n' ' ')
-    ok "Already configured ($PROVIDERS)"
-    # Auth is set, but Hermes also needs an active model. Check + prompt.
-    CURRENT_MODEL=$("${EXEC_GW[@]}" hermes config get model 2>/dev/null | tail -1 | tr -d '\r ')
-    if [ -z "$CURRENT_MODEL" ] || [ "$CURRENT_MODEL" = "null" ] || [ "$CURRENT_MODEL" = "None" ]; then
-        warn "No active model set — the bot will reject inference requests."
-        if ask "Pick a model now (interactive)?"; then
-            "${EXEC_GW_IT[@]}" hermes model
-        else
-            skip "Model — re-run gnar-bootstrap or use /model in Telegram."
-        fi
-    else
-        ok "Model: $CURRENT_MODEL"
-    fi
-else
-    warn "No Hermes brain provider yet. Pick one:"
-    info "1) anthropic — OAuth, uses your Claude subscription (recommended if you have one)"
-    info "2) openai-codex — OAuth, uses your ChatGPT subscription"
-    info "3) anthropic-key — API key (metered, no subscription)"
-    info "4) openai-key — API key (metered, no subscription)"
-    info "5) openrouter — API key, supports many models including free tiers"
-    info "s) skip — set up later"
-    read -r -p "Choice [1-5/s]: " choice
-    case "$choice" in
-        1) "${EXEC_GW_IT[@]}" hermes auth add anthropic --type oauth --no-browser ;;
-        2) "${EXEC_GW_IT[@]}" hermes auth add openai-codex --type oauth --no-browser ;;
-        3) "${EXEC_GW_IT[@]}" hermes auth add anthropic --type api-key ;;
-        4) "${EXEC_GW_IT[@]}" hermes auth add openai --type api-key ;;
-        5) "${EXEC_GW_IT[@]}" hermes auth add openrouter --type api-key ;;
-        *) skip "Hermes brain — re-run gnar-bootstrap later." ;;
-    esac
-fi
-
-# ---------------------------------------------------------------------------
-# Telegram gateway
-# ---------------------------------------------------------------------------
-step "Telegram gateway"
-
-# Hermes' gateway-setup writes its config under /root/.hermes, but the
-# exact filename varies (gateway.toml, gateways/telegram.toml, settings/...,
-# etc.). Detect by grepping the whole dir for a telegram reference.
-if "${EXEC_GW[@]}" sh -c \
-    'grep -rsIl -E "(\[telegram\]|telegram_token|telegram-bot|bot_token)" /root/.hermes 2>/dev/null | head -1' \
-    | grep -q .; then
-    ok "Already configured"
-else
-    warn "Telegram bot not set up yet."
-    info "In Telegram on your phone, do TWO things first:"
-    info "  1. Message @BotFather, /newbot, save the HTTP token it prints."
-    info "  2. Message @userinfobot, save the numeric user ID it replies with."
-    info "The wizard will ask for both."
-    if ask "Run hermes gateway setup now?"; then
-        "${EXEC_GW_IT[@]}" hermes gateway setup
-    else
-        skip "Telegram gateway — re-run gnar-bootstrap later."
-    fi
-fi
-
-# ---------------------------------------------------------------------------
-# Optional: GitHub CLI
+# Optional: GitHub CLI (host)
 # ---------------------------------------------------------------------------
 step "GitHub CLI (optional)"
 
-if "${EXEC_GW[@]}" gh auth status 2>&1 | grep -q 'Logged in to github.com'; then
+if ! command -v gh &>/dev/null; then
+    skip "gh not installed (pacman -S github-cli) — git push over SSH works without it."
+elif gh auth status 2>&1 | grep -q 'Logged in to github.com'; then
     ok "gh already authenticated"
-elif ask "Authenticate gh now (lets the agent open PRs / read issues)?" N; then
-    # Pre-set the answers gh would otherwise prompt for, so all you have
-    # to do is copy the device code + open the URL.
-    "${EXEC_GW_IT[@]}" gh auth login \
-        --hostname github.com \
-        --git-protocol https \
-        --web
+elif ask "Authenticate gh now (PRs / issues from the box)?" N; then
+    gh auth login --hostname github.com --git-protocol https --web
 else
     skip "gh — git push still works without it; run later if you want the API."
 fi
@@ -223,19 +158,12 @@ if [ -n "${CF_TOKEN:-}" ]; then
         ok "Tunnel connector already running"
     else
         warn "CLOUDFLARED_TOKEN is set; starting the connector."
-        sudo "${COMPOSE[@]}" --profile cloudflared up -d
+        sudo "${COMPOSE[@]}" up -d cloudflared
         ok "cloudflared up. Add public sites with: add-public-site <host> <port>"
     fi
 else
     skip "Set CLOUDFLARED_TOKEN in /srv/stack/.env and re-run gnar-bootstrap to enable."
 fi
-
-# ---------------------------------------------------------------------------
-# Restart hermes services so the new auth + gateway config are picked up
-# ---------------------------------------------------------------------------
-step "Restarting hermes services"
-sudo "${COMPOSE[@]}" restart hermes-gateway hermes-dashboard 2>/dev/null || true
-ok "Done."
 
 # ---------------------------------------------------------------------------
 # Summary
@@ -246,13 +174,13 @@ TS_IP=${TS_IP:-$("${EXEC_TS[@]}" tailscale ip -4 2>/dev/null | tr -d '\r')}
 [ -n "$TS_IP" ] || TS_IP='<run tailscale up first>'
 
 cat <<EOF
-  Dashboard      http://$TS_IP (Caddy → hermes.local:80 → :9119 internally)
-  Bot            message the bot you registered with /help
-  Stack logs     sudo journalctl -fu gnar-stack
-                 cd $STACK && docker compose logs -f hermes-gateway
-  Add a site     add-site <name> <port>           # private, tailnet
-                 add-public-site <host> <port>    # public, via cloudflared
-  New project    ask Hermes — "set up a new project at /srv/projects/<name>"
+  Manage the box  ssh in, run \`claude\` (Claude Code, subscription auth)
+  Dashboard       gnar-dashboard (tmux) — or the kiosk on an attached display
+  Stack logs      sudo journalctl -fu gnar-stack
+                  cd $STACK && docker compose logs -f caddy
+  Add a site      add-site <name> <port>           # private, tailnet
+                  add-public-site <host> <port>    # public, via cloudflared
+  Tailnet IP      $TS_IP
 
 If something's off, re-run \`gnar-bootstrap\` — it skips steps that are
 already done and re-prompts the ones that aren't.

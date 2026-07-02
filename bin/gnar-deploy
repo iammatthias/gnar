@@ -5,7 +5,7 @@
 #
 #   gnar-deploy myapp
 #
-# GNAR_PROJECTS lets the script work inside the hermes-gateway container,
+# GNAR_PROJECTS lets the script be pointed at a different project root
 # where $HOME=/root but the projects bind-mount lives at $USER_HOME/projects.
 set -euo pipefail
 

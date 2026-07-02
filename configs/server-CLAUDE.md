@@ -27,37 +27,24 @@ It is a single-tenant home server intended for remote development over SSH.
 - **Go** (`go`, `dlv`)
 - **Java** (`java`, `mvn`, `gradle`)
 
-### AI / LLM tooling (containerized in /srv/stack)
-- **Hermes** — top-level orchestrator. Runs as `gnar-hermes-gateway`
-  (Telegram bot + agent brain) and `gnar-hermes-dashboard` (web UI on
-  :9119). Don't invoke directly on host — `docker compose exec
-  hermes-gateway hermes ...` for one-shot work, or just message the
-  Telegram bot.
-- **Claude Code** — bundled inside the hermes container image. Used as
-  a subprocess tool by the `claude-with-chainlink` skill. Auth at
-  `/srv/stack/data/claude/` (mounted into container).
-- **chainlink** — per-project issue tracker, also bundled in the
-  hermes image. Run `chainlink init` inside a project before pointing
-  the agent at it.
-- **New projects** — message the bot: "set up a new project at
-  /srv/projects/foo, it's a FastAPI + Postgres backend." Hermes uses
-  the `init-project` skill to mkdir, `chainlink init`, drop a CLAUDE.md
-  template, and register the project in MEMORY.md. Default project
-  root is `/srv/projects` (bind-mounted into the agent container at the
-  same path).
-  - For setting up a project without Hermes (rare): `gnar-project-init
-    <path> [<description>]` on the host.
+### AI / LLM tooling
+- **Claude Code** (`claude`, npm-global) — the primary way this box is
+  managed: ssh in, run `claude`. Subscription auth lives at `~/.claude/`.
+  You are probably reading this file from inside such a session.
+- **New projects** — `gnar-project-init <path> [<description>]` creates
+  the dir, git-inits it, and drops a starter CLAUDE.md. Default project
+  root is `/srv/projects`.
 
-### Web / proxy + agent stack
-The network ingress + agent layer runs as a docker-compose stack at
-`/srv/stack` (not on host). Three containers share the tailscale
-container's network namespace:
+### Web / proxy stack
+The network ingress layer runs as a docker-compose stack at `/srv/stack`
+(not on host). Containers share the tailscale container's network
+namespace:
 - `gnar-tailscale` — tailnet identity, ingress
 - `gnar-caddy` — reverse proxy (`add-site <name> <port>` writes to
   `/srv/stack/Caddyfile` and reloads via `docker compose exec caddy
   caddy reload`)
-- `gnar-hermes-gateway` + `gnar-hermes-dashboard` — Telegram bot brain +
-  web UI
+- `gnar-cloudflared` — Cloudflare Tunnel connector for opt-in public
+  sites (`add-public-site`)
 
 Stack lifecycle is `cd /srv/stack && docker compose <cmd>`. The
 `gnar-stack` systemd unit runs `docker compose up -d --build` at boot.
@@ -71,13 +58,15 @@ Stack lifecycle is `cd /srv/stack && docker compose <cmd>`. The
 - `docker`, `docker-compose` (the user is in the `docker` group)
 
 ### Display / kiosk dashboard
-- `mango` (Wayland WM, AUR `mangowm-git`) + `foot`. Headless by default.
-  If a display is attached, `getty@tty1` auto-logs the user in and
-  `~/.zprofile` exec's `mango`, which fullscreens `gnar-dashboard` —
-  a 4-pane tmux session showing system, services, containers, and
-  Claude Code metrics.
-- Edit `~/.config/mango/config.conf` to swap the dashboard process or
-  rebind keys.
+- `sway` (Wayland) + `foot`. Headless by default. If a display is
+  attached, `getty@tty1` auto-logs the user in and `~/.zprofile` exec's
+  `sway`, which tiles six `gnar-board <panel>` instances into a 3×2
+  grid (CPU/MEM/NET, DISK/CONTAINERS/OPS). On a touch panel, tapping a
+  tile fullscreens it; the fullscreen OPS view has action buttons
+  (update / kiosk↻ / stack↻ / prune / reboot, two-tap confirm).
+- Config: `~/.config/sway/config`; helpers: `gnar-kiosk-restart`,
+  `gnar-kiosk-shot [out.png]` (screenshot over ssh).
+- `gnar-dashboard` runs the same board as a tmux session over ssh.
 
 ### Snapshots (btrfs only)
 - `snapper` + `snap-pac` — automatic pre/post snapshots for every
@@ -155,8 +144,8 @@ Highlights:
   steps at once.
 - Python projects use `uv` — never `pip install` into the system Python
   (Arch's Python is externally-managed).
-- Secrets do not live in the repo. Hermes OAuth tokens live at
-  `~/.hermes/auth.json` (mode 600).
+- Secrets do not live in the repo. Stack secrets live in
+  `/srv/stack/.env` (mode 600); Claude auth in `~/.claude/`.
 
 ## Reverting
 

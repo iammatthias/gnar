@@ -48,9 +48,8 @@ for svc in gnar-stack gnar-docker-prune.timer fail2ban valkey postgresql ufw; do
 done
 
 # Tear down the container stack and remove its files. Leaves /srv/stack/data
-# in place — that's user state (tailscale identity, hermes auth, kanban db,
-# MEMORY.md, claude session transcripts). Move it aside if you want a clean
-# wipe.
+# in place — that's user state (tailscale identity, caddy certs). Move it
+# aside if you want a clean wipe.
 if [ -f /srv/stack/docker-compose.yml ]; then
     docker compose -f /srv/stack/docker-compose.yml down 2>/dev/null || true
 fi
@@ -130,8 +129,9 @@ backup_and_remove "$REAL_HOME/.zshrc"
 backup_and_remove "$REAL_HOME/.zprofile"
 backup_and_remove "$REAL_HOME/.tmux.conf"
 backup_and_remove "$REAL_HOME/.config/fastfetch/config.jsonc"
-backup_and_remove "$REAL_HOME/.config/mango/config.conf"
+backup_and_remove "$REAL_HOME/.config/sway/config"
 backup_and_remove "$REAL_HOME/.config/foot/foot.ini"
+backup_and_remove "$REAL_HOME/.config/btop/btop.conf"
 
 # Only back up CLAUDE.md if it's the one GNAR installed (sentinel: first
 # line is "# GNAR Server"). Hand-written ones are left alone.
@@ -142,11 +142,16 @@ fi
 # Oh My Zsh + Spaceship + plugins
 sudo -u "$REAL_USER" rm -rf "$REAL_HOME/.oh-my-zsh" || true
 
-# Helper scripts
+# Helper scripts — everything setup.sh installs to /usr/local/bin.
 rm -f /usr/local/bin/gnar-info /usr/local/bin/gnar-update /usr/local/bin/gnar-help \
       /usr/local/bin/gnar-dashboard /usr/local/bin/gnar-services-status \
-      /usr/local/bin/gnar-claude-stats /usr/local/bin/gnar-hermes-status \
-      /usr/local/bin/gnar-project-init /usr/local/bin/gnar-bootstrap
+      /usr/local/bin/gnar-docker-status /usr/local/bin/gnar-status-board \
+      /usr/local/bin/gnar-metrics-board /usr/local/bin/gnar-kiosk-tiles \
+      /usr/local/bin/gnar-kiosk-restart /usr/local/bin/gnar-kiosk-shot \
+      /usr/local/bin/gnar-claude-stats /usr/local/bin/gnar-project-init \
+      /usr/local/bin/gnar-bootstrap /usr/local/bin/gnar-preview-site \
+      /usr/local/bin/gnar-deploy /usr/local/bin/gnar-board \
+      /usr/local/bin/gnar-hermes-status
 
 echo
 echo -e "${GREEN}GNAR configuration removed.${NC}"
@@ -159,8 +164,7 @@ echo "    nodejs npm python uv ruby go jdk-openjdk maven gradle \\"
 echo "    eza bat fd fzf zoxide ripgrep jq yq fastfetch htop btop \\"
 echo "    iotop nethogs ncdu rsync rclone p7zip imagemagick httpie \\"
 echo "    ufw fail2ban nmap tcpdump wireshark-cli postgresql valkey \\"
-echo "    sqlite smartmontools foot"
-echo "  yay -Rns mangowm-git"
+echo "    sqlite smartmontools sway foot"
 echo
-echo "Container stack data (tailscale identity, hermes auth, kanban) is"
-echo "preserved at /srv/stack/data/ — wipe manually if you want a clean slate."
+echo "Container stack data (tailscale identity, caddy certs) is preserved"
+echo "at /srv/stack/data/ — wipe manually if you want a clean slate."

@@ -16,7 +16,7 @@
 //   └──────────────────────────────┘└──────────────────────────────┘
 //   ┌ CONTAINERS ──────────────────┐┌ STATUS ──────────────────────┐
 //   │ name CPU ▁▂▁ 0.4% MEM ▆▆ NET ││ services · sites · top procs │
-//   │ …                            ││ hermes · backup age          │
+//   │ …                            ││ alerts · security · claude   │
 //   └──────────────────────────────┘└──────────────────────────────┘
 //
 // Host metrics come straight from /proc + /sys (no subprocesses):
@@ -29,7 +29,7 @@
 // another service's netns (network_mode: service:…) report no network
 // stats; their NET column shows "-" — the netns owner carries the
 // aggregate. Slow-moving status (systemd units, Caddy sites, top
-// processes, Hermes kanban/cron, backup age) refreshes every 30/60s.
+// processes, alerts, security posture) refreshes every 30/60s.
 //
 // Keys: q / Esc / Ctrl-C to quit.
 
@@ -66,7 +66,7 @@ const STACK: &str = "/srv/stack";
 const TICKS: [char; 8] = ['▁', '▂', '▃', '▄', '▅', '▆', '▇', '█'];
 
 /// What this process renders. `Full` is the whole composite board (the
-/// tmux / ssh view); the rest are single panels — one per Mango tile,
+/// tmux / ssh view); the rest are single panels — one per sway tile,
 /// so the compositor does the layout and each tile only runs the
 /// samplers it needs.
 #[derive(Clone, Copy, PartialEq)]
@@ -88,17 +88,15 @@ enum Mode {
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Action {
     Update,
-    Backup,
     RestartKiosk,
     RestartStack,
     Prune,
     Reboot,
 }
 
-/// Rendered order (row-major, 3 per row). Reboot last — most destructive.
-const BUTTONS: [Action; 6] = [
+/// Rendered order. Reboot last — most destructive.
+const BUTTONS: [Action; 5] = [
     Action::Update,
-    Action::Backup,
     Action::RestartKiosk,
     Action::RestartStack,
     Action::Prune,
@@ -109,7 +107,6 @@ impl Action {
     fn label(self) -> &'static str {
         match self {
             Action::Update => "Update",
-            Action::Backup => "Backup",
             Action::RestartKiosk => "Kiosk ↻",
             Action::RestartStack => "Stack ↻",
             Action::Prune => "Prune",
@@ -118,7 +115,7 @@ impl Action {
     }
     /// Destructive/disruptive actions require a second confirming tap.
     fn confirm(self) -> bool {
-        !matches!(self, Action::Backup | Action::RestartKiosk)
+        !matches!(self, Action::RestartKiosk)
     }
     fn color(self) -> Color {
         match self {
@@ -131,8 +128,6 @@ impl Action {
         match self {
             // gnar-update --yes runs the upgrade as a detached systemd unit.
             Action::Update => "gnar-update --yes",
-            // The exact nightly job (writes to the monitored backups dir).
-            Action::Backup => "docker exec gnar-hermes-gateway hermes cron run nightly-backup",
             Action::RestartKiosk => "gnar-kiosk-restart",
             Action::RestartStack => "sudo -n systemctl restart gnar-stack.service",
             Action::Prune => "sudo -n systemctl start gnar-docker-prune.service",
@@ -152,7 +147,7 @@ struct Btn {
     action: Action,
 }
 
-/// Touch state carried across frames. A tap fullscreens a tile (via mango
+/// Touch state carried across frames. A tap fullscreens a tile (via sway
 /// IPC); the roomy fullscreen view is where the OPS action buttons + a back
 /// button live. `buttons`/`back` are this frame's hit boxes.
 #[derive(Default)]
@@ -293,14 +288,9 @@ struct App {
     prune_next: String,
     updates: Option<usize>,
     sec_updates: Option<usize>, // packages with a known CVE fix available (arch-audit); None = unknown
-    kanban_lines: Vec<String>,
-    cron_lines: Vec<(bool, String, String)>,
-    claude_runs: usize,
-    claude_24h: usize,
-    claude_total: usize,
-    backup_age_h: Option<u64>,
-    backup_size_mb: u64,
-    backup_sizes: Vec<f64>, // archive sizes by age, oldest first (MB)
+    claude_runs: usize,  // live claude processes on the host
+    claude_24h: usize,   // session transcripts touched in 24h (~/.claude)
+    claude_total: usize, // total session transcripts
     traffic: HashMap<String, Traffic>, // per-host 5-minute traffic + sparkline
     failed_units: Vec<String>,
     journal_errs: usize,
@@ -712,7 +702,6 @@ fn sample_containers(app: &Arc<Mutex<App>>) -> Result<(), String> {
 }
 
 fn status_loop(app: Arc<Mutex<App>>, mode: Mode) {
-    let with_hermes = matches!(mode, Mode::Full | Mode::Status);
     // Which hourly samples this panel actually renders. Each kiosk tile is
     // its own process, so an ungated sampler runs once per tile — six
     // concurrent `checkupdates` racing the temp sync DB is what produced a
@@ -745,7 +734,6 @@ fn status_loop(app: Arc<Mutex<App>>, mode: Mode) {
 
         let mut sites = caddy_sites();
         probe_sites(&mut sites);
-        let backup = backup_info();
         let (disk_pct, disk_detail) = disk_usage();
         let procs_cpu = top_procs("-pcpu", 14);
         let procs_mem = top_procs("-pmem", 14);
@@ -779,17 +767,9 @@ fn status_loop(app: Arc<Mutex<App>>, mode: Mode) {
             None
         };
 
-        // Hermes detail is docker-exec subprocesses — every other cycle,
-        // and only for the panels that display it.
-        let hermes = if with_hermes && tick % 2 == 0 {
-            Some((
-                kanban_tasks(&hermes_raw("kanban")),
-                cron_jobs(&hermes_raw("cron")),
-                claude_runs(),
-            ))
-        } else {
-            None
-        };
+        // Live claude processes on the host — cheap, every cycle for the
+        // panels that show it.
+        let claude = if shows_claude { Some(claude_runs()) } else { None };
 
         {
             let mut a = app.lock().unwrap();
@@ -797,13 +777,6 @@ fn status_loop(app: Arc<Mutex<App>>, mode: Mode) {
             a.sites = sites;
             a.procs_cpu = procs_cpu;
             a.procs_mem = procs_mem;
-            if let Some((age, size, sizes)) = &backup {
-                a.backup_age_h = Some(*age);
-                a.backup_size_mb = *size;
-                a.backup_sizes = sizes.clone();
-            } else {
-                a.backup_age_h = None;
-            }
             a.disk_pct = disk_pct;
             a.disk_detail = disk_detail;
             a.images = images;
@@ -832,9 +805,7 @@ fn status_loop(app: Arc<Mutex<App>>, mode: Mode) {
                 a.claude_24h = c24;
                 a.claude_total = ctotal;
             }
-            if let Some((k, c, r)) = hermes {
-                a.kanban_lines = k;
-                a.cron_lines = c;
+            if let Some(r) = claude {
                 a.claude_runs = r;
             }
         }
@@ -961,89 +932,15 @@ fn security_updates() -> Option<usize> {
     )
 }
 
-fn strip_ansi(s: &str) -> String {
-    let mut out = String::new();
-    let mut chars = s.chars();
-    while let Some(c) = chars.next() {
-        if c == '\x1b' {
-            for d in chars.by_ref() {
-                if d.is_ascii_alphabetic() {
-                    break;
-                }
-            }
-        } else {
-            out.push(c);
-        }
-    }
-    out
-}
-
-fn hermes_raw(what: &str) -> Vec<String> {
-    Command::new("timeout")
-        .args(["10", "docker", "exec", "gnar-hermes-gateway", "hermes", what, "list"])
+/// Count live Claude Code processes on the host — the box is managed by
+/// Claude Code over SSH, so a running session shows up here. Match the
+/// npm-global install path to avoid false-matching shell aliases.
+fn claude_runs() -> usize {
+    Command::new("pgrep")
+        .args(["-fc", "@anthropic-ai/claude-code"])
         .output()
         .ok()
-        .map(|o| {
-            String::from_utf8_lossy(&o.stdout)
-                .lines()
-                .map(|l| strip_ansi(l).trim_end().to_string())
-                .collect()
-        })
-        .unwrap_or_default()
-}
-
-/// Task rows out of `hermes kanban list`, minus box-drawing and
-/// "(no matching tasks)" placeholders.
-fn kanban_tasks(raw: &[String]) -> Vec<String> {
-    raw.iter()
-        .map(|l| l.trim())
-        .filter(|l| {
-            !l.is_empty() && !l.starts_with('(') && !l.chars().next().is_some_and(|c| "─┌└│┐┘├┤═╔╚║".contains(c))
-        })
-        .map(String::from)
-        .take(8)
-        .collect()
-}
-
-/// (active, name, schedule) per job from `hermes cron list`'s
-/// multi-line output (id [active] / Name: / Schedule: / …).
-fn cron_jobs(raw: &[String]) -> Vec<(bool, String, String)> {
-    let mut jobs = Vec::new();
-    let mut active = false;
-    let mut name = String::new();
-    for l in raw {
-        let t = l.trim();
-        if t.contains("[active]") {
-            active = true;
-        } else if t.contains("[paused]") || t.contains("[inactive]") {
-            active = false;
-        }
-        if let Some(v) = t.strip_prefix("Name:") {
-            name = v.trim().to_string();
-        } else if let Some(v) = t.strip_prefix("Schedule:") {
-            jobs.push((active, name.clone(), v.trim().to_string()));
-            active = false;
-        }
-    }
-    jobs
-}
-
-/// Count claude processes inside the gateway container — a live
-/// delegated coding run shows up here.
-fn claude_runs() -> usize {
-    docker_get("/containers/gnar-hermes-gateway/top")
-        .ok()
-        .and_then(|v| {
-            v["Processes"].as_array().map(|ps| {
-                ps.iter()
-                    .filter(|p| {
-                        p.as_array().is_some_and(|f| {
-                            f.iter().any(|x| x.as_str().is_some_and(|s| s.contains("claude")))
-                        })
-                    })
-                    .count()
-            })
-        })
+        .and_then(|o| String::from_utf8_lossy(&o.stdout).trim().parse().ok())
         .unwrap_or(0)
 }
 
@@ -1316,12 +1213,20 @@ fn last_update_days() -> Option<u64> {
     Some(((now - then).max(0) / 86400) as u64)
 }
 
-/// (claude transcripts touched in 24h, total transcripts) — the
-/// delegated-coding workload, from the persisted ~/.claude state.
+/// (claude transcripts touched in 24h, total transcripts) — Claude Code
+/// activity on the host, from the user's own ~/.claude state.
 fn claude_usage() -> (usize, usize) {
-    let base = format!("{STACK}/data/claude/projects");
-    let recent = sudo_lines(&["find", &base, "-name", "*.jsonl", "-mtime", "-1"]).len();
-    let total = sudo_lines(&["find", &base, "-name", "*.jsonl"]).len();
+    let base = std::env::var("HOME").map(|h| format!("{h}/.claude/projects")).unwrap_or_default();
+    let lines = |args: &[&str]| {
+        Command::new("find")
+            .args(args)
+            .output()
+            .ok()
+            .map(|o| String::from_utf8_lossy(&o.stdout).lines().count())
+            .unwrap_or(0)
+    };
+    let recent = lines(&[&base, "-name", "*.jsonl", "-mtime", "-1"]);
+    let total = lines(&[&base, "-name", "*.jsonl"]);
     (recent, total)
 }
 
@@ -1387,30 +1292,6 @@ fn caddy_sites() -> Vec<Site> {
         out.extend(previews.into_iter().map(|h| site(&h, "preview")));
     }
     out
-}
-
-/// (age h, size MB of newest, all sizes oldest→newest in MB) for the
-/// hermes backup archives — the size trend catches "backup suddenly
-/// doubled/shrank", which age alone misses.
-fn backup_info() -> Option<(u64, u64, Vec<f64>)> {
-    let mut archives: Vec<(SystemTime, u64)> = fs::read_dir(format!("{STACK}/data/backups"))
-        .ok()?
-        .flatten()
-        .filter(|e| {
-            let n = e.file_name();
-            let n = n.to_string_lossy();
-            n.starts_with("hermes-backup-") && n.ends_with(".zip")
-        })
-        .filter_map(|e| {
-            let m = e.metadata().ok()?;
-            Some((m.modified().ok()?, m.len()))
-        })
-        .collect();
-    archives.sort_by_key(|(t, _)| *t);
-    let (mtime, size) = *archives.last()?;
-    let age = SystemTime::now().duration_since(mtime).ok()?.as_secs() / 3600;
-    let sizes = archives.iter().map(|(_, s)| *s as f64 / 1e6).collect();
-    Some((age, size / 1_000_000, sizes))
 }
 
 fn disk_usage() -> (u8, String) {
@@ -1489,7 +1370,7 @@ fn section(title: Vec<Span<'static>>) -> Block<'static> {
         .title(Line::from(title))
 }
 
-/// Panel chrome, returning the content Rect. On the kiosk, Mango already
+/// Panel chrome, returning the content Rect. On the kiosk, sway already
 /// draws a 2px border + gap around every tile, so a second ratatui box in
 /// the same color is pure redundant ink (and costs two rows + two cols) —
 /// there we render only a bold header row and hand back the rest. The
@@ -1760,7 +1641,7 @@ fn ui(frame: &mut Frame, app: &App, mode: Mode, touch: &mut Touch) {
     } else {
         area
     };
-    // Kiosk tiles: Mango draws the frame, so render borderless.
+    // Kiosk tiles: sway draws the frame, so render borderless.
     match mode {
         Mode::Cpu => render_cpu(frame, body, app, false),
         Mode::Mem => render_mem(frame, body, app, false),
@@ -1778,7 +1659,7 @@ fn ui(frame: &mut Frame, app: &App, mode: Mode, touch: &mut Touch) {
 }
 
 /// The whole composite board — what tmux/ssh sessions see. The kiosk
-/// instead runs six single-panel processes tiled by Mango.
+/// instead runs six single-panel processes tiled by sway.
 fn ui_full(frame: &mut Frame, app: &App) {
     let h = &app.host;
     // Proportional heights: big history graphs up top (~24% of however
@@ -2435,33 +2316,37 @@ fn docker_line(app: &App) -> Line<'static> {
     Line::from(spans)
 }
 
-fn hermes_summary_line(app: &App) -> Line<'static> {
-    let gateway_up = app.containers.contains_key("gnar-hermes-gateway");
-    let mut hermes = vec![
-        Span::styled("HERMES".to_string(), accent(C_MAGENTA)),
+/// One-line Claude Code summary: live host processes + session stats.
+/// The box is managed by Claude Code over SSH, so this is the "is anyone
+/// working on the box right now" signal.
+fn claude_summary_line(app: &App) -> Line<'static> {
+    let live = app.claude_runs > 0;
+    let mut spans = vec![
+        Span::styled("CLAUDE".to_string(), accent(C_MAGENTA)),
         Span::raw("   "),
-        Span::styled("● ".to_string(), Style::new().fg(if gateway_up { C_GREEN } else { C_RED })),
         Span::styled(
-            if gateway_up { "gateway up" } else { "gateway down" },
-            Style::new().fg(C_FG),
+            if live { "● " } else { "○ " }.to_string(),
+            Style::new().fg(if live { C_CYAN } else { C_DIM }),
+        ),
+        Span::styled(
+            if live {
+                format!("{} session{} live", app.claude_runs, if app.claude_runs == 1 { "" } else { "s" })
+            } else {
+                "idle".to_string()
+            },
+            Style::new().fg(if live { C_CYAN } else { C_DIM }),
         ),
     ];
-    if !app.kanban_lines.is_empty() {
-        hermes.push(Span::styled(format!("   kanban {}", app.kanban_lines.len()), Style::new().fg(C_CYAN)));
+    if app.claude_total > 0 {
+        spans.push(Span::styled(
+            format!("   {} active 24h · {} transcripts", app.claude_24h, app.claude_total),
+            dim(),
+        ));
     }
-    if !app.cron_lines.is_empty() {
-        hermes.push(Span::styled(format!("   cron {}", app.cron_lines.len()), Style::new().fg(C_CYAN)));
-    }
-    let size = if app.backup_size_mb > 0 { format!(" · {}M", app.backup_size_mb) } else { String::new() };
-    match app.backup_age_h {
-        Some(hh) if hh > 36 => hermes.push(Span::styled(format!("   ● backup {hh}h old{size}"), Style::new().fg(C_RED))),
-        Some(hh) => hermes.push(Span::styled(format!("   ✓ backup {hh}h{size}"), Style::new().fg(C_GREEN))),
-        None => hermes.push(Span::styled("   backup ?", dim())),
-    }
-    Line::from(hermes)
+    Line::from(spans)
 }
 
-/// Full-board STATUS panel: services, probed sites, top procs, HERMES
+/// Full-board STATUS panel: services, probed sites, top procs, Claude
 /// summary. (The kiosk splits this across tiles.)
 fn status_panel(app: &App) -> Vec<Line<'static>> {
     let mut lines = vec![Line::styled("HOST SERVICES", accent(C_BLUE)), Line::default()];
@@ -2477,7 +2362,7 @@ fn status_panel(app: &App) -> Vec<Line<'static>> {
         lines.extend(proc_lines("TOP PROCESSES", &app.procs_cpu, 10, false));
     }
     lines.push(Line::default());
-    lines.push(hermes_summary_line(app));
+    lines.push(claude_summary_line(app));
     lines
 }
 
@@ -2529,60 +2414,13 @@ fn alert_lines(app: &App) -> Vec<Line<'static>> {
     out
 }
 
-/// The kiosk OPS tile: Hermes gateway + backup health, live claude runs,
-/// the box's security posture, host alerts, kanban, and cron. Folds what
-/// used to be three sparse half-empty regions into one dense ops surface.
+/// The kiosk OPS tile: host alerts, Claude Code activity, services, and
+/// the box's security posture — one dense ops surface.
 fn ops_panel(app: &App) -> Vec<Line<'static>> {
-    let gateway_up = app.containers.contains_key("gnar-hermes-gateway");
-    let size = if app.backup_size_mb > 0 { format!(" · {}M", app.backup_size_mb) } else { String::new() };
-    let backup_span = match app.backup_age_h {
-        Some(hh) if hh > 36 => Span::styled(format!("     ● backup {hh}h old{size}"), Style::new().fg(C_RED)),
-        Some(hh) => Span::styled(format!("     ✓ backup {hh}h{size}"), Style::new().fg(C_GREEN)),
-        None => Span::styled("     backup ?", dim()),
-    };
-    let mut status_line = vec![
-        Span::styled("● ".to_string(), Style::new().fg(if gateway_up { C_GREEN } else { C_RED })),
-        Span::styled(
-            if gateway_up { "gateway up" } else { "gateway down" },
-            Style::new().fg(C_FG),
-        ),
-        backup_span,
-    ];
-    if app.backup_sizes.len() >= 3 {
-        let sizes: VecDeque<f64> = app.backup_sizes.iter().copied().collect();
-        status_line.push(Span::raw(" "));
-        status_line.push(Span::styled(spark(&sizes, 8, 1.0, 1.25), dim()));
-    }
-    let mut lines = vec![Line::from(status_line)];
-    // Alerts ride up top, right under the gateway line, so a fault is the
+    let mut lines = vec![claude_summary_line(app)];
+    // Alerts ride up top, right under the claude line, so a fault is the
     // first thing the eye lands on.
     lines.extend(alert_lines(app));
-    lines.push(if app.claude_runs > 0 {
-        Line::from(vec![
-            Span::styled("● ".to_string(), Style::new().fg(C_CYAN)),
-            Span::styled(
-                format!(
-                    "{} claude process{} live",
-                    app.claude_runs,
-                    if app.claude_runs == 1 { "" } else { "es" }
-                ),
-                Style::new().fg(C_CYAN),
-            ),
-        ])
-    } else {
-        Line::from(Span::styled("○ idle — no claude processes", dim()))
-    });
-    if app.claude_total > 0 {
-        lines.push(Line::from(Span::styled(
-            format!(
-                "claude: {} session{} active 24h · {} transcripts",
-                app.claude_24h,
-                if app.claude_24h == 1 { "" } else { "s" },
-                app.claude_total
-            ),
-            dim(),
-        )));
-    }
     // SERVICES + DOCKER — host units and the container-ops summary, moved
     // here from the (now calmer, cycling) CONTAINERS tile.
     lines.push(Line::default());
@@ -2626,40 +2464,6 @@ fn ops_panel(app: &App) -> Vec<Line<'static>> {
         Style::new().fg(if app.ssh_fails > 0 { C_YELLOW } else { C_DIM }),
     ));
     lines.push(Line::from(intr));
-
-    lines.extend([
-        Line::default(),
-        Line::from(vec![
-            Span::styled("KANBAN ".to_string(), accent(C_BLUE)),
-            Span::styled(format!("{}", app.kanban_lines.len()), dim()),
-        ]),
-        Line::default(),
-    ]);
-    if app.kanban_lines.is_empty() {
-        lines.push(Line::styled("(no open tasks)", dim()));
-    }
-    for t in app.kanban_lines.iter().take(8) {
-        lines.push(Line::styled(t.clone(), Style::new().fg(C_FG)));
-    }
-    lines.push(Line::default());
-    lines.push(Line::from(vec![
-        Span::styled("CRON ".to_string(), accent(C_BLUE)),
-        Span::styled(format!("{}", app.cron_lines.len()), dim()),
-    ]));
-    lines.push(Line::default());
-    if app.cron_lines.is_empty() {
-        lines.push(Line::styled("(no scheduled jobs)", dim()));
-    }
-    for (active, name, sched) in app.cron_lines.iter().take(12) {
-        lines.push(Line::from(vec![
-            Span::styled(
-                if *active { "● " } else { "○ " }.to_string(),
-                Style::new().fg(if *active { C_GREEN } else { C_DIM }),
-            ),
-            Span::styled(format!("{name:<26}"), Style::new().fg(C_FG)),
-            Span::styled(sched.clone(), dim()),
-        ]));
-    }
     lines
 }
 
@@ -2683,7 +2487,7 @@ fn main() -> std::io::Result<()> {
 
     let app = Arc::new(Mutex::new(App::default()));
 
-    // Each panel only runs the samplers it displays — six Mango tiles
+    // Each panel only runs the samplers it displays — six sway tiles
     // shouldn't mean six docker pollers.
     if matches!(mode, Mode::Full | Mode::Cpu | Mode::Mem | Mode::Net | Mode::Disk) {
         let a = app.clone();
@@ -2695,8 +2499,8 @@ fn main() -> std::io::Result<()> {
     }
     {
         // Every panel shows something from the status loop now (procs,
-        // sites, services, disk, hermes) — hermes execs and the heavy
-        // hourly samplers stay gated to the panels that render them.
+        // sites, services, disk) — the heavy hourly samplers stay gated
+        // to the panels that render them.
         let a = app.clone();
         thread::spawn(move || status_loop(a, mode));
     }

@@ -1,13 +1,8 @@
 #!/bin/bash
-# GNAR — bootstrap a project so Hermes can operate on it.
+# GNAR — bootstrap a project directory for agent-assisted work.
 #
-# Does three things:
-#   1. `chainlink init` so the claude-with-chainlink skill has a place to
-#      track issues + Claude session ids.
-#   2. Drop a starter CLAUDE.md if one isn't already there. This is the
-#      system context Claude reads when Hermes spawns it on this project.
-#   3. Register the project in ~/.hermes/MEMORY.md so the orchestrator
-#      remembers it across sessions.
+# Creates the directory, drops a starter CLAUDE.md (the system context
+# Claude Code reads when working in the project), and git-inits it.
 #
 # Usage: gnar-project-init <path> [description]
 #   gnar-project-init /srv/projects/foo "backend API, FastAPI + Postgres"
@@ -27,21 +22,18 @@ USAGE
     exit 1
 fi
 
-# Resolve to absolute path so MEMORY.md gets a usable entry.
 mkdir -p "$PROJECT_PATH"
 PROJECT_PATH=$(cd "$PROJECT_PATH" && pwd)
 cd "$PROJECT_PATH" || { echo "cannot cd into $PROJECT_PATH"; exit 1; }
 
 NAME=$(basename "$PROJECT_PATH")
 
-# 1. chainlink
-if [ -d .chainlink ]; then
-    echo "  [skip] chainlink already initialized"
-elif command -v chainlink &>/dev/null; then
-    chainlink init
-    echo "  [+] chainlink initialized"
+# 1. git
+if [ -d .git ]; then
+    echo "  [skip] already a git repo"
 else
-    echo "  [warn] chainlink not installed; issue tracker skipped"
+    git init -q
+    echo "  [+] git initialized"
 fi
 
 # 2. CLAUDE.md
@@ -76,27 +68,6 @@ EOF
     echo "  [+] CLAUDE.md template written"
 fi
 
-# 3. Register in Hermes MEMORY.md
-# Lives at /srv/stack/data/hermes/MEMORY.md (bind-mounted into the
-# hermes-gateway container as /root/.hermes/MEMORY.md).
-HERMES_DIR=/srv/stack/data/hermes
-HERMES_MEMORY="$HERMES_DIR/MEMORY.md"
-sudo mkdir -p "$HERMES_DIR"
-sudo touch "$HERMES_MEMORY"
-sudo chown -R "$USER:$USER" "$HERMES_DIR" 2>/dev/null || true
-
-if grep -q "^- ${PROJECT_PATH}:" "$HERMES_MEMORY" 2>/dev/null; then
-    echo "  [skip] $PROJECT_PATH already in $HERMES_MEMORY"
-else
-    if ! grep -q "^## Projects" "$HERMES_MEMORY"; then
-        printf '\n## Projects\n\n' >> "$HERMES_MEMORY"
-    fi
-    printf -- '- %s: %s\n' "$PROJECT_PATH" "${DESCRIPTION:-(no description)}" >> "$HERMES_MEMORY"
-    echo "  [+] registered in $HERMES_MEMORY"
-fi
-
 echo
 echo "Project ready: $PROJECT_PATH"
-echo "From Telegram, you can now ask Hermes to use it. Example:"
-echo "  \"Use the claude-with-chainlink skill: project_path=$PROJECT_PATH,"
-echo "   task=...\""
+echo "ssh in and run \`claude\` there to start working on it."

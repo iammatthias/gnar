@@ -1,7 +1,7 @@
 # GNAR — Caddy configuration. Three listeners:
 #
 #   :80   — PRIVATE HTTP. Reached over the tailnet (caddy lives in the
-#           tailscale container's netns). Dashboard + internal services.
+#           tailscale container's netns). Internal services via add-site.
 #
 #   :443  — PRIVATE HTTPS. Reached over the tailnet on
 #           {$PREVIEW_APEX} and *.{$PREVIEW_APEX}. Real LE wildcard cert
@@ -42,16 +42,11 @@
 # =============================================================================
 
 # Default site on :80 — any hostname pointing at the box that doesn't
-# match a more-specific block below lands on the Hermes dashboard.
+# match a more-specific block below gets the static "online" homepage.
 :80 {
     import gnar_access_log
-    # Explicit 127.0.0.1 — `localhost` resolves to ::1 inside this
-    # container but hermes binds IPv4 only.
-    # header_up Host: hermes dashboard rejects requests whose Host
-    # header doesn't match its bound address.
-    reverse_proxy 127.0.0.1:9119 {
-        header_up Host 127.0.0.1:9119
-    }
+    root * /srv/homepage
+    file_server
 }
 
 # add-site appends private vhosts below this line.

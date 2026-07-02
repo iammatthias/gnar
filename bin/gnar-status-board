@@ -1,11 +1,11 @@
 #!/bin/bash
-# GNAR — unified status board: the kiosk dashboard's lower pane.
+# GNAR — unified status board: fallback lower pane for gnar-dashboard.
 #
 # One renderer laying host services, containers and Caddy sites into
-# three aligned columns, with a Hermes summary line beneath. btop owns
-# the upper pane. A grid — rather than three stacked lists in three
-# tmux panes — so a wide display reads at a glance instead of feeling
-# cramped, and there are no pane seams to clash.
+# three aligned columns. btop owns the upper pane. A grid — rather than
+# three stacked lists in three tmux panes — so a wide display reads at
+# a glance instead of feeling cramped, and there are no pane seams to
+# clash.
 #
 # Self-refreshes from gnar-dashboard's pane loop; also runs one-shot.
 # Columns size to the terminal width, so it adapts to any pane size.
@@ -35,46 +35,6 @@ compact_age() {
         *)     printf '%s' "$1"; return ;;
     esac
     printf '%s%s' "$num" "$unit"
-}
-
-# Hermes lives in the container stack — summarise it in one line.
-hermes_summary() {
-    local cf=/srv/stack/docker-compose.yml
-    if [ ! -f "$cf" ]; then
-        printf '%s(stack not deployed)%s' "$DIM" "$RST"
-        return
-    fi
-    local C="docker compose -f $cf"
-    local state
-    state=$($C ps --format '{{.Service}} {{.State}}' 2>/dev/null \
-            | awk '$1=="hermes-gateway"{print $2}')
-    if [ "${state:-}" != running ]; then
-        printf '%s●%s gateway %s' "$RED" "$RST" "${state:-down}"
-        return
-    fi
-    printf '%s●%s gateway up' "$GREEN" "$RST"
-    # Best-effort detail — the in-container hermes CLI may not answer.
-    local E="$C exec -T hermes-gateway" k cr
-    k=$($E hermes kanban list 2>/dev/null | grep -c '[^[:space:]]' || true)
-    cr=$($E hermes cron list 2>/dev/null | grep -c '[^[:space:]]' || true)
-    [ "${k:-0}" -gt 0 ] 2>/dev/null  && printf '%s   kanban %s%s' "$DIM" "$k"  "$RST"
-    [ "${cr:-0}" -gt 0 ] 2>/dev/null && printf '%s   cron %s%s'   "$DIM" "$cr" "$RST"
-    backup_summary
-}
-
-# Age of the newest nightly Hermes backup. The backup cron's watchdog
-# pattern only signals on failure — a cron that never fired leaves no
-# trace, so surface staleness here (red past 36h ≈ one missed nightly).
-backup_summary() {
-    local newest
-    newest=$(ls -1t /srv/stack/data/backups/hermes-backup-*.zip 2>/dev/null | head -1)
-    [ -z "$newest" ] && return
-    local age=$(( ($(date +%s) - $(stat -c %Y "$newest")) / 3600 ))
-    if [ "$age" -gt 36 ]; then
-        printf '   %s● backup %sh old%s' "$RED" "$age" "$RST"
-    else
-        printf '%s   backup %sh%s' "$DIM" "$age" "$RST"
-    fi
 }
 
 # --- geometry --------------------------------------------------------------
@@ -180,8 +140,4 @@ printf '\n\n'
 for ((i = 0; i < n; i++)); do
     row "${c1[i]:-}" "${c2[i]:-}" "${c3[i]:-}"
 done
-
 echo
-pad "$leftpad"; printf '%s%sHERMES%s   ' "$BOLD" "$CYAN" "$RST"
-hermes_summary
-printf '\n'
