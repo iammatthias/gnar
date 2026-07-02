@@ -90,12 +90,13 @@ pacman -S --noconfirm \
   net-tools openssh ufw fail2ban nmap tcpdump wireshark-cli \
   postgresql valkey sqlite smartmontools pacman-contrib arch-audit
 
-echo -e "${GREEN}Installing display stack (Mango kiosk dashboard)...${NC}"
-# Wayland terminal + fonts for the optional attached-display dashboard.
-# The compositor (mango) is in the AUR — installed via yay later in this
-# script. Fonts: JetBrainsMono Nerd has the box-drawing + icon glyphs
-# that btop, tmux, and the spaceship zsh prompt rely on.
-pacman -S --noconfirm foot \
+echo -e "${GREEN}Installing display stack (sway kiosk dashboard)...${NC}"
+# Wayland compositor + terminal + fonts for the optional attached-display
+# dashboard. sway is used (not a minimal dwl fork) because it exposes
+# wl_touch — required for the rack touch panel's tap interactions. Fonts:
+# JetBrainsMono Nerd has the box-drawing + icon glyphs that btop, tmux, and
+# the spaceship zsh prompt rely on.
+pacman -S --noconfirm sway foot \
     ttf-jetbrains-mono-nerd ttf-firacode-nerd \
     noto-fonts noto-fonts-emoji
 
@@ -377,16 +378,10 @@ if ! command -v yay &>/dev/null; then
     fi
 fi
 
-# Mango (Wayland compositor for the optional attached-display dashboard).
-# In AUR only; pulls in scenefx + wlroots as build deps.
-echo -e "${GREEN}Installing Mango compositor (AUR mangowm-git)...${NC}"
-if command -v yay &>/dev/null; then
-    sudo -u "$REAL_USER" yay -S --noconfirm mangowm-git || \
-        FAILED_SERVICES+=("mango-install")
-else
-    echo -e "${YELLOW}yay not available — skipping mango install.${NC}"
-    FAILED_SERVICES+=("mango-install")
-fi
+# The kiosk compositor is sway (installed via pacman with the display stack
+# above). It's used instead of a minimal dwl-style WM because it exposes
+# wl_touch — the rack touch panel's taps only reach the dashboard under a
+# compositor that delivers touch to clients.
 
 # -----------------------------------------------------------------------------
 # Container stack (caddy + tailscale + hermes — see /srv/stack/README)
@@ -563,12 +558,12 @@ fi
 install -d -o "$REAL_USER" -g "$REAL_USER" /srv/projects
 
 # -----------------------------------------------------------------------------
-# Kiosk dashboard (Mango on tty1 when a display is attached)
+# Kiosk dashboard (sway on tty1 when a display is attached)
 # -----------------------------------------------------------------------------
-echo -e "${GREEN}Configuring kiosk dashboard (auto-login + Mango on tty1)...${NC}"
-install -d -o "$REAL_USER" -g "$REAL_USER" "$REAL_HOME/.config/mango"
+echo -e "${GREEN}Configuring kiosk dashboard (auto-login + sway on tty1)...${NC}"
+install -d -o "$REAL_USER" -g "$REAL_USER" "$REAL_HOME/.config/sway"
 install -m 644 -o "$REAL_USER" -g "$REAL_USER" \
-    "$CONFIGS/mango-config.conf" "$REAL_HOME/.config/mango/config.conf"
+    "$CONFIGS/sway-config" "$REAL_HOME/.config/sway/config"
 install -d -o "$REAL_USER" -g "$REAL_USER" "$REAL_HOME/.config/foot"
 install -m 644 -o "$REAL_USER" -g "$REAL_USER" \
     "$CONFIGS/foot.ini" "$REAL_HOME/.config/foot/foot.ini"

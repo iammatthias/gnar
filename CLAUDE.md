@@ -11,12 +11,15 @@ zsh, tmux, Docker, PostgreSQL + Valkey, a broad set of language runtimes
 under /srv/stack for the network-ingress + agent layer (Tailscale, Caddy,
 Hermes orchestrator, Claude Code).
 
-It also installs Mango (Wayland WM, AUR `mangowm-git`) + foot so an optional
-attached display becomes a live kiosk dashboard (auto-login on tty1 →
-Mango → six `gnar-board <panel>` foot tiles composited in mango's grid
-layout; `bin/gnar-dashboard` runs the same board as a single tmux view
-for ssh sessions). The DRM-status guard in `~/.zprofile` is a no-op on
-truly headless boxes.
+It also installs sway (Wayland compositor) + foot so an optional attached
+display becomes a live kiosk dashboard (auto-login on tty1 → sway → six
+`gnar-board <panel>` foot tiles arranged 3×2 by `gnar-kiosk-tiles`;
+`bin/gnar-dashboard` runs the same board as a single tmux view for ssh
+sessions). The DRM-status guard in `~/.zprofile` is a no-op on truly
+headless boxes. sway is used (not a minimal dwl-style WM like mango) because
+it exposes `wl_touch` — the rack touch panel's tap interactions
+(tap a tile → fullscreen; action buttons in the fullscreen OPS view) only
+work under a compositor that delivers touch to clients.
 
 ### Container stack (`/srv/stack`)
 
