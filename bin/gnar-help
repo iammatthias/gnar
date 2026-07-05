@@ -20,6 +20,11 @@ Core
   gnar-kiosk-restart          Gracefully restart the kiosk compositor
                               (swaymsg exit; getty autologin respawns it)
   gnar-kiosk-shot [out.png]   Screenshot the kiosk display via grim
+  gnar-display [on|auto|off|status]
+                              Kiosk display power. Presence auto-sleep
+                              (gnar-kiosk-presence polls the CV box) is
+                              fail-open: API down = display on, tap
+                              always wakes. `on` pins it; `auto` resumes.
   gnar-services-status        Caddy sites + service health (one-shot)
   gnar-claude-stats           Claude Code session + token stats (one-shot)
   gnar-project-init <path> [desc]

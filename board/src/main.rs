@@ -170,6 +170,25 @@ fn wm_toggle_fullscreen() {
     let _ = Command::new("swaymsg").args(["fullscreen", "toggle"]).status();
 }
 
+/// If the presence daemon (gnar-kiosk-presence) has the display asleep,
+/// a tap should ONLY wake it: power the output on, arm the tap-override
+/// (file mtime = now; the daemon keeps the display on while it's fresh),
+/// mark the shared state on, and report the tap as swallowed. Fail-open:
+/// any error here means "not asleep" and the tap proceeds normally.
+fn wake_tap_swallowed() -> bool {
+    let Ok(rt) = std::env::var("XDG_RUNTIME_DIR") else { return false };
+    let dir = format!("{rt}/gnar-display");
+    let asleep = fs::read_to_string(format!("{dir}/state"))
+        .map(|s| s.trim() == "off")
+        .unwrap_or(false);
+    if asleep {
+        let _ = Command::new("swaymsg").args(["output", "*", "power", "on"]).spawn();
+        let _ = fs::write(format!("{dir}/override"), b"");
+        let _ = fs::write(format!("{dir}/state"), b"on");
+    }
+    asleep
+}
+
 // ---------------------------------------------------------------------------
 // State
 // ---------------------------------------------------------------------------
@@ -2594,6 +2613,12 @@ fn main() -> std::io::Result<()> {
         if event::poll(Duration::from_millis(500))? {
             match event::read()? {
                 Event::Mouse(m) if matches!(m.kind, MouseEventKind::Down(_)) && touch.enabled => {
+                    // Display asleep (presence daemon)? This tap only wakes
+                    // it — swallow so it can't fullscreen a tile or press a
+                    // button the user couldn't see.
+                    if wake_tap_swallowed() {
+                        continue;
+                    }
                     let pos = Position { x: m.column, y: m.row };
                     // `back` is set by render only when this tile is fullscreen.
                     if touch.back.is_some() {

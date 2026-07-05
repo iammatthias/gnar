@@ -510,6 +510,8 @@ install -m 755 "$BIN/gnar-metrics-board"    /usr/local/bin/gnar-metrics-board
 install -m 755 "$BIN/gnar-kiosk-tiles"      /usr/local/bin/gnar-kiosk-tiles
 install -m 755 "$BIN/gnar-kiosk-restart"    /usr/local/bin/gnar-kiosk-restart
 install -m 755 "$BIN/gnar-kiosk-shot"       /usr/local/bin/gnar-kiosk-shot
+install -m 755 "$BIN/gnar-kiosk-presence"   /usr/local/bin/gnar-kiosk-presence
+install -m 755 "$BIN/gnar-display"          /usr/local/bin/gnar-display
 install -m 755 "$BIN/gnar-claude-stats"     /usr/local/bin/gnar-claude-stats
 install -m 755 "$BIN/gnar-project-init"     /usr/local/bin/gnar-project-init
 install -m 755 "$BIN/gnar-bootstrap"        /usr/local/bin/gnar-bootstrap
