@@ -1,0 +1,44 @@
+#!/bin/bash
+# GNAR — instant display wake on a UDP nudge from the CV box.
+#
+# The computer-vision box fires a datagram ("gnar-wake enter person\n") the
+# moment a tracked person enters/exits the frame — sub-second wake instead
+# of waiting for gnar-kiosk-presence's next poll. This listener:
+#   - powers the display on when a valid nudge arrives while it's off
+#   - touches $DIR/push, which the presence daemon folds into its
+#     last-seen time (so a walk-by between polls still counts as presence)
+#
+# Push is an ACCELERATOR, not the authority: if this listener (or the CV
+# push) breaks entirely, behavior degrades to the poll loop — never worse.
+# Datagrams must start with "gnar-wake"; anything else is ignored, and the
+# worst a spoofed packet can do is turn the display on.
+set -uo pipefail
+
+PORT=${WAKE_PORT:-8666}
+DIR=${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/gnar-display
+mkdir -p "$DIR"
+
+# Singleton per port; a stale twin from a dead sway session is killed off
+# by the SWAYSOCK check below, freeing the port for the new session.
+exec 9>"$DIR/listener.lock"
+flock -n 9 || exit 0
+
+trap 'pkill -f "ncat -ulk $PORT" 2>/dev/null' EXIT
+
+exec 3< <(stdbuf -oL ncat -ulk "$PORT" 2>/dev/null)
+
+while :; do
+    # 5s read timeout so we notice a dead sway session even when quiet.
+    if read -r -t 5 -u 3 line; then
+        case "$line" in
+            gnar-wake*)
+                touch "$DIR/push"
+                if [ "$(cat "$DIR/state" 2>/dev/null)" = "off" ]; then
+                    swaymsg "output * power on" >/dev/null 2>&1
+                    echo on > "$DIR/state"
+                fi
+                ;;
+        esac
+    fi
+    [ -n "${SWAYSOCK:-}" ] && [ ! -S "$SWAYSOCK" ] && exit 0
+done

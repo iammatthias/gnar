@@ -289,6 +289,9 @@ for _port in $SSH_PORTS; do
 done
 ufw allow 80/tcp || true
 ufw allow 443/tcp || true
+# Kiosk wake push — LAN UDP nudge from the CV box (gnar-kiosk-wake-listener).
+# Worst a spoofed datagram can do is turn the display on.
+ufw allow 8666/udp || true
 
 install -m 644 "$CONFIGS/fail2ban-jail.local" /etc/fail2ban/jail.local
 systemctl enable fail2ban
@@ -511,6 +514,7 @@ install -m 755 "$BIN/gnar-kiosk-tiles"      /usr/local/bin/gnar-kiosk-tiles
 install -m 755 "$BIN/gnar-kiosk-restart"    /usr/local/bin/gnar-kiosk-restart
 install -m 755 "$BIN/gnar-kiosk-shot"       /usr/local/bin/gnar-kiosk-shot
 install -m 755 "$BIN/gnar-kiosk-presence"   /usr/local/bin/gnar-kiosk-presence
+install -m 755 "$BIN/gnar-kiosk-wake-listener" /usr/local/bin/gnar-kiosk-wake-listener
 install -m 755 "$BIN/gnar-display"          /usr/local/bin/gnar-display
 install -m 755 "$BIN/gnar-claude-stats"     /usr/local/bin/gnar-claude-stats
 install -m 755 "$BIN/gnar-project-init"     /usr/local/bin/gnar-project-init

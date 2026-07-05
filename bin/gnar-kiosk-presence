@@ -22,7 +22,7 @@
 set -uo pipefail
 
 CV_URL=${CV_URL:-http://cv.local:8001/state.json}
-POLL=${POLL:-5}                    # seconds between polls
+POLL=${POLL:-2}                    # seconds between polls (fallback wake path)
 ABSENT_SECS=${ABSENT_SECS:-180}    # continuous absence before sleeping
 OVERRIDE_SECS=${OVERRIDE_SECS:-600} # tap keeps the display on this long
 CONF=${CONF:-0.5}                  # min detection confidence
@@ -90,6 +90,10 @@ while :; do
                     last_seen=$now
                 fi
                 prev_event_ts=$newest_ts
+                # Push nudges (gnar-kiosk-wake-listener touches $DIR/push on
+                # each CV enter/exit datagram) count as presence too.
+                push_ts=$(stat -c %Y "$DIR/push" 2>/dev/null || echo 0)
+                [ "$push_ts" -gt "$last_seen" ] && last_seen=$push_ts
                 ago=$((now - last_seen))
                 if [ "$ago" -lt "$ABSENT_SECS" ]; then
                     [ "${nperson:-0}" -gt 0 ] && reason="person in frame" || reason="seen ${ago}s ago"

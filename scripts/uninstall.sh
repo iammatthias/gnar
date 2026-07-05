@@ -152,6 +152,7 @@ rm -f /usr/local/bin/gnar-info /usr/local/bin/gnar-update /usr/local/bin/gnar-he
       /usr/local/bin/gnar-bootstrap /usr/local/bin/gnar-preview-site \
       /usr/local/bin/gnar-deploy /usr/local/bin/gnar-board \
       /usr/local/bin/gnar-kiosk-presence /usr/local/bin/gnar-display \
+      /usr/local/bin/gnar-kiosk-wake-listener \
       /usr/local/bin/gnar-hermes-status
 
 echo
