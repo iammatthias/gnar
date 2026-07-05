@@ -31,7 +31,8 @@ exec gnar-kiosk-tiles
 ### presence-based display power (burn-in guard) — polls the CV box and
 ### sleeps the panel when nobody's around; fail-open (any failure = display
 ### on), tap always wakes. Manual: gnar-display on|auto|off|status.
-exec while true; do gnar-kiosk-presence; sleep 5; done
+### NB: quoted — unquoted `;` would be parsed as a sway command separator.
+exec 'while true; do gnar-kiosk-presence; sleep 5; done'
 
 ### walk-up keybindings (only matter with a keyboard plugged in)
 bindsym Mod4+f fullscreen toggle
