@@ -185,6 +185,9 @@ fn wake_tap_swallowed() -> bool {
         let _ = Command::new("swaymsg").args(["output", "*", "power", "on"]).spawn();
         let _ = fs::write(format!("{dir}/override"), b"");
         let _ = fs::write(format!("{dir}/state"), b"on");
+        let _ = Command::new("logger")
+            .args(["-t", "gnar-display", "display on — tap (override armed)"])
+            .spawn();
     }
     asleep
 }

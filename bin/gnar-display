@@ -30,17 +30,20 @@ case "${1:-status}" in
     on)
         echo on > "$DIR/mode"
         power on && echo on > "$DIR/state"
+        logger -t gnar-display "display on — pinned manually (gnar-display on)"
         echo "display pinned ON (auto-sleep disabled — 'gnar-display auto' to resume)"
         ;;
     auto)
         echo auto > "$DIR/mode"
         rm -f "$DIR/override"
+        logger -t gnar-display "auto mode resumed (gnar-display auto)"
         echo "presence auto mode resumed"
         ;;
     off)
         echo auto > "$DIR/mode"
         rm -f "$DIR/override"
         power off && echo off > "$DIR/state"
+        logger -t gnar-display "display off — manual (gnar-display off)"
         echo "display off (presence or a tap will wake it)"
         ;;
     status)
@@ -49,8 +52,14 @@ case "${1:-status}" in
         echo "daemon: $(cat "$DIR/status" 2>/dev/null || echo '(not running)')"
         swaymsg -t get_outputs 2>/dev/null | jq -r '.[] | "output: \(.name) power=\(.power)"' || true
         ;;
+    log)
+        # Wake/sleep transition history (every state change is journaled
+        # with its reason by the daemon / listener / tap / manual control).
+        sudo -n journalctl -t gnar-display --no-pager -n "${2:-40}" 2>/dev/null \
+            || journalctl -t gnar-display --no-pager -n "${2:-40}"
+        ;;
     *)
-        echo "usage: gnar-display [on|auto|off|status]" >&2
+        echo "usage: gnar-display [on|auto|off|status|log [n]]" >&2
         exit 2
         ;;
 esac

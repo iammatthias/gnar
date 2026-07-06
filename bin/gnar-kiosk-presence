@@ -40,17 +40,21 @@ power() { swaymsg "output * power $1" >/dev/null 2>&1; }
 
 # The state file is shared — gnar-board's tap-wake and gnar-display also
 # write it — so trust the file, not our own memory of what we last did.
+# Every actual transition lands in the systemd journal (tag gnar-display)
+# so wake/sleep history is auditable: `gnar-display log`.
 set_state() {
     local cur
     cur=$(cat "$DIR/state" 2>/dev/null || echo unknown)
     if [ "$1" != "$cur" ]; then
         power "$1"
         echo "$1" > "$DIR/state"
+        logger -t gnar-display "display $1 — ${2:-}"
     fi
 }
 
 # Whatever kills us, leave the display on.
-trap 'power on; echo on > "$DIR/state"' EXIT
+trap 'power on; echo on > "$DIR/state"; logger -t gnar-display "display on — presence daemon exited (fail open)"' EXIT
+logger -t gnar-display "presence daemon started (poll=${POLL}s absent=${ABSENT_SECS}s override=${OVERRIDE_SECS}s)"
 
 last_seen=$(date +%s)   # boot grace — assume presence at start
 prev_event_ts=""
@@ -104,7 +108,7 @@ while :; do
         fi
     fi
 
-    set_state "$want"
+    set_state "$want" "$reason"
     echo "state=$want mode=$mode reason='$reason' api=${api:-skip} $(date +%H:%M:%S)" > "$DIR/status"
 
     [ "$once" = "--once" ] && { cat "$DIR/status"; trap - EXIT; exit 0; }

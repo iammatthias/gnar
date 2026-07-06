@@ -36,6 +36,7 @@ while :; do
                 if [ "$(cat "$DIR/state" 2>/dev/null)" = "off" ]; then
                     swaymsg "output * power on" >/dev/null 2>&1
                     echo on > "$DIR/state"
+                    logger -t gnar-display "display on — push ($line)"
                 fi
                 ;;
         esac
