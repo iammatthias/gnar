@@ -19,11 +19,8 @@ plugins=(
   zsh-syntax-highlighting
   zsh-completions
   zsh-history-substring-search
-  zsh-z
-  zoxide
   fzf
   colored-man-pages
-  command-not-found
   extract
   history
   sudo
@@ -91,15 +88,21 @@ setopt hist_verify
 setopt hist_reduce_blanks
 setopt hist_save_no_dups
 setopt hist_find_no_dups
-setopt append_history
-setopt inc_append_history
+# share_history subsumes (inc_)append_history — the zsh manual says not
+# to combine them, so they are deliberately not set here.
 
 # Vi mode
 bindkey -v
 
+# `bindkey -v` resets the main keymap, wiping bindings that plugins made
+# above (oh-my-zsh already ran) — re-source fzf's bindings so Ctrl-R is
+# fzf history search and Ctrl-T the file picker again.
+[ -f /usr/share/fzf/key-bindings.zsh ] && source /usr/share/fzf/key-bindings.zsh
+
+# Let Ctrl-S reach the shell instead of freezing the terminal (XOFF).
+stty -ixon 2>/dev/null
+
 # Key bindings
-bindkey '^R' history-incremental-search-backward
-bindkey '^S' history-incremental-search-forward
 bindkey '^[[Z' reverse-menu-complete
 bindkey '^[[3~' delete-char
 bindkey '^?' backward-delete-char
@@ -108,9 +111,15 @@ bindkey '^W' backward-kill-word
 bindkey '^U' backward-kill-line
 bindkey '^K' kill-line
 
-# History substring search on up/down
+# History substring search on up/down. Terminals send CSI (^[[A) or SS3
+# (^[OA) arrows depending on application-cursor mode — foot/ghostty use
+# SS3 — so bind both, plus whatever terminfo advertises.
 bindkey '^[[A' history-substring-search-up
 bindkey '^[[B' history-substring-search-down
+bindkey '^[OA' history-substring-search-up
+bindkey '^[OB' history-substring-search-down
+[[ -n "$terminfo[kcuu1]" ]] && bindkey "$terminfo[kcuu1]" history-substring-search-up
+[[ -n "$terminfo[kcud1]" ]] && bindkey "$terminfo[kcud1]" history-substring-search-down
 bindkey -M vicmd 'k' history-substring-search-up
 bindkey -M vicmd 'j' history-substring-search-down
 
@@ -240,10 +249,11 @@ export GOPATH="$HOME/go"
 export PATH="$GOPATH/bin:$PATH"
 
 # Tools
+# The one and only zoxide init — don't also load the OMZ `zoxide` or
+# `zsh-z` plugins, they double-register hooks / fight over `z`.
 eval "$(zoxide init zsh)"
 
-# Completion
-autoload -U compinit && compinit
+# Completion — oh-my-zsh already ran compinit; just tune the styles.
 zstyle ':completion:*' matcher-list 'm:{a-zA-Z}={A-Za-z}' 'r:|=*' 'l:|=* r:|=*'
 zstyle ':completion:*' list-colors "${(s.:.)LS_COLORS}"
 zstyle ':completion:*' menu select
@@ -261,7 +271,7 @@ setopt cdable_vars
 
 # Globbing
 setopt extended_glob
-setopt glob_dots
+# glob_dots deliberately NOT set — it makes a bare `rm *` eat dotfiles.
 setopt numeric_glob_sort
 setopt mark_dirs
 
@@ -298,24 +308,107 @@ GNAR_CADDYFILE=/srv/stack/Caddyfile
 # is a single command — `sudo cd ...` fails because cd is a shell builtin.
 GNAR_CADDY_RELOAD='docker compose -f /srv/stack/docker-compose.yml exec -T caddy caddy reload --config /etc/caddy/Caddyfile'
 
-# Append text right after a marker line and reload caddy. Rolls back on
-# invalid config.
-_gnar_caddy_append() {
-    local marker=$1
-    local block=$2
-    local backup="$GNAR_CADDYFILE.backup.$(date +%Y%m%d_%H%M%S)"
+# Shared awk program for Caddyfile edits. Drops generated site blocks
+# whose address line equals a1 or a2, and (when $GNAR_BLOCK is non-empty)
+# inserts it right after the line equal to marker, appending at EOF if
+# no marker line exists. The block travels via ENVIRON, not -v: -v
+# mangles backslashes and BSD awk rejects newlines in -v values.
+#
+# The delete matches the EXACT generated block shape:
+#     <blank line>
+#     # private: <name>            (or "# public:", "# ... static:")
+#     <address line> {
+#         <indented directives>
+#     }
+# i.e. from the literal address line through the first "}" alone at
+# column 0, plus the generated comment/blank line above it. That is
+# precise for anything these helpers wrote; a hand-added block is only
+# at risk if it reuses a generated address line AND indents its closing
+# brace — don't do that.
+_GNAR_CADDY_AWK='
+BEGIN { n = 0; skip = 0; ins = 0; block = ENVIRON["GNAR_BLOCK"] }
+skip { if ($0 == "}") skip = 0; next }
+(a1 != "" && $0 == a1) || (a2 != "" && $0 == a2) {
+    if (n > 0 && lines[n] ~ /^# (private|public)( static)?: /) n--
+    if (n > 0 && lines[n] == "") n--
+    skip = 1
+    next
+}
+{
+    lines[++n] = $0
+    if (block != "" && ins == 0 && $0 == marker) { lines[++n] = block; ins = 1 }
+}
+END {
+    for (i = 1; i <= n; i++) print lines[i]
+    if (block != "" && ins == 0) print block
+}'
 
-    sudo cp "$GNAR_CADDYFILE" "$backup"
-    # Insert the new block right after the marker, separated by a blank line.
-    printf '%s\n' "$block" | sudo tee -a "$GNAR_CADDYFILE" > /dev/null
-
-    if eval "sudo $GNAR_CADDY_RELOAD" 2>/dev/null; then
-        return 0
-    else
-        echo "Caddy reload failed — rolling back"
-        sudo mv "$backup" "$GNAR_CADDYFILE"
+# Rewrite $GNAR_CADDYFILE through $_GNAR_CADDY_AWK. Builds the result in
+# a temp file and sudo-cp's it over the live file, so a failed edit never
+# leaves it half-written. Usage:
+#   _gnar_caddy_rewrite <marker-line> <block> <addr1> [addr2]
+_gnar_caddy_rewrite() {
+    local tmp
+    tmp=$(mktemp) || return 1
+    if ! sudo env "GNAR_BLOCK=$2" awk -v marker="$1" -v a1="$3" -v a2="${4:-}" \
+            "$_GNAR_CADDY_AWK" "$GNAR_CADDYFILE" > "$tmp" \
+        || [ ! -s "$tmp" ]; then
+        rm -f "$tmp"
         return 1
     fi
+    sudo cp "$tmp" "$GNAR_CADDYFILE" || { rm -f "$tmp"; return 1; }
+    rm -f "$tmp"
+}
+
+# Reload caddy after a Caddyfile edit. $1 = backup to restore if caddy
+# rejects the config. Three outcomes:
+#   reload OK         → drop the backup, return 0
+#   caddy not running → KEEP the edit (it may well be valid), drop the
+#                       backup, tell the user to start the stack
+#   config rejected   → show caddy's error, restore the backup
+_gnar_caddy_reload() {
+    local backup=$1
+    local out
+    if out=$(eval "sudo $GNAR_CADDY_RELOAD" 2>&1); then
+        sudo rm -f "$backup"
+        return 0
+    fi
+    if [ -z "$(sudo docker compose -f /srv/stack/docker-compose.yml ps -q --status running caddy 2>/dev/null)" ]; then
+        echo "Caddy container isn't running — edit saved but not applied."
+        echo "Start the stack (cd /srv/stack && docker compose up -d), then run: caddy-reload"
+        sudo rm -f "$backup"
+        return 0
+    fi
+    echo "Caddy rejected the config — rolling back. Reload output:"
+    printf '%s\n' "$out"
+    sudo mv "$backup" "$GNAR_CADDYFILE"
+    return 1
+}
+
+# Insert a site block after a marker line and reload caddy. The backup
+# is taken BEFORE any mutation (including the replace-existing delete)
+# and restored if caddy rejects the result.
+#   _gnar_caddy_append <MARKER-NAME> <block> [existing-address-line]
+# MARKER-NAME is PRIVATE-SITES or PUBLIC-SITES (the
+# "# -------- MARKER-NAME --------" lines in the Caddyfile); if the
+# marker line is missing the block is appended at EOF instead.
+# existing-address-line, when given, replaces any previously generated
+# block starting with that exact line (see _GNAR_CADDY_AWK).
+_gnar_caddy_append() {
+    local marker="# -------- $1 --------"
+    local block=$2
+    local existing=${3:-}
+    local backup="$GNAR_CADDYFILE.backup.$(date +%Y%m%d_%H%M%S)"
+
+    sudo cp "$GNAR_CADDYFILE" "$backup" || return 1
+
+    if ! _gnar_caddy_rewrite "$marker" "$block" "$existing"; then
+        echo "Failed to edit Caddyfile — live copy untouched"
+        sudo rm -f "$backup"
+        return 1
+    fi
+
+    _gnar_caddy_reload "$backup"
 }
 
 # --- Private vhost on :80 (tailnet) -----------------------------------------
@@ -332,16 +425,17 @@ add-site() {
     local name=$1
     local target=${2:-3000}
 
-    # Drop any existing block for this name (private).
-    if sudo grep -q "^$name\.local:80 {" "$GNAR_CADDYFILE" 2>/dev/null; then
-        sudo sed -i "/^$name\.local:80 {/,/^}/d" "$GNAR_CADDYFILE"
+    # Names are spliced into the Caddyfile — keep them boring.
+    if ! [[ "$name" =~ ^[a-z0-9-]+$ ]]; then
+        echo "Invalid site name '$name' — lowercase letters, digits, and hyphens only"
+        return 1
     fi
 
     local block
     if [[ "$target" =~ ^[0-9]+$ ]]; then
         block=$(printf '\n# private: %s\n%s.local:80 {\n    import gnar_access_log\n    reverse_proxy host.docker.internal:%s\n}' \
             "$name" "$name" "$target")
-        _gnar_caddy_append PRIVATE-SITES "$block" \
+        _gnar_caddy_append PRIVATE-SITES "$block" "$name.local:80 {" \
             && echo "Private site: http://$name.local → host:$target"
     else
         if [ ! -d "$target" ]; then
@@ -350,7 +444,7 @@ add-site() {
         fi
         block=$(printf '\n# private static: %s\n%s.local:80 {\n    import gnar_access_log\n    root * %s\n    file_server\n}' \
             "$name" "$name" "$target")
-        _gnar_caddy_append PRIVATE-SITES "$block" \
+        _gnar_caddy_append PRIVATE-SITES "$block" "$name.local:80 {" \
             && echo "Private static: http://$name.local → $target"
         echo "Note: $target must be bind-mounted into the caddy container (edit /srv/stack/docker-compose.yml)."
     fi
@@ -372,16 +466,17 @@ add-public-site() {
     local host=$1
     local target=${2:-3000}
 
-    # Drop any existing block for this host (public listener uses :8080).
-    if sudo grep -q "^http://$host:8080 {" "$GNAR_CADDYFILE" 2>/dev/null; then
-        sudo sed -i "/^http:\/\/$host:8080 {/,/^}/d" "$GNAR_CADDYFILE"
+    # Hostnames are spliced into the Caddyfile — keep them boring.
+    if ! [[ "$host" =~ ^[A-Za-z0-9.-]+$ ]]; then
+        echo "Invalid hostname '$host' — letters, digits, dots, and hyphens only"
+        return 1
     fi
 
     local block
     if [[ "$target" =~ ^[0-9]+$ ]]; then
         block=$(printf '\n# public: %s\nhttp://%s:8080 {\n    import gnar_access_log\n    reverse_proxy host.docker.internal:%s\n}' \
             "$host" "$host" "$target")
-        _gnar_caddy_append PUBLIC-SITES "$block" \
+        _gnar_caddy_append PUBLIC-SITES "$block" "http://$host:8080 {" \
             && echo "Public site: https://$host → host:$target (via tunnel)"
     else
         if [ ! -d "$target" ]; then
@@ -390,7 +485,7 @@ add-public-site() {
         fi
         block=$(printf '\n# public static: %s\nhttp://%s:8080 {\n    import gnar_access_log\n    root * %s\n    file_server\n}' \
             "$host" "$host" "$target")
-        _gnar_caddy_append PUBLIC-SITES "$block" \
+        _gnar_caddy_append PUBLIC-SITES "$block" "http://$host:8080 {" \
             && echo "Public static: https://$host → $target (via tunnel)"
         echo "Note: $target must be bind-mounted into the caddy container (edit /srv/stack/docker-compose.yml)."
     fi
@@ -426,6 +521,19 @@ add-preview-site() {
 
     local name=$1
     local target=${2:-3000}
+
+    # The name becomes a handle file path AND a caddy matcher name — a
+    # `/` would let sudo tee write outside preview-handles/, and "apex"
+    # would collide with the @apex matcher in the wildcard block.
+    if ! [[ "$name" =~ ^[a-z0-9-]+$ ]]; then
+        echo "Invalid preview name '$name' — lowercase letters, digits, and hyphens only"
+        return 1
+    fi
+    if [[ "$name" == "apex" ]]; then
+        echo "'apex' is reserved (the wildcard block's @apex matcher) — pick another name"
+        return 1
+    fi
+
     local apex
     apex=$(_gnar_preview_apex)
     local host="$name.$apex"
@@ -507,12 +615,17 @@ list-sites() {
         echo "No Caddyfile at $GNAR_CADDYFILE"
         return
     fi
+    # Capture first — `grep | sed || echo` never fires the echo, because
+    # sed exits 0 even when grep matched nothing.
+    local out
     echo "Private (tailnet):"
-    sudo grep -E "^[a-zA-Z0-9.-]+\.local:80 \{" "$GNAR_CADDYFILE" 2>/dev/null \
-        | sed 's/ {//;s/^/  /' || echo "  (none)"
+    out=$(sudo grep -E "^[a-zA-Z0-9.-]+\.local:80 \{" "$GNAR_CADDYFILE" 2>/dev/null \
+        | sed 's/ {//;s/^/  /')
+    if [ -n "$out" ]; then printf '%s\n' "$out"; else echo "  (none)"; fi
     echo "Public (cloudflared):"
-    sudo grep -E "^http://[a-zA-Z0-9.-]+:8080 \{" "$GNAR_CADDYFILE" 2>/dev/null \
-        | sed 's| {||;s|^http://|  |' || echo "  (none)"
+    out=$(sudo grep -E "^http://[a-zA-Z0-9.-]+:8080 \{" "$GNAR_CADDYFILE" 2>/dev/null \
+        | sed 's| {||;s|^http://|  |')
+    if [ -n "$out" ]; then printf '%s\n' "$out"; else echo "  (none)"; fi
 }
 
 remove-site() {
@@ -523,20 +636,24 @@ remove-site() {
     fi
 
     local name=$1
+    if ! [[ "$name" =~ ^[A-Za-z0-9.-]+$ ]]; then
+        echo "Invalid name '$name' — letters, digits, dots, and hyphens only"
+        return 1
+    fi
+
     local backup="$GNAR_CADDYFILE.backup.$(date +%Y%m%d_%H%M%S)"
-    sudo cp "$GNAR_CADDYFILE" "$backup"
-    sudo sed -i "/^$name\.local:80 {/,/^}/d" "$GNAR_CADDYFILE"
-    sudo sed -i "/^http:\/\/$name:8080 {/,/^}/d" "$GNAR_CADDYFILE"
+    sudo cp "$GNAR_CADDYFILE" "$backup" || return 1
+
+    # Deletes only exact generated blocks — see _GNAR_CADDY_AWK.
+    if ! _gnar_caddy_rewrite "" "" "$name.local:80 {" "http://$name:8080 {"; then
+        echo "Failed to edit Caddyfile — live copy untouched"
+        sudo rm -f "$backup"
+        return 1
+    fi
     # Note: preview subdomains live in /srv/stack/preview-handles/<name>.caddy,
     # not in the Caddyfile. Use `remove-preview-site` for those.
 
-    if eval "sudo $GNAR_CADDY_RELOAD" 2>/dev/null; then
-        echo "Removed $name from Caddy"
-    else
-        echo "Configuration error — rolling back"
-        sudo mv "$backup" "$GNAR_CADDYFILE"
-        return 1
-    fi
+    _gnar_caddy_reload "$backup" && echo "Removed $name from Caddy"
 }
 
 test-caddy() {

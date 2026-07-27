@@ -8,6 +8,8 @@
 #           issued via ACME DNS-01 against Cloudflare. Tailnet-private
 #           because DNS for *.$PREVIEW_APEX points at this box's
 #           tailnet IP (CGNAT — not routable outside the tailnet).
+#           Gated: only loads once CF_API_TOKEN is set in .env — see
+#           the import below.
 #
 #   :8080 — PUBLIC HTTP. Reached by the cloudflared connector (opt-in
 #           per-site via `add-public-site`). TLS terminates at the CF
@@ -22,6 +24,25 @@
 # (--config is required: the image's workdir has no Caddyfile.)
 # `add-site` (private :80), `add-public-site` (cloudflared :8080), and
 # `add-preview-site` (private HTTPS subdomain) all do this for you.
+
+# Global options.
+{
+    servers {
+        # Public traffic arrives from cloudflared over LOOPBACK inside
+        # the shared tailscale netns. Without trusting loopback as a
+        # proxy, every public request logs client_ip 127.0.0.1 and
+        # backends receive X-Forwarded-Proto: http — https redirect
+        # loops and broken Secure cookies. private_ranges covers
+        # 127.0.0.0/8 (plus RFC1918 and the tailnet's CGNAT
+        # 100.64.0.0/10).
+        #
+        # Caveat: :8080 is ALSO reachable directly from the tailnet, so
+        # on that listener CF-Connecting-IP / X-Forwarded-For can be
+        # spoofed by any tailnet peer. Apps must never use those headers
+        # for auth or rate-limiting.
+        trusted_proxies static private_ranges
+    }
+}
 
 # Shared JSON access log — every site imports this; gnar-board tails the
 # file (host: /srv/stack/data/caddy/data/access/access.log) for per-site
@@ -57,35 +78,16 @@
 # PRIVATE — tailnet only (HTTPS wildcard, :443)
 # =============================================================================
 #
-# All preview subdomains share one site block + one wildcard cert. Each
-# preview's per-hostname behavior lives as a separate .caddy file under
-# /srv/stack/preview-handles/, imported below. add-preview-site writes
-# these files and reloads caddy.
+# The wildcard-preview site lives in preview-https/wildcard.caddy and is
+# GATED on CF_API_TOKEN being set: docker-compose sets
+# PREVIEW_HTTPS=https only when the token is non-empty, completing this
+# import path. Otherwise the glob resolves under a directory that
+# doesn't exist and matches nothing (a zero-match glob is not an error),
+# so the :443 site — and its ACME DNS-01 issuance, which would retry
+# forever with an empty token against the placeholder apex — never
+# loads. No extra .env knob: the token IS the switch.
 
-{$PREVIEW_APEX}, *.{$PREVIEW_APEX} {
-    import gnar_access_log
-    tls {
-        dns cloudflare {env.CF_API_TOKEN}
-    }
-
-    # Apex: serve the static "online" homepage.
-    @apex host {$PREVIEW_APEX}
-    handle @apex {
-        root * /srv/homepage
-        file_server
-    }
-
-    # Per-preview handlers. Each file under preview-handles/ defines:
-    #   @<name> host <name>.{$PREVIEW_APEX}
-    #   handle @<name> { root * /srv/projects/<dir>; file_server }
-    # The glob matches zero files cleanly on a fresh install.
-    import /etc/caddy/preview-handles/*.caddy
-
-    # Fallback for any subdomain that doesn't have a matching handle.
-    handle {
-        respond 404
-    }
-}
+import /etc/caddy/preview-{$PREVIEW_HTTPS:off}/*.caddy
 
 # =============================================================================
 # PUBLIC — cloudflared tunnel target (opt-in via add-public-site)

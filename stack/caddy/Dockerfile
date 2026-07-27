@@ -8,11 +8,14 @@
 # binary with the modules listed below. CF_API_TOKEN is read at runtime
 # from the environment (set in /srv/stack/.env).
 
-FROM caddy:builder AS builder
+# Major-pinned to caddy 2.x — a surprise 3.x jump shouldn't arrive via
+# a routine `docker compose build`. Minor/patch updates ride the tag.
+
+FROM caddy:2-builder AS builder
 
 RUN xcaddy build \
     --with github.com/caddy-dns/cloudflare
 
-FROM caddy:latest
+FROM caddy:2
 
 COPY --from=builder /usr/bin/caddy /usr/bin/caddy

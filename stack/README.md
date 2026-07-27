@@ -27,6 +27,9 @@ hands out — or, for opt-in public sites, via the Cloudflare tunnel.
 ├── .env                     # secrets — copy from .env.example, chmod 600
 ├── caddy/Dockerfile         # custom image: + caddy-dns/cloudflare module
 ├── homepage/                # static "online" page (default :80 + apex)
+├── preview-https/           # gated :443 wildcard site — only imported
+│                            # once CF_API_TOKEN is set (no ACME retries
+│                            # on unconfigured installs)
 ├── preview-handles/         # one .caddy fragment per preview site
 └── data/                    # bind-mounted state (persists across `compose down`)
     ├── tailscale/           # tailscale identity
@@ -46,6 +49,10 @@ docker compose down               # stop everything
 `gnar-stack.service` (a systemd system unit, installed by `setup.sh`) does
 `up -d` on boot.
 
+Never restart the `tailscale` container on its own — it owns the network
+namespace the other services join, and recreating it alone orphans them.
+Always cycle the whole stack with `docker compose up -d`.
+
 ## First-boot interactive
 
 One thing has to happen interactively, once:
@@ -57,6 +64,10 @@ docker compose exec tailscale tailscale up
 ```
 
 `gnar-bootstrap` walks this (plus Claude Code login on the host).
+
+Until tailscale is logged in, its healthcheck stays unhealthy and
+caddy/cloudflared deliberately wait — they'd be joining a netns with no
+tailnet. They start on their own once auth completes.
 
 ## Adding a website
 
@@ -78,8 +89,13 @@ Caddy listens on separate ports inside the tailscale netns:
 | 443   | private   | tailnet (LE wildcard)  | `add-preview-site`    |
 | 8080  | public    | cloudflared tunnel     | `add-public-site`     |
 
-The split is intentional. Cloudflared only ever delivers traffic to
-`localhost:8080`, so it physically can't reach any private vhost.
+The split is intentional — but it is configured, not enforced. Nothing
+stops cloudflared from reaching `localhost:80` or `:443`; it only doesn't
+because every route in the tunnel's dashboard config points at
+`http://localhost:8080`. The failure mode to respect: one mistyped
+dashboard route to `localhost:80` publishes every private vhost through
+the tunnel. Double-check the service URL whenever you touch the tunnel's
+Public Hostnames.
 
 ## Public sites via Cloudflare Tunnel
 
@@ -89,10 +105,16 @@ The split is intentional. Cloudflared only ever delivers traffic to
    each public hostname (e.g. `myapp.example.com`) and route each to
    `http://localhost:8080`. They all share the same single route on
    the tunnel side — caddy distinguishes them by Host header.
-3. **Set the token.** In `/srv/stack/.env`, set
-   `CLOUDFLARED_TOKEN=...`.
-4. **Bring the stack up** (the connector is always-on once the token
-   is set): `cd /srv/stack && docker compose up -d`.
+3. **Set the token AND enable the profile.** In `/srv/stack/.env`:
+   ```
+   CLOUDFLARED_TOKEN=...
+   COMPOSE_PROFILES=cloudflared
+   ```
+   The connector service is profile-gated so token-less installs don't
+   crash-loop it — the token alone does nothing without the profile.
+4. **Bring the stack up**: `cd /srv/stack && docker compose up -d`.
+   With the profile in `.env`, every future `up -d` (including the boot
+   unit) keeps the connector running.
 5. **Publish a site.** From a shell on the box:
    ```
    add-public-site myapp.example.com 3000

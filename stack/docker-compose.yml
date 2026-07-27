@@ -11,8 +11,16 @@ services:
   # Network ingress. Owns the tailnet identity. Other services share its
   # network namespace so they reach the tailnet directly + can proxy to
   # one another via localhost.
+  #
+  # WARNING: because this container OWNS the shared netns, restarting or
+  # recreating it alone orphans caddy/cloudflared — they keep a handle
+  # on the dead namespace and drop off the network. Never
+  # `docker compose restart tailscale` by itself; always cycle the whole
+  # stack with `docker compose up -d` (or `down` then `up -d`).
   tailscale:
-    image: tailscale/tailscale:latest
+    # Pinned to the version verified on this deployment. Bump
+    # deliberately: edit the tag, `docker compose pull`, `up -d`.
+    image: tailscale/tailscale:v1.96.5
     container_name: gnar-tailscale
     logging: *default-logging
     hostname: ${TS_HOSTNAME:-gnar}
@@ -36,6 +44,17 @@ services:
     # here — none are published: ingress is tailnet + cloudflared only.)
     extra_hosts:
       - "host.docker.internal:host-gateway"
+    healthcheck:
+      # Healthy once tailscaled is up AND logged in to the tailnet
+      # (`status` exits nonzero while starting or logged out). Gates
+      # caddy/cloudflared below so they never race the netns owner. On a
+      # fresh box without TS_AUTHKEY this stays unhealthy until the
+      # one-time `docker compose exec tailscale tailscale up`.
+      test: ["CMD", "/usr/local/bin/tailscale", "status", "--peers=false"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 90s
     restart: unless-stopped
 
   # Reverse proxy for everything served from the box. Edits to ./Caddyfile
@@ -51,7 +70,9 @@ services:
     container_name: gnar-caddy
     logging: *default-logging
     network_mode: service:tailscale
-    depends_on: [tailscale]
+    depends_on:
+      tailscale:
+        condition: service_healthy
     environment:
       # Caddy substitutes {$PREVIEW_APEX} and {env.CF_API_TOKEN} in the
       # Caddyfile at config-load / cert-issuance time. Defaults mirror
@@ -59,8 +80,16 @@ services:
       # customized yet.
       PREVIEW_APEX: ${PREVIEW_APEX:-previews.example.com}
       CF_API_TOKEN: ${CF_API_TOKEN:-}
+      # ACME guard for the :443 wildcard-preview site. When
+      # CF_API_TOKEN is set this resolves to "https" and the Caddyfile's
+      # gated import pulls in preview-https/wildcard.caddy; when it's
+      # empty the import glob matches nothing and caddy never attempts
+      # DNS-01 (which would retry forever with an empty token).
+      PREVIEW_HTTPS: ${CF_API_TOKEN:+https}
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      # Gated :443 wildcard-preview site (see PREVIEW_HTTPS above).
+      - ./preview-https:/etc/caddy/preview-https:ro
       - ./data/caddy/data:/data
       - ./data/caddy/config:/config
       # Static "online" homepage served at the preview apex + default :80.
@@ -76,18 +105,31 @@ services:
     # — containers sharing its netns inherit /etc/hosts.
     restart: unless-stopped
 
-  # Cloudflare Tunnel connector — always on. Token-managed: the tunnel and
-  # its public hostnames are configured in the Cloudflare Zero Trust
-  # dashboard; the connector authenticates with CLOUDFLARED_TOKEN (set in
-  # /srv/stack/.env). No cert.pem / config.yml needed. Not profile-gated,
-  # so the boot `docker compose up -d --remove-orphans` keeps it alive.
+  # Cloudflare Tunnel connector — opt-in via the "cloudflared" compose
+  # profile. Token-managed: the tunnel and its public hostnames are
+  # configured in the Cloudflare Zero Trust dashboard; the connector
+  # authenticates with CLOUDFLARED_TOKEN (set in /srv/stack/.env). No
+  # cert.pem / config.yml needed. Profile-gated so token-less installs
+  # don't crash-loop a connector with nothing to auth as — enable it by
+  # ALSO setting COMPOSE_PROFILES=cloudflared in /srv/stack/.env.
   cloudflared:
-    image: cloudflare/cloudflared:latest
+    # Pinned — cloudflared cuts monthly YYYY.M.P releases and `latest`
+    # moves under you. Bump policy: read the release notes
+    # (https://github.com/cloudflare/cloudflared/releases), edit the
+    # tag, then `docker compose pull cloudflared && docker compose up -d`.
+    # 2026.3.0 is the version verified running on this deployment.
+    image: cloudflare/cloudflared:2026.3.0
     container_name: gnar-cloudflared
+    profiles: ["cloudflared"]
     logging: *default-logging
     network_mode: service:tailscale
-    depends_on: [tailscale, caddy]
+    depends_on:
+      tailscale:
+        condition: service_healthy
+      caddy:
+        condition: service_started
     command: tunnel --no-autoupdate run
     environment:
-      - TUNNEL_TOKEN=${CLOUDFLARED_TOKEN}
+      # :- default so profile-less installs don't warn about the unset var.
+      - TUNNEL_TOKEN=${CLOUDFLARED_TOKEN:-}
     restart: unless-stopped

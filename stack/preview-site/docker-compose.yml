@@ -49,9 +49,22 @@ services:
     command:
       - |
         # Wait for tailscaled to be reachable, then point serve at caddy.
+        # Timeout is a HARD error: falling through to `tailscale serve`
+        # against a dead daemon would fail silently (restart: "no" means
+        # nothing retries), leaving the preview without TLS.
+        ok=""
         for i in $$(seq 1 30); do
-          tailscale status >/dev/null 2>&1 && break
+          tailscale status >/dev/null 2>&1 && ok=1 && break
           sleep 2
         done
+        if [ -z "$$ok" ]; then
+          echo "==================================================================" >&2
+          echo "FATAL: tailscaled not reachable after 60s — tailscale serve was" >&2
+          echo "NOT configured; https for this preview will not work. Check the" >&2
+          echo "tailscale container (docker compose logs tailscale), then re-run:" >&2
+          echo "  docker compose up serve-config" >&2
+          echo "==================================================================" >&2
+          exit 1
+        fi
         tailscale serve --bg --https 443 http://127.0.0.1:80
     restart: "no"

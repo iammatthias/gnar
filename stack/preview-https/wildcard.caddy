@@ -1,0 +1,33 @@
+# Wildcard-preview HTTPS site (:443). Imported by the main Caddyfile
+# only when CF_API_TOKEN is set in /srv/stack/.env (docker-compose sets
+# PREVIEW_HTTPS=https then, which completes the gated import path).
+#
+# All preview subdomains share one site block + one wildcard cert. Each
+# preview's per-hostname behavior lives as a separate .caddy file under
+# /srv/stack/preview-handles/, imported below. add-preview-site writes
+# these files and reloads caddy.
+
+{$PREVIEW_APEX}, *.{$PREVIEW_APEX} {
+    import gnar_access_log
+    tls {
+        dns cloudflare {env.CF_API_TOKEN}
+    }
+
+    # Apex: serve the static "online" homepage.
+    @apex host {$PREVIEW_APEX}
+    handle @apex {
+        root * /srv/homepage
+        file_server
+    }
+
+    # Per-preview handlers. Each file under preview-handles/ defines:
+    #   @<name> host <name>.{$PREVIEW_APEX}
+    #   handle @<name> { root * /srv/projects/<dir>; file_server }
+    # The glob matches zero files cleanly on a fresh install.
+    import /etc/caddy/preview-handles/*.caddy
+
+    # Fallback for any subdomain that doesn't have a matching handle.
+    handle {
+        respond 404
+    }
+}
