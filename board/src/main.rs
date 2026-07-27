@@ -136,7 +136,20 @@ impl Action {
     }
     /// Fire and forget — the user has NOPASSWD sudo, so these just run.
     fn spawn(self) {
-        let _ = Command::new("sh").arg("-c").arg(self.cmd()).spawn();
+        let mut cmd = Command::new("sh");
+        cmd.arg("-c").arg(self.cmd());
+        spawn_reaped(cmd);
+    }
+}
+
+/// Spawn a fire-and-forget command AND reap it from a detached thread —
+/// an un-`wait()`ed child stays a zombie forever in a process that runs
+/// for months.
+fn spawn_reaped(mut cmd: Command) {
+    if let Ok(mut child) = cmd.spawn() {
+        thread::spawn(move || {
+            let _ = child.wait();
+        });
     }
 }
 
@@ -182,12 +195,14 @@ fn wake_tap_swallowed() -> bool {
         .map(|s| s.trim() == "off")
         .unwrap_or(false);
     if asleep {
-        let _ = Command::new("swaymsg").args(["output", "*", "power", "on"]).spawn();
+        let mut on = Command::new("swaymsg");
+        on.args(["output", "*", "power", "on"]);
+        spawn_reaped(on);
         let _ = fs::write(format!("{dir}/override"), b"");
         let _ = fs::write(format!("{dir}/state"), b"on");
-        let _ = Command::new("logger")
-            .args(["-t", "gnar-display", "display on — tap (override armed)"])
-            .spawn();
+        let mut log = Command::new("logger");
+        log.args(["-t", "gnar-display", "display on — tap (override armed)"]);
+        spawn_reaped(log);
     }
     asleep
 }
@@ -249,7 +264,7 @@ struct Prev {
     net_total: Option<u64>,
 }
 
-#[derive(Default)]
+#[derive(Default, Clone)]
 struct Host {
     cpu: VecDeque<f64>, // total %
     cpu_cur: f64,
@@ -330,8 +345,17 @@ struct App {
     nvme_temp: Option<u64>,
     snapshots: usize,
     docker_err: Option<String>,
+    host_err: Option<String>,   // host sampler restarted after a panic
+    status_err: Option<String>, // status sampler restarted after a panic
     clock: String,
     render_secs: f64, // seconds since the process started — drives list cycling
+}
+
+/// Lock the shared state, recovering from a poisoned mutex — a sampler
+/// panic (caught and restarted in its loop) may have poisoned it mid-
+/// write; every field is re-sampled shortly, so the last view is fine.
+fn lock_app(app: &Mutex<App>) -> std::sync::MutexGuard<'_, App> {
+    app.lock().unwrap_or_else(|e| e.into_inner())
 }
 
 // ---------------------------------------------------------------------------
@@ -364,15 +388,18 @@ fn docker_get(path: &str) -> Result<Value, String> {
 }
 
 fn dechunk(data: &[u8]) -> Result<Vec<u8>, String> {
+    // All indexing via .get() — dockerd restarting mid-response can
+    // truncate the stream anywhere (even right after a chunk's bytes),
+    // and that must surface as Err, never a panic.
     let mut out = Vec::new();
     let mut i = 0;
     loop {
-        let nl = data[i..]
+        let rest = data.get(i..).ok_or("truncated chunk stream")?;
+        let nl = rest
             .windows(2)
             .position(|w| w == b"\r\n")
-            .ok_or("bad chunk header")?
-            + i;
-        let hex: String = String::from_utf8_lossy(&data[i..nl])
+            .ok_or("bad chunk header")?;
+        let hex: String = String::from_utf8_lossy(&rest[..nl])
             .chars()
             .take_while(|c| c.is_ascii_hexdigit())
             .collect();
@@ -381,8 +408,9 @@ fn dechunk(data: &[u8]) -> Result<Vec<u8>, String> {
             return Ok(out);
         }
         let start = nl + 2;
-        out.extend_from_slice(data.get(start..start + size).ok_or("short chunk")?);
-        i = start + size + 2;
+        let end = start.checked_add(size).ok_or("bad chunk size")?;
+        out.extend_from_slice(rest.get(start..end).ok_or("short chunk")?);
+        i += end + 2;
     }
 }
 
@@ -472,14 +500,22 @@ fn disk_io_bytes() -> Option<(u64, u64)> {
     let mut any = false;
     for l in s.lines() {
         let f: Vec<&str> = l.split_whitespace().collect();
-        let name = *f.get(2)?;
+        let Some(name) = f.get(2) else { continue };
+        // sd whole disks are "sd" + letters (sda … sdaa); partitions
+        // append digits. nvme whole disks have no 'p'.
         let whole_disk = (name.starts_with("nvme") && !name.contains('p'))
-            || (name.starts_with("sd") && name.len() == 3);
+            || (name.starts_with("sd")
+                && name.len() > 2
+                && name.chars().skip(2).all(|c| c.is_ascii_alphabetic()));
         if !whole_disk {
             continue;
         }
-        r += f.get(5)?.parse::<u64>().ok()? * 512;
-        w += f.get(9)?.parse::<u64>().ok()? * 512;
+        // A malformed line skips, not aborts — one bad row shouldn't
+        // blank the whole io graph.
+        let (Some(rs), Some(ws)) = (f.get(5), f.get(9)) else { continue };
+        let (Ok(rv), Ok(wv)) = (rs.parse::<u64>(), ws.parse::<u64>()) else { continue };
+        r += rv * 512;
+        w += wv * 512;
         any = true;
     }
     any.then_some((r, w))
@@ -636,21 +672,56 @@ fn sample_host(h: &mut Host) {
 // ---------------------------------------------------------------------------
 
 fn host_loop(app: Arc<Mutex<App>>) {
+    // The authoritative Host lives here — sample into it unlocked, then
+    // lock only long enough to publish a clone, so the render loop never
+    // waits out a full /proc + hwmon sweep.
+    let mut host = Host::default();
     loop {
         let started = Instant::now();
-        sample_host(&mut app.lock().unwrap().host);
-        thread::sleep(STATS_EVERY.saturating_sub(started.elapsed()));
+        // A panicking sampler must not silently kill the thread — the tile
+        // would keep drawing frozen stats. Catch it, surface it, retry.
+        let panicked = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            sample_host(&mut host);
+        }))
+        .is_err();
+        if panicked {
+            lock_app(&app).host_err = Some("host sampler restarted (panic)".into());
+        } else {
+            let snap = host.clone();
+            let mut a = lock_app(&app);
+            a.host = snap;
+            a.host_err = None;
+        }
+        thread::sleep(if panicked {
+            STATS_EVERY // back off before retrying
+        } else {
+            // Floored — an overrun cycle must not become a busy loop.
+            STATS_EVERY.saturating_sub(started.elapsed()).max(STATS_EVERY / 4)
+        });
     }
 }
 
 fn docker_loop(app: Arc<Mutex<App>>) {
     loop {
         let started = Instant::now();
-        match sample_containers(&app) {
-            Ok(()) => app.lock().unwrap().docker_err = None,
-            Err(e) => app.lock().unwrap().docker_err = Some(e),
+        // Same guard as host_loop — a panic surfaces in the panel and the
+        // loop restarts instead of freezing the charts.
+        let panicked = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            match sample_containers(&app) {
+                Ok(()) => lock_app(&app).docker_err = None,
+                Err(e) => lock_app(&app).docker_err = Some(e),
+            }
+        }))
+        .is_err();
+        if panicked {
+            lock_app(&app).docker_err = Some("sampler restarted (panic)".into());
         }
-        thread::sleep(STATS_EVERY.saturating_sub(started.elapsed()));
+        thread::sleep(if panicked {
+            STATS_EVERY // back off before retrying
+        } else {
+            // Floored — an overrun cycle must not become a busy loop.
+            STATS_EVERY.saturating_sub(started.elapsed()).max(STATS_EVERY / 4)
+        });
     }
 }
 
@@ -697,20 +768,24 @@ fn sample_containers(app: &Arc<Mutex<App>>) -> Result<(), String> {
         });
 
         let now = Instant::now();
-        let mut a = app.lock().unwrap();
+        let mut a = lock_app(app);
         let s = a.containers.entry(name.clone()).or_default();
         if let Some(p) = &s.prev {
             let dsys = sys_total.saturating_sub(p.sys_total);
             if dsys > 0 {
                 let dcpu = cpu_total.saturating_sub(p.cpu_total);
                 s.cpu_cur = dcpu as f64 / dsys as f64 * online * 100.0;
-                push(&mut s.cpu, s.cpu_cur);
             }
+            push(&mut s.cpu, s.cpu_cur);
             let dt = now.duration_since(p.at).as_secs_f64();
             s.net_rate = match (net_total, p.net_total) {
                 (Some(cur), Some(prev)) if dt > 0.0 => Some(cur.saturating_sub(prev) as f64 / dt),
                 _ => None,
             };
+        } else {
+            // First sight has no delta to compute — push a placeholder so
+            // the cpu and mem sparkline columns stay aligned forever after.
+            push(&mut s.cpu, 0.0);
         }
         s.mem_cur = mem_mib;
         push(&mut s.mem, mem_mib);
@@ -720,7 +795,7 @@ fn sample_containers(app: &Arc<Mutex<App>>) -> Result<(), String> {
         seen.push(name);
     }
 
-    app.lock().unwrap().containers.retain(|k, _| seen.contains(k));
+    lock_app(app).containers.retain(|k, _| seen.contains(k));
     Ok(())
 }
 
@@ -735,52 +810,88 @@ fn status_loop(app: Arc<Mutex<App>>, mode: Mode) {
     let shows_updates = matches!(mode, Mode::Full | Mode::Status);
     let shows_disk = matches!(mode, Mode::Full | Mode::Disk);
     let shows_claude = matches!(mode, Mode::Full | Mode::Status);
+    // The 30s samples get the same treatment — sites/traffic/tailscale
+    // render only in the NET tile, services/alerts/docker-ops only in OPS,
+    // and the top-procs tables only in CPU/MEM. `Full` renders (nearly)
+    // all of it, so it keeps sampling everything.
+    let shows_sites = matches!(mode, Mode::Full | Mode::Net);
+    let shows_ops = matches!(mode, Mode::Full | Mode::Status);
+    let shows_procs_cpu = matches!(mode, Mode::Full | Mode::Cpu);
+    let shows_procs_mem = matches!(mode, Mode::Full | Mode::Mem);
     let mut tick: u64 = 0;
     let mut log_offset: u64 = 0;
     let mut traffic_window: VecDeque<(f64, String, u16)> = VecDeque::new();
     loop {
         let started = Instant::now();
 
-        let services: Vec<(String, String)> = SERVICES
-            .iter()
-            .map(|s| {
-                let state = Command::new("systemctl")
-                    .args(["is-active", s])
-                    .output()
-                    .ok()
-                    .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
-                    .filter(|v| !v.is_empty())
-                    .unwrap_or_else(|| "unknown".into());
-                (s.to_string(), state)
-            })
-            .collect();
+        // Same guard as host_loop — a panic anywhere in a cycle surfaces
+        // in the panel and the loop restarts instead of freezing silently.
+        // (The closure body keeps the loop's indentation on purpose.)
+        let panicked = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        // ---- one full sampling cycle ----
+        let services: Vec<(String, String)> = if shows_ops {
+            SERVICES
+                .iter()
+                .map(|s| {
+                    let state = Command::new("systemctl")
+                        .args(["is-active", s])
+                        .output()
+                        .ok()
+                        .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
+                        .filter(|v| !v.is_empty())
+                        .unwrap_or_else(|| "unknown".into());
+                    (s.to_string(), state)
+                })
+                .collect()
+        } else {
+            Vec::new()
+        };
 
-        let mut sites = caddy_sites();
-        probe_sites(&mut sites);
-        let (disk_pct, disk_detail) = disk_usage();
-        let procs_cpu = top_procs("-pcpu", 14);
-        let procs_mem = top_procs("-pmem", 14);
-        let prune_next = prune_timer_next();
-        let images = docker_get("/images/json")
-            .ok()
-            .and_then(|v| v.as_array().map(|a| a.len()))
-            .unwrap_or(0);
-        let containers_total = docker_get("/containers/json?all=1")
-            .ok()
-            .and_then(|v| v.as_array().map(|a| a.len()))
-            .unwrap_or(0);
+        let mut sites = Vec::new();
+        if shows_sites {
+            sites = caddy_sites();
+            probe_sites(&mut sites);
+        }
+        let (disk_pct, disk_detail) = if shows_disk { disk_usage() } else { (0, String::new()) };
+        let procs_cpu = if shows_procs_cpu { top_procs("-pcpu", 14) } else { Vec::new() };
+        let procs_mem = if shows_procs_mem { top_procs("-pmem", 14) } else { Vec::new() };
+        let prune_next = if shows_ops { prune_timer_next() } else { String::new() };
+        let images = if shows_ops || shows_disk {
+            docker_get("/images/json")
+                .ok()
+                .and_then(|v| v.as_array().map(|a| a.len()))
+                .unwrap_or(0)
+        } else {
+            0
+        };
+        let containers_total = if shows_ops {
+            docker_get("/containers/json?all=1")
+                .ok()
+                .and_then(|v| v.as_array().map(|a| a.len()))
+                .unwrap_or(0)
+        } else {
+            0
+        };
         // Running count via the cheap list endpoint — the OPS tile shows
         // only this number, so it doesn't need the per-container stats
         // loop (which costs dockerd a cgroup sweep per container per 2s).
-        let containers_running = docker_get("/containers/json")
-            .ok()
-            .and_then(|v| v.as_array().map(|a| a.len()))
-            .unwrap_or(0);
+        let containers_running = if shows_ops {
+            docker_get("/containers/json")
+                .ok()
+                .and_then(|v| v.as_array().map(|a| a.len()))
+                .unwrap_or(0)
+        } else {
+            0
+        };
 
-        let traffic = sample_traffic(&mut log_offset, &mut traffic_window);
-        let alerts = sample_alerts();
-        let tailscale = sample_tailscale();
-        let reboot_pending = reboot_pending();
+        let traffic = if shows_sites {
+            sample_traffic(&mut log_offset, &mut traffic_window)
+        } else {
+            HashMap::new()
+        };
+        let alerts = if shows_ops { sample_alerts() } else { Alerts::default() };
+        let tailscale = if shows_sites { sample_tailscale() } else { None };
+        let reboot_pending = if shows_ops { reboot_pending() } else { None };
 
         // Slow-moving / heavier samples — hourly. checkupdates does a
         // network sync, smartctl wakes the drive, pacman.log is big.
@@ -802,7 +913,8 @@ fn status_loop(app: Arc<Mutex<App>>, mode: Mode) {
         let claude = if shows_claude { Some(claude_runs()) } else { None };
 
         {
-            let mut a = app.lock().unwrap();
+            let mut a = lock_app(&app);
+            a.status_err = None;
             a.services = services;
             a.sites = sites;
             a.procs_cpu = procs_cpu;
@@ -840,8 +952,21 @@ fn status_loop(app: Arc<Mutex<App>>, mode: Mode) {
                 a.claude_runs = r;
             }
         }
+        // ---- end of the guarded cycle ----
+        }))
+        .is_err();
+        if panicked {
+            lock_app(&app).status_err = Some("status sampler restarted (panic)".into());
+        }
         tick += 1;
-        thread::sleep(STATUS_EVERY.saturating_sub(started.elapsed()));
+        // Floored — serial probe timeouts during an outage can overrun the
+        // period, and a zero sleep would busy-loop the samplers. The full
+        // period after a panic doubles as the retry backoff.
+        thread::sleep(if panicked {
+            STATUS_EVERY
+        } else {
+            STATUS_EVERY.saturating_sub(started.elapsed()).max(STATUS_EVERY / 4)
+        });
     }
 }
 
@@ -854,7 +979,7 @@ fn clock_loop(app: Arc<Mutex<App>>) {
             .ok()
             .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
             .unwrap_or_default();
-        app.lock().unwrap().clock = out;
+        lock_app(&app).clock = out;
         thread::sleep(Duration::from_secs(10));
     }
 }
@@ -1026,6 +1151,11 @@ fn sample_traffic(
                 if let Some(last_nl) = buf.iter().rposition(|b| *b == b'\n') {
                     for l in String::from_utf8_lossy(&buf[..=last_nl]).lines() {
                         let Ok(v) = serde_json::from_str::<Value>(l) else { continue };
+                        // The board's own site probes carry this UA —
+                        // self-inflicted requests must not pollute the counts.
+                        if v["request"]["headers"]["User-Agent"][0].as_str() == Some("gnar-board") {
+                            continue;
+                        }
                         let host = v["request"]["host"]
                             .as_str()
                             .unwrap_or("")
@@ -1047,6 +1177,10 @@ fn sample_traffic(
     }
     while window.front().is_some_and(|(t, ..)| now - t > 300.0) {
         window.pop_front();
+    }
+    // Hard cap — a request flood must not grow the window unbounded.
+    if window.len() > 20_000 {
+        window.drain(..window.len() - 20_000);
     }
     // 404 is bucketed apart from the rest of the 4xx range: on a public
     // host it's almost entirely bot/scanner/missing-asset noise, whereas
@@ -1177,6 +1311,14 @@ fn sample_tailscale() -> Option<(String, usize, usize)> {
     Some((ip, online, total))
 }
 
+/// Split a version string into its numeric runs, for ordering — a
+/// lexicographic max would rank 6.9.7 above 6.10.1.
+fn version_key(v: &str) -> Vec<u64> {
+    v.split(|c: char| !c.is_ascii_digit())
+        .filter_map(|p| p.parse().ok())
+        .collect()
+}
+
 /// The running kernel's modules vanish from /usr/lib/modules when
 /// pacman installs a new kernel — the classic Arch "reboot pending"
 /// signal. Returns the newest installed version when they differ.
@@ -1190,7 +1332,7 @@ fn reboot_pending() -> Option<String> {
     if dirs.iter().any(|d| *d == running) {
         None
     } else {
-        dirs.into_iter().max()
+        dirs.into_iter().max_by_key(|d| version_key(d))
     }
 }
 
@@ -1225,9 +1367,16 @@ fn days_from_civil(y: i64, m: i64, d: i64) -> i64 {
 }
 
 /// Days since the last `pacman -Syu` per /var/log/pacman.log
-/// (timestamps are UTC, e.g. [2026-06-11T00:08:11+0000]).
+/// (timestamps are UTC, e.g. [2026-06-11T00:08:11+0000]). Reads only a
+/// tail chunk — the log grows for years, and the last upgrade is at the
+/// end of it.
 fn last_update_days() -> Option<u64> {
-    let s = fs::read_to_string("/var/log/pacman.log").ok()?;
+    let mut f = fs::File::open("/var/log/pacman.log").ok()?;
+    let len = f.metadata().ok()?.len();
+    f.seek(SeekFrom::Start(len.saturating_sub(65_536))).ok()?;
+    let mut buf = Vec::new();
+    f.read_to_end(&mut buf).ok()?;
+    let s = String::from_utf8_lossy(&buf);
     let line = s.lines().rev().find(|l| l.contains("starting full system upgrade"))?;
     let ts = line.split(']').next()?.trim_start_matches('[');
     let (date, time) = ts.split_once('T')?;
@@ -1667,12 +1816,29 @@ fn dot_color(state: &str) -> Color {
     }
 }
 
+/// A restarted-after-panic sampler surfaces here — one red line at the
+/// bottom of the frame, instead of the tile silently freezing. (docker's
+/// equivalent already renders inside the CONTAINERS panel.)
+fn sampler_err_line(frame: &mut Frame, app: &App) {
+    let Some(e) = app.host_err.as_ref().or(app.status_err.as_ref()) else { return };
+    let area = frame.area();
+    if area.height == 0 {
+        return;
+    }
+    let line = Rect { y: area.y + area.height - 1, height: 1, ..area };
+    frame.render_widget(
+        Paragraph::new(Line::from(Span::styled(format!(" {e} "), Style::new().fg(C_RED)))).right_aligned(),
+        line,
+    );
+}
+
 fn ui(frame: &mut Frame, app: &App, mode: Mode, touch: &mut Touch) {
     let area = frame.area();
     touch.buttons.clear();
     touch.back = None;
     if mode == Mode::Full {
         ui_full(frame, app);
+        sampler_err_line(frame, app);
         return;
     }
     // A tap zooms this tile to fullscreen (detected by its size). Then a top
@@ -1701,6 +1867,7 @@ fn ui(frame: &mut Frame, app: &App, mode: Mode, touch: &mut Touch) {
         Mode::Status => render_status(frame, body, app, true, false),
         Mode::Full => {}
     }
+    sampler_err_line(frame, app);
 }
 
 /// The whole composite board — what tmux/ssh sessions see. The kiosk
@@ -2583,6 +2750,31 @@ fn main() -> std::io::Result<()> {
     }
 
     let mut terminal = ratatui::init();
+    // ratatui::init()'s panic hook restores the terminal but not the mouse
+    // capture enabled below, and it must not fire at all for a sampler
+    // thread's panic — those are caught and restarted (see *_loop), and
+    // tearing the terminal down from a surviving process would leave the
+    // main loop drawing onto a restored screen. Chain a hook that acts
+    // only for the main thread, shutting mouse reporting off first.
+    let main_thread = thread::current().id();
+    let prev_hook = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |info| {
+        if thread::current().id() == main_thread {
+            let _ = execute!(std::io::stdout(), DisableMouseCapture);
+            prev_hook(info);
+        }
+    }));
+    // Restore on EVERY exit path — the `?` returns below would otherwise
+    // skip DisableMouseCapture + ratatui::restore() and leave mouse
+    // reporting spewing escapes into the caller's tmux/ssh session.
+    struct TermGuard;
+    impl Drop for TermGuard {
+        fn drop(&mut self) {
+            let _ = execute!(std::io::stdout(), DisableMouseCapture);
+            ratatui::restore();
+        }
+    }
+    let _restore = TermGuard;
     // Touch/mouse: each kiosk tile is its own foot window, so a tap on a
     // tile reaches that one process. Capturing the press lets it advance
     // its own paginated view (see `taps` below). Harmless when no pointer
@@ -2605,11 +2797,15 @@ fn main() -> std::io::Result<()> {
         enabled: std::env::var("GNAR_TOUCH").as_deref() == Ok("1"),
         ..Touch::default()
     };
+    let mut redraw = true;
+    let mut quit = false;
+    let mut last_draw = Instant::now();
     loop {
-        {
-            let mut st = app.lock().unwrap();
+        if redraw {
+            let mut st = lock_app(&app);
             st.render_secs = start.elapsed().as_secs_f64() + taps as f64 * PAGE_SECS;
             terminal.draw(|f| ui(f, &st, mode, &mut touch))?;
+            last_draw = Instant::now();
         }
         // An armed button disarms itself if not confirmed within a few seconds.
         if let Some((_, at)) = touch.armed {
@@ -2617,55 +2813,75 @@ fn main() -> std::io::Result<()> {
                 touch.armed = None;
             }
         }
+        // The 500ms timeout is the data-refresh tick. When events arrive,
+        // drain the whole backlog before the next draw — any-motion mouse
+        // reporting (mode 1003) floods Moved events, and a full redraw per
+        // event burns CPU on frames where nothing the app reacts to
+        // changed. Only reacted-to events mark the frame dirty.
+        redraw = true;
         if event::poll(Duration::from_millis(500))? {
-            match event::read()? {
-                Event::Mouse(m) if matches!(m.kind, MouseEventKind::Down(_)) && touch.enabled => {
-                    // Display asleep (presence daemon)? This tap only wakes
-                    // it — swallow so it can't fullscreen a tile or press a
-                    // button the user couldn't see.
-                    if wake_tap_swallowed() {
-                        continue;
-                    }
-                    let pos = Position { x: m.column, y: m.row };
-                    // `back` is set by render only when this tile is fullscreen.
-                    if touch.back.is_some() {
-                        if touch.back.is_some_and(|r| r.contains(pos)) {
-                            wm_toggle_fullscreen(); // back to the grid
-                            touch.armed = None;
-                        } else if let Some(action) =
-                            touch.buttons.iter().find(|b| b.rect.contains(pos)).map(|b| b.action)
-                        {
-                            // Two-tap confirm on the destructive actions.
-                            if action.confirm() && !matches!(touch.armed, Some((a, _)) if a == action) {
-                                touch.armed = Some((action, Instant::now()));
+            redraw = false;
+            loop {
+                match event::read()? {
+                    Event::Mouse(m) if matches!(m.kind, MouseEventKind::Down(_)) && touch.enabled => {
+                        // Display asleep (presence daemon)? This tap only wakes
+                        // it — swallow so it can't fullscreen a tile or press a
+                        // button the user couldn't see.
+                        if !wake_tap_swallowed() {
+                            let pos = Position { x: m.column, y: m.row };
+                            // `back` is set by render only when this tile is fullscreen.
+                            if touch.back.is_some() {
+                                if touch.back.is_some_and(|r| r.contains(pos)) {
+                                    wm_toggle_fullscreen(); // back to the grid
+                                    touch.armed = None;
+                                } else if let Some(action) =
+                                    touch.buttons.iter().find(|b| b.rect.contains(pos)).map(|b| b.action)
+                                {
+                                    // Two-tap confirm on the destructive actions.
+                                    if action.confirm() && !matches!(touch.armed, Some((a, _)) if a == action) {
+                                        touch.armed = Some((action, Instant::now()));
+                                    } else {
+                                        action.spawn();
+                                        touch.armed = None;
+                                    }
+                                }
                             } else {
-                                action.spawn();
-                                touch.armed = None;
+                                wm_toggle_fullscreen(); // grid tap zooms this tile
                             }
+                            redraw = true;
                         }
-                    } else {
-                        wm_toggle_fullscreen(); // grid tap zooms this tile
                     }
-                }
-                Event::Mouse(_) => {}
-                Event::Key(k) if k.kind == KeyEventKind::Press => {
-                    // Advance keys double as a keyboard fallback for the tap.
-                    if matches!(
-                        k.code,
-                        KeyCode::Char(' ') | KeyCode::Char('n') | KeyCode::Right | KeyCode::Down
-                    ) {
-                        taps += 1;
-                    } else if matches!(k.code, KeyCode::Char('q') | KeyCode::Char('Q') | KeyCode::Esc)
-                        || (k.code == KeyCode::Char('c') && k.modifiers.contains(KeyModifiers::CONTROL))
-                    {
-                        break;
+                    Event::Mouse(_) => {} // Moved / Up / drag — nothing rendered changes
+                    Event::Key(k) if k.kind == KeyEventKind::Press => {
+                        // Advance keys double as a keyboard fallback for the tap.
+                        if matches!(
+                            k.code,
+                            KeyCode::Char(' ') | KeyCode::Char('n') | KeyCode::Right | KeyCode::Down
+                        ) {
+                            taps += 1;
+                            redraw = true;
+                        } else if matches!(k.code, KeyCode::Char('q') | KeyCode::Char('Q') | KeyCode::Esc)
+                            || (k.code == KeyCode::Char('c') && k.modifiers.contains(KeyModifiers::CONTROL))
+                        {
+                            quit = true;
+                        }
                     }
+                    Event::Resize(..) => redraw = true,
+                    _ => {}
                 }
-                _ => {}
+                if quit || !event::poll(Duration::ZERO)? {
+                    break;
+                }
+            }
+            if quit {
+                break;
+            }
+            // Under continuous motion poll never times out — keep the
+            // normal data-refresh cadence anyway.
+            if last_draw.elapsed() >= Duration::from_millis(500) {
+                redraw = true;
             }
         }
     }
-    execute!(std::io::stdout(), DisableMouseCapture).ok();
-    ratatui::restore();
     Ok(())
 }
