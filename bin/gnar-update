@@ -18,7 +18,9 @@ if [ "${1:-}" = "--yes" ] || [ "${1:-}" = "-y" ]; then
     sudo journalctl -fu "$UNIT.service" --no-hostname -o cat &
     follow=$!
     while systemctl is-active --quiet "$UNIT.service"; do sleep 2; done
-    kill "$follow" 2>/dev/null || true
+    # $follow is the sudo pid (root) — a plain kill from the invoking user
+    # is EPERM, and the silent failure left `wait` blocking forever.
+    sudo -n kill "$follow" 2>/dev/null || kill "$follow" 2>/dev/null || true
     wait "$follow" 2>/dev/null || true
 
     rc=$(systemctl show "$UNIT.service" -p ExecMainStatus --value)
