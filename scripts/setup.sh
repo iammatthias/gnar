@@ -83,7 +83,10 @@ pacman -S --noconfirm --needed \
   base-devel man-db man-pages
 
 echo -e "${GREEN}Installing development tools...${NC}"
+# ghostty-terminfo: ssh clients on Ghostty send TERM=xterm-ghostty; without
+# the entry, zle redraws garble every keystroke.
 pacman -S --noconfirm --needed \
+  ghostty-terminfo \
   eza bat fd fzf zoxide ripgrep jq yq \
   fastfetch htop btop iotop nethogs lsof ncdu \
   tree bc rsync rclone p7zip imagemagick httpie \
@@ -292,6 +295,12 @@ ufw allow 443/tcp || true
 # Kiosk wake push — LAN UDP nudge from the CV box (gnar-kiosk-wake-listener).
 # Worst a spoofed datagram can do is turn the display on.
 ufw allow 8666/udp || true
+# Containers must reach host-native services (the caddy container proxies
+# add-site/pm2 apps via host.docker.internal). That traffic arrives on a
+# docker bridge and traverses INPUT — Docker only manages FORWARD — so
+# default-deny silently drops it. Docker's default address pools all live
+# in 172.16.0.0/12.
+ufw allow from 172.16.0.0/12 comment 'docker containers -> host services' || true
 
 install -m 644 "$CONFIGS/fail2ban-jail.local" /etc/fail2ban/jail.local
 systemctl enable fail2ban
@@ -300,15 +309,33 @@ if ! systemctl start fail2ban; then
     FAILED_SERVICES+=("fail2ban")
 fi
 
-# SSH hardening — only disable password auth if user has authorized keys
-sed -i 's/#\?PermitRootLogin.*/PermitRootLogin no/' /etc/ssh/sshd_config
-sed -i 's/#\?PubkeyAuthentication.*/PubkeyAuthentication yes/' /etc/ssh/sshd_config
+# SSH hardening — a lexically-first drop-in, not sed on the main config.
+# Arch's sshd_config `Include`s sshd_config.d/*.conf at the TOP and sshd is
+# first-value-wins, so editing the main file loses to any drop-in (notably
+# cloud-init's 50-cloud-init.conf re-enabling password auth). 00- sorts
+# ahead of everything, so these values actually take effect.
+install -d /etc/ssh/sshd_config.d
+grep -q '^Include /etc/ssh/sshd_config\.d/\*\.conf' /etc/ssh/sshd_config 2>/dev/null || \
+    sed -i '1i Include /etc/ssh/sshd_config.d/*.conf' /etc/ssh/sshd_config
+{
+    echo "# GNAR SSH hardening — first-match-wins, keep this file 00-first."
+    echo "PermitRootLogin no"
+    echo "PubkeyAuthentication yes"
+    # Only disable password auth if the user has authorized keys.
+    if [ -s "$REAL_HOME/.ssh/authorized_keys" ]; then
+        echo "PasswordAuthentication no"
+    fi
+} > /etc/ssh/sshd_config.d/00-gnar.conf
 if [ -s "$REAL_HOME/.ssh/authorized_keys" ]; then
-    sed -i 's/#\?PasswordAuthentication.*/PasswordAuthentication no/' /etc/ssh/sshd_config
     echo "SSH password auth disabled (authorized_keys present)"
 else
     echo -e "${YELLOW}No authorized_keys for $REAL_USER; leaving PasswordAuthentication unchanged.${NC}"
     echo -e "${YELLOW}Add your key with: ssh-copy-id $REAL_USER@<host>${NC}"
+fi
+# Never reload into a broken config — that's how you lose the box.
+if ! sshd -t 2>/dev/null; then
+    echo -e "${RED}sshd config validation failed — removing GNAR drop-in${NC}"
+    rm -f /etc/ssh/sshd_config.d/00-gnar.conf
 fi
 # Reload — not restart — so the connection running this script doesn't get dropped.
 # sshd re-reads its config on SIGHUP; no need to bounce the daemon.
@@ -348,6 +375,11 @@ install -m 644 "$CONFIGS/logrotate-gnar.conf" /etc/logrotate.d/gnar
 install -m 644 "$CONFIGS/tmpfiles-gnar.conf" /etc/tmpfiles.d/gnar.conf
 systemd-tmpfiles --create /etc/tmpfiles.d/gnar.conf 2>/dev/null || true
 
+# Cap the persistent journal — unbounded, it quietly eats gigabytes.
+install -d /etc/systemd/journald.conf.d
+install -m 644 "$CONFIGS/journald-gnar.conf" /etc/systemd/journald.conf.d/gnar.conf
+systemctl restart systemd-journald 2>/dev/null || true
+
 # Single-uplink box (often wifi): wait-online should be satisfied by ANY
 # online interface, or an unplugged ethernet port fails the unit every boot.
 install -d /etc/systemd/system/systemd-networkd-wait-online.service.d
@@ -356,6 +388,24 @@ cat > /etc/systemd/system/systemd-networkd-wait-online.service.d/gnar-any.conf <
 ExecStart=
 ExecStart=/usr/lib/systemd/systemd-networkd-wait-online --any
 EOF
+
+# Passwordless sudo for the user. The box is managed non-interactively —
+# Claude Code over SSH, the kiosk's touch action buttons (update / reboot /
+# prune run `sudo -n`), and gnar-board's samplers (journalctl, smartctl,
+# fail2ban-client) — none of which can answer a password prompt. The auth
+# surface for "root-on-this-box" is already the user's SSH key (a compromise
+# implies full host access), so this doesn't materially widen the threat
+# model on a single-tenant server.
+#
+# This must happen BEFORE the yay build below: makepkg runs `sudo pacman -U`
+# as $REAL_USER, whose sudo timestamp expired long ago behind pacman -Syu —
+# without the grant, the "unattended" bootstrap hangs on a password prompt.
+SUDOERS_FILE=/etc/sudoers.d/gnar-${REAL_USER}-nopasswd
+echo "$REAL_USER ALL=(ALL) NOPASSWD: ALL" > "$SUDOERS_FILE"
+chmod 440 "$SUDOERS_FILE"
+# Validate only the file we wrote — `visudo -c` checks ALL sudoers files,
+# and an unrelated broken drop-in would make us delete our valid grant.
+visudo -cq -f "$SUDOERS_FILE" || { echo -e "${RED}sudoers syntax error — removing $SUDOERS_FILE${NC}"; rm -f "$SUDOERS_FILE"; }
 
 # -----------------------------------------------------------------------------
 # yay (AUR helper)
@@ -442,17 +492,8 @@ install -m 644 "$CONFIGS/gnar-stack.service" /etc/systemd/system/gnar-stack.serv
 install -m 644 "$CONFIGS/gnar-docker-prune.service" /etc/systemd/system/gnar-docker-prune.service
 install -m 644 "$CONFIGS/gnar-docker-prune.timer" /etc/systemd/system/gnar-docker-prune.timer
 
-# Passwordless sudo for the user. The box is managed non-interactively —
-# Claude Code over SSH, the kiosk's touch action buttons (update / reboot /
-# prune run `sudo -n`), and gnar-board's samplers (journalctl, smartctl,
-# fail2ban-client) — none of which can answer a password prompt. The auth
-# surface for "root-on-this-box" is already the user's SSH key (a compromise
-# implies full host access), so this doesn't materially widen the threat
-# model on a single-tenant server.
-SUDOERS_FILE=/etc/sudoers.d/gnar-${REAL_USER}-nopasswd
-echo "$REAL_USER ALL=(ALL) NOPASSWD: ALL" > "$SUDOERS_FILE"
-chmod 440 "$SUDOERS_FILE"
-visudo -c -q || { echo -e "${RED}sudoers syntax error — removing $SUDOERS_FILE${NC}"; rm -f "$SUDOERS_FILE"; }
+# (The passwordless-sudo grant moved up before the yay build, which
+# needs it — see the AUR helper section.)
 
 systemctl daemon-reload
 systemctl enable gnar-stack.service

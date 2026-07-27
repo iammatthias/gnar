@@ -56,6 +56,7 @@ fi
 rm -f /etc/systemd/system/gnar-stack.service
 rm -f /etc/systemd/system/gnar-docker-prune.service /etc/systemd/system/gnar-docker-prune.timer
 rm -f /etc/tmpfiles.d/gnar.conf
+rm -f /etc/systemd/journald.conf.d/gnar.conf
 
 # Reset UFW to default deny-all-allow-all (before disabling) so reinstall is clean
 if command -v ufw &>/dev/null; then
@@ -86,8 +87,9 @@ systemctl is-enabled --quiet grub-btrfsd 2>/dev/null && \
 # Drop the agent-mode passwordless-sudo grant. Other sudoers config left alone.
 rm -f "/etc/sudoers.d/gnar-${REAL_USER}-nopasswd"
 
-# Restore /etc/ssh/sshd_config and locale files from the setup-time snapshots
-# if they exist; otherwise fall back to best-effort sed reverts.
+# SSH hardening drop-in (newer installs) plus the legacy sed/snapshot
+# paths for boxes configured before the drop-in existed.
+rm -f /etc/ssh/sshd_config.d/00-gnar.conf
 if [ -f /etc/ssh/sshd_config.gnar-orig ]; then
     restore_orig /etc/ssh/sshd_config
 elif [ -f /etc/ssh/sshd_config ]; then
