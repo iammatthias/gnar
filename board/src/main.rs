@@ -949,12 +949,16 @@ fn pending_updates() -> Option<usize> {
 
 /// Installed packages with a known security advisory whose fix is
 /// already available to install (Arch Security Tracker, via arch-audit
-/// `-u`). `None` when arch-audit isn't installed — absence of signal,
-/// not a clean bill of health, so the UI shows nothing rather than "0".
+/// `-u`). `None` when arch-audit isn't installed OR its run failed
+/// (network, advisory-DB fetch) — absence of signal, not a clean bill
+/// of health, so the UI shows nothing rather than a false green "0".
 /// This is what separates "stay current for security" from the much
 /// noisier "stay current for everything".
 fn security_updates() -> Option<usize> {
     let out = Command::new("arch-audit").args(["-uq"]).output().ok()?;
+    if !out.status.success() {
+        return None;
+    }
     Some(
         String::from_utf8_lossy(&out.stdout)
             .lines()
