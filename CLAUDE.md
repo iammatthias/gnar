@@ -72,20 +72,19 @@ gnar/
 │   ├── setup.sh          # Bootstrap (run as root)
 │   └── uninstall.sh      # Revert configuration
 ├── configs/              # Files installed verbatim by setup.sh
-│   ├── zshrc
-│   ├── tmux.conf
-│   ├── Caddyfile
-│   ├── fastfetch.jsonc
-│   ├── fail2ban-jail.local
-│   ├── logrotate-gnar.conf
+│   ├── zshrc, tmux.conf, foot.ini, sway-config, zprofile, btop.conf
+│   ├── fastfetch.jsonc, fail2ban-jail.local, getty-autologin.conf
+│   ├── gnar-stack.service, gnar-docker-prune.{service,timer}
+│   ├── journald-gnar.conf, tmpfiles-gnar.conf, udev-rapl.rules
 │   └── server-CLAUDE.md             # installed to ~/CLAUDE.md (system context for Claude Code)
-├── bin/                  # Helper scripts installed to /usr/local/bin
-│   ├── gnar-info
-│   ├── gnar-update
-│   └── gnar-help
+├── bin/                  # ~20 gnar-* helpers installed to /usr/local/bin
+│   └── gnar-{info,update,help,deploy,dashboard,bootstrap,display,
+│         kiosk-*,*-board,*-status,project-init,preview-site,claude-stats}
 ├── board/                # gnar-board — fullscreen ratatui kiosk TUI
 │   ├── Cargo.toml        #   (built by setup.sh; host + container graphs)
 │   └── src/main.rs
+├── stack/                # /srv/stack boilerplate (compose, Caddyfile,
+│   └── ...               #   caddy Dockerfile, homepage, preview-site)
 └── docs/
     ├── configuration.md
     ├── helpers.md

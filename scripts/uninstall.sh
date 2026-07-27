@@ -42,21 +42,39 @@ echo
 # -----------------------------------------------------------------------------
 # Stop / disable services
 # -----------------------------------------------------------------------------
-for svc in gnar-stack gnar-docker-prune.timer fail2ban valkey postgresql ufw; do
+# Tear down the container stack first — this needs dockerd still running.
+# Leaves /srv/stack/data in place — that's user state (tailscale identity,
+# caddy certs). Move it aside if you want a clean wipe.
+if [ -f /srv/stack/docker-compose.yml ]; then
+    docker compose -f /srv/stack/docker-compose.yml down 2>/dev/null || true
+fi
+
+# docker is disabled here too (setup.sh enabled it); the package remains —
+# the epilogue below already suggests removing it manually.
+for svc in gnar-stack gnar-docker-prune.timer fail2ban valkey postgresql ufw docker; do
     systemctl is-active --quiet "$svc" && systemctl stop "$svc" || true
     systemctl is-enabled --quiet "$svc" 2>/dev/null && systemctl disable "$svc" || true
 done
 
-# Tear down the container stack and remove its files. Leaves /srv/stack/data
-# in place — that's user state (tailscale identity, caddy certs). Move it
-# aside if you want a clean wipe.
-if [ -f /srv/stack/docker-compose.yml ]; then
-    docker compose -f /srv/stack/docker-compose.yml down 2>/dev/null || true
-fi
 rm -f /etc/systemd/system/gnar-stack.service
 rm -f /etc/systemd/system/gnar-docker-prune.service /etc/systemd/system/gnar-docker-prune.timer
 rm -f /etc/tmpfiles.d/gnar.conf
+rm -f /etc/udev/rules.d/99-gnar-rapl.rules
 rm -f /etc/systemd/journald.conf.d/gnar.conf
+
+# wait-online drop-in (setup.sh's --any override)
+if [ -d /etc/systemd/system/systemd-networkd-wait-online.service.d ]; then
+    rm -f /etc/systemd/system/systemd-networkd-wait-online.service.d/gnar-any.conf
+    rmdir --ignore-fail-on-non-empty /etc/systemd/system/systemd-networkd-wait-online.service.d
+fi
+
+# Docker daemon.json: restore the pre-GNAR original if we snapshotted one,
+# otherwise remove the file GNAR wrote.
+if [ -f /etc/docker/daemon.json.gnar-orig ]; then
+    restore_orig /etc/docker/daemon.json
+else
+    rm -f /etc/docker/daemon.json
+fi
 
 # Reset UFW to default deny-all-allow-all (before disabling) so reinstall is clean
 if command -v ufw &>/dev/null; then
@@ -79,10 +97,15 @@ if [ -d /etc/systemd/system/getty@tty1.service.d ]; then
     rmdir --ignore-fail-on-non-empty /etc/systemd/system/getty@tty1.service.d
 fi
 
-# grub-btrfsd — disable but leave snapper config + snapshots alone
-# (those are user data; the user can `snapper -c root delete-config` manually).
+# grub-btrfsd + snapper timers — disable but leave snapper config +
+# snapshots alone (those are user data; the user can
+# `snapper -c root delete-config` manually).
 systemctl is-enabled --quiet grub-btrfsd 2>/dev/null && \
     systemctl disable --now grub-btrfsd >/dev/null 2>&1 || true
+for t in snapper-timeline.timer snapper-cleanup.timer; do
+    systemctl is-enabled --quiet "$t" 2>/dev/null && \
+        systemctl disable --now "$t" >/dev/null 2>&1 || true
+done
 
 # Drop the agent-mode passwordless-sudo grant. Other sudoers config left alone.
 rm -f "/etc/sudoers.d/gnar-${REAL_USER}-nopasswd"

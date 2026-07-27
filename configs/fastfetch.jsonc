@@ -158,7 +158,7 @@
         {
             "type": "users",
             "key": "│ LAST LOGIN │{$1}",
-            "format": "{login-time}{?client-ip})",
+            "format": "{login-time}{?client-ip} ({client-ip}){?}",
             "myselfOnly": true
         },
         {

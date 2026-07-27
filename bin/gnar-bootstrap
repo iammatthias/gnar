@@ -154,7 +154,19 @@ step "Cloudflare Tunnel (optional)"
 
 CF_TOKEN=$(sudo awk -F= '/^CLOUDFLARED_TOKEN=/{print $2}' "$STACK/.env" 2>/dev/null | tr -d '"' | tr -d "'")
 if [ -n "${CF_TOKEN:-}" ]; then
-    if "${COMPOSE[@]}" ps cloudflared 2>/dev/null | grep -q running; then
+    # cloudflared is profile-gated in the compose file — the connector only
+    # exists when COMPOSE_PROFILES includes "cloudflared". Ensure that's in
+    # .env (compose reads it from the project dir) before any `up -d`.
+    if sudo grep -q '^COMPOSE_PROFILES=' "$STACK/.env" 2>/dev/null; then
+        if ! sudo grep -q '^COMPOSE_PROFILES=.*cloudflared' "$STACK/.env" 2>/dev/null; then
+            sudo sed -i 's/^COMPOSE_PROFILES=.*/&,cloudflared/' "$STACK/.env"
+            ok "Added cloudflared to COMPOSE_PROFILES in $STACK/.env"
+        fi
+    else
+        echo 'COMPOSE_PROFILES=cloudflared' | sudo tee -a "$STACK/.env" >/dev/null
+        ok "Set COMPOSE_PROFILES=cloudflared in $STACK/.env"
+    fi
+    if "${COMPOSE[@]}" ps --status running cloudflared 2>/dev/null | grep -q cloudflared; then
         ok "Tunnel connector already running"
     else
         warn "CLOUDFLARED_TOKEN is set; starting the connector."

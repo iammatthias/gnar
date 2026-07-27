@@ -31,10 +31,19 @@ MAX_AGE=${MAX_AGE:-30}             # .age beyond this = stale pipeline
 DIR=${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/gnar-display
 mkdir -p "$DIR"
 
+once=${1:-}
+
 # Singleton — a stale twin from a previous sway session exits on its own
 # (dead SWAYSOCK check below), but don't ever run two control loops.
+# --once while the daemon holds the lock: show the daemon's latest
+# decision instead of exiting silently (that's exactly when you'd ask).
 exec 9>"$DIR/lock"
-flock -n 9 || exit 0
+if ! flock -n 9; then
+    if [ "$once" = "--once" ]; then
+        cat "$DIR/status" 2>/dev/null || echo "(presence daemon running — no status written yet)"
+    fi
+    exit 0
+fi
 
 power() { swaymsg "output * power $1" >/dev/null 2>&1; }
 
@@ -58,7 +67,6 @@ logger -t gnar-display "presence daemon started (poll=${POLL}s absent=${ABSENT_S
 
 last_seen=$(date +%s)   # boot grace — assume presence at start
 prev_event_ts=""
-once=${1:-}
 
 while :; do
     now=$(date +%s)

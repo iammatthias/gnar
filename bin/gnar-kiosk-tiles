@@ -24,7 +24,9 @@ launch() {
 }
 
 # Block until a panel's window is present in sway's tree, so the next
-# swaymsg acts on the intended layout state (spawns are async).
+# swaymsg acts on the intended layout state (spawns are async). Returns 1
+# on timeout — the caller logs it and continues best-effort (a possibly
+# scrambled mosaic beats no tiles at all).
 wait_win() {
     local p
     for _ in $(seq 1 30); do
@@ -32,17 +34,19 @@ wait_win() {
         [ "${p:-0}" -ge 1 ] && return 0
         sleep 0.2
     done
+    return 1
 }
+tile_warn() { logger -t gnar-kiosk-tiles "gnar-$1 window never appeared — continuing; layout may be scrambled"; }
 focus() { swaymsg "[app_id=\"gnar-$1\"] focus" >/dev/null 2>&1; }
 
 # Top row: three columns.
-launch cpu; wait_win cpu
-launch mem; wait_win mem
-launch net; wait_win net
+launch cpu; wait_win cpu || tile_warn cpu
+launch mem; wait_win mem || tile_warn mem
+launch net; wait_win net || tile_warn net
 
 # Split each column into two rows (bottom-row panel under each top one).
-focus cpu; swaymsg splitv >/dev/null 2>&1; launch disk;       wait_win disk
-focus mem; swaymsg splitv >/dev/null 2>&1; launch containers; wait_win containers
-focus net; swaymsg splitv >/dev/null 2>&1; launch status;     wait_win status
+focus cpu; swaymsg splitv >/dev/null 2>&1; launch disk;       wait_win disk       || tile_warn disk
+focus mem; swaymsg splitv >/dev/null 2>&1; launch containers; wait_win containers || tile_warn containers
+focus net; swaymsg splitv >/dev/null 2>&1; launch status;     wait_win status     || tile_warn status
 
 wait

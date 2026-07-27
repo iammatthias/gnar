@@ -5,8 +5,7 @@
 #
 #   gnar-deploy myapp
 #
-# GNAR_PROJECTS lets the script be pointed at a different project root
-# where $HOME=/root but the projects bind-mount lives at $USER_HOME/projects.
+# GNAR_PROJECTS overrides the project root (default ~/projects).
 set -euo pipefail
 
 name="${1:-}"
@@ -22,13 +21,19 @@ if [ ! -d "$dir/.git" ]; then
     exit 1
 fi
 
-# The compose file lives at the repo root or in a deploy/ subdir.
-if [ -f "$dir/deploy/docker-compose.yml" ]; then
-    compose_dir="$dir/deploy"
-elif [ -f "$dir/docker-compose.yml" ]; then
-    compose_dir="$dir"
-else
-    echo "gnar-deploy: no docker-compose.yml found under $name" >&2
+# The compose file lives at the repo root or in a deploy/ subdir, under
+# any of compose's accepted spellings.
+compose_dir=""
+for d in "$dir/deploy" "$dir"; do
+    for f in docker-compose.yml docker-compose.yaml compose.yml compose.yaml; do
+        if [ -f "$d/$f" ]; then
+            compose_dir="$d"
+            break 2
+        fi
+    done
+done
+if [ -z "$compose_dir" ]; then
+    echo "gnar-deploy: no compose file (docker-compose.y[a]ml / compose.y[a]ml) found under $name" >&2
     exit 1
 fi
 

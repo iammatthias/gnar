@@ -41,20 +41,25 @@ you left off. No plugin manager is installed; if you want one, see
 
 ## Caddy site management
 
-Defined as zsh functions; they edit `/etc/caddy/Caddyfile` (with a backup)
-and reload Caddy on success.
+Defined as zsh functions; they edit `/srv/stack/Caddyfile` (with a backup)
+and reload the caddy container on success. Caddy runs in the `/srv/stack`
+docker-compose stack, so reloads go through `docker compose exec caddy
+caddy reload --config /etc/caddy/Caddyfile` — the `--config` flag is
+required (the image's workdir has no Caddyfile without it).
 
 ```bash
 add-site <name> <port>         # reverse proxy: name.local:80 -> localhost:port
 add-site <name> /path/to/dir   # static files: name.local:80 serves dir
+add-public-site <host> <port>  # public site via the Cloudflare Tunnel connector
+add-preview-site <name> <port> # tailnet-private preview at <name>.$PREVIEW_APEX
 list-sites                     # list configured virtual hosts
 remove-site <name>             # remove a site block
-test-caddy                     # validate the Caddyfile
-caddy-status                   # systemd status + recent journal
-caddy-edit                     # $EDITOR /etc/caddy/Caddyfile
-caddy-reload                   # systemctl reload caddy
-caddy-restart                  # systemctl restart caddy
-caddy-logs                     # journalctl -fu caddy
+test-caddy                     # caddy validate (inside the container)
+caddy-status                   # compose ps + recent container logs
+caddy-edit                     # $EDITOR /srv/stack/Caddyfile
+caddy-reload                   # caddy reload --config /etc/caddy/Caddyfile (in-container)
+caddy-restart                  # docker compose restart caddy
+caddy-logs                     # docker compose logs -f caddy
 ```
 
 ## Kiosk dashboard (attached display)
@@ -131,8 +136,6 @@ In-sway keybindings (only matter if you walk up to the box):
 
 | Keybinding | Action |
 |---|---|
-| `Alt + Return` | Open another `foot` terminal |
-| `Alt + Q` | Close the focused window |
 | `Super + F` | Toggle fullscreen |
 | `Super + Shift + R` | Reload the sway config |
 | `Super + Shift + Q` | Quit sway |
@@ -144,7 +147,7 @@ If your root is btrfs, `setup.sh` configures Snapper and `snap-pac`:
 - `snap-pac` auto-snapshots **before and after every pacman transaction** —
   so a bad `pacman -Syu` is recoverable in 30 seconds.
 - `snapper-timeline.timer` keeps rolling snapshots: 5 hourly, 7 daily,
-  2 weekly, 2 monthly.
+  2 weekly, 1 monthly.
 - `snapper-cleanup.timer` prunes old snapshots automatically.
 - On GRUB systems, `grub-btrfs` adds a "Snapshots" submenu so you can
   boot into any snapshot when an update breaks the system.

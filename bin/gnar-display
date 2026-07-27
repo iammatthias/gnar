@@ -29,9 +29,16 @@ power() { swaymsg "output * power $1" >/dev/null; }
 case "${1:-status}" in
     on)
         echo on > "$DIR/mode"
-        power on && echo on > "$DIR/state"
-        logger -t gnar-display "display on — pinned manually (gnar-display on)"
-        echo "display pinned ON (auto-sleep disabled — 'gnar-display auto' to resume)"
+        # Only journal + report success if swaymsg actually worked — the
+        # transition log must record transitions that happened, not wishes.
+        if power on; then
+            echo on > "$DIR/state"
+            logger -t gnar-display "display on — pinned manually (gnar-display on)"
+            echo "display pinned ON (auto-sleep disabled — 'gnar-display auto' to resume)"
+        else
+            echo "gnar-display: swaymsg failed — kiosk not running? (mode pinned on; display state unchanged)" >&2
+            exit 1
+        fi
         ;;
     auto)
         echo auto > "$DIR/mode"
@@ -42,9 +49,14 @@ case "${1:-status}" in
     off)
         echo auto > "$DIR/mode"
         rm -f "$DIR/override"
-        power off && echo off > "$DIR/state"
-        logger -t gnar-display "display off — manual (gnar-display off)"
-        echo "display off (presence or a tap will wake it)"
+        if power off; then
+            echo off > "$DIR/state"
+            logger -t gnar-display "display off — manual (gnar-display off)"
+            echo "display off (presence or a tap will wake it)"
+        else
+            echo "gnar-display: swaymsg failed — kiosk not running? (display state unchanged)" >&2
+            exit 1
+        fi
         ;;
     status)
         echo "mode:   $(cat "$DIR/mode" 2>/dev/null || echo auto)"

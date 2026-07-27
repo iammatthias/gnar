@@ -7,6 +7,10 @@
 # reach the compositor.
 set -uo pipefail
 
+# Record the dying compositor's PID up front — the verify loop below must
+# match a NEW sway, not the old one still winding down after `swaymsg exit`.
+old_sway=$(pgrep -x sway | head -1 || true)
+
 pid=$(pgrep -x foot | head -1 || true)
 if [ -n "${pid:-}" ]; then
     env_of() { tr '\0' '\n' < "/proc/$1/environ" | grep "^$2=" | cut -d= -f2-; }
@@ -18,8 +22,23 @@ else
     pkill -x sway || true
 fi
 
+# Wait for the old sway to actually die first.
+if [ -n "${old_sway:-}" ]; then
+    for _ in $(seq 1 15); do
+        kill -0 "$old_sway" 2>/dev/null || break
+        sleep 1
+    done
+    if kill -0 "$old_sway" 2>/dev/null; then
+        echo "gnar-kiosk-restart: old sway (pid $old_sway) still running — restart did not take" >&2
+        exit 1
+    fi
+fi
+
+# Now wait for a NEW sway session with a full set of tiles.
 for _ in $(seq 1 30); do
-    if pgrep -x sway >/dev/null && [ "$(pgrep -xc foot)" -ge 6 ]; then
+    new_sway=$(pgrep -x sway | head -1 || true)
+    if [ -n "${new_sway:-}" ] && [ "$new_sway" != "${old_sway:-}" ] \
+        && [ "$(pgrep -xc foot)" -ge 6 ]; then
         echo "kiosk restarted"
         exit 0
     fi

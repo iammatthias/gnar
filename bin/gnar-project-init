@@ -7,7 +7,9 @@
 # Usage: gnar-project-init <path> [description]
 #   gnar-project-init /srv/projects/foo "backend API, FastAPI + Postgres"
 
-set -uo pipefail
+# set -e matters here: if mkdir fails, the `cd` below must not silently
+# no-op and git-init the caller's CWD.
+set -euo pipefail
 
 PROJECT_PATH=${1:-}
 DESCRIPTION=${2:-}

@@ -32,8 +32,10 @@ It is a single-tenant home server intended for remote development over SSH.
   managed: ssh in, run `claude`. Subscription auth lives at `~/.claude/`.
   You are probably reading this file from inside such a session.
 - **New projects** — `gnar-project-init <path> [<description>]` creates
-  the dir, git-inits it, and drops a starter CLAUDE.md. Default project
-  root is `/srv/projects`.
+  the dir, git-inits it, and drops a starter CLAUDE.md. App/service
+  checkouts live in `~/projects/<name>` (what `gnar-deploy` expects);
+  `/srv/projects` is only for static content served by the caddy
+  container via bind-mount (preview sites).
 
 ### Web / proxy stack
 The network ingress layer runs as a docker-compose stack at `/srv/stack`
@@ -74,12 +76,16 @@ Stack lifecycle is `cd /srv/stack && docker compose <cmd>`. The
   pacman transaction. Recover from a bad `pacman -Syu` via
   `snapper -c root rollback` or by booting an older snapshot from
   GRUB's "Snapshots" submenu.
-- Retention: 5 hourly, 7 daily, 2 weekly, 2 monthly.
+- Retention: timeline 5 hourly / 7 daily / 2 weekly / 1 monthly /
+  0 yearly; pacman pre/post pairs capped at NUMBER_LIMIT=12
+  (NUMBER_LIMIT_IMPORTANT=6).
 - `/var/lib/postgres`, `/var/lib/valkey`, `/var/lib/docker` are marked
   `chattr +C` (no CoW) — important for write-heavy DB/container files.
 
 ### Network / security
-- `ufw` (deny-incoming except 22/80/443)
+- `ufw` (deny incoming except the detected sshd port(s), 80/443,
+  8666/udp — kiosk wake push from the CV box — and 172.16.0.0/12,
+  so docker containers can reach host-native services)
 - `fail2ban` (sshd jail, 3 retries, 1h ban)
 - `nmap`, `tcpdump`, `wireshark-cli`
 
@@ -140,7 +146,9 @@ Highlights:
 ## Conventions
 
 - New web services should live under `~/projects/<name>` and be exposed
-  via Caddy with `add-site <name> <port>`.
+  via Caddy with `add-site <name> <port>`; `gnar-deploy <name>` pulls +
+  rebuilds from there. `/srv/projects` is only for static content served
+  by the caddy container via bind-mount (preview sites).
 - Long-running Node services use PM2. Use `pm2-add-site` to do both
   steps at once.
 - Python projects use `uv` — never `pip install` into the system Python

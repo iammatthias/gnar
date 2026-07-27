@@ -20,11 +20,13 @@ Core
   gnar-kiosk-restart          Gracefully restart the kiosk compositor
                               (swaymsg exit; getty autologin respawns it)
   gnar-kiosk-shot [out.png]   Screenshot the kiosk display via grim
-  gnar-display [on|auto|off|status]
+  gnar-display [on|auto|off|status|log [n]]
                               Kiosk display power. Presence auto-sleep
                               (gnar-kiosk-presence polls the CV box) is
                               fail-open: API down = display on, tap
-                              always wakes. `on` pins it; `auto` resumes.
+                              always wakes. `on` pins it; `auto` resumes;
+                              `log` shows the journaled wake/sleep
+                              transition history.
   gnar-services-status        Caddy sites + service health (one-shot)
   gnar-claude-stats           Claude Code session + token stats (one-shot)
   gnar-project-init <path> [desc]
@@ -47,6 +49,10 @@ System info / status
 
 Caddy
   add-site <name> [port|dir]  Add site (port = reverse proxy, dir = static files)
+  add-public-site <host> [port|dir]
+                              Public site via the Cloudflare Tunnel connector
+  add-preview-site <name> [port|dir]
+                              Tailnet-private preview at <name>.$PREVIEW_APEX
   remove-site <name>          Remove site
   list-sites                  List configured sites
   test-caddy                  Validate Caddyfile
@@ -69,8 +75,6 @@ Kiosk dashboard (attached display)
   On a touch panel: tap a tile to fullscreen it (back button top-left);
   the fullscreen OPS view has action buttons (two-tap confirm on the
   destructive ones). Edit ~/.config/sway/config to change behavior.
-  Alt+Return                  Open another foot terminal
-  Alt+Q                       Close window
   Super+F                     Toggle fullscreen
   Super+Shift+R               Reload sway config
   Super+Shift+Q               Quit sway

@@ -38,15 +38,22 @@ if [ "$1" = "--list" ]; then
     fi
     for site in "$ROOT"/*/; do
         name=$(basename "$site")
+        # `docker ps` with a non-matching filter still exits 0 (empty
+        # output), so "not running" needs an explicit emptiness check.
         running=$(docker ps --filter "name=gnar-preview-${name}-tailscale" \
-            --format '{{.Status}}' 2>/dev/null || echo "not running")
-        domain=$(docker exec "gnar-preview-${name}-tailscale" \
-            tailscale status --json 2>/dev/null \
-            | jq -r '.MagicDNSSuffix // empty' 2>/dev/null || true)
-        if [ -n "$domain" ]; then
-            url="https://${name}.${domain}"
+            --format '{{.Status}}' 2>/dev/null || true)
+        if [ -n "$running" ]; then
+            domain=$(docker exec "gnar-preview-${name}-tailscale" \
+                tailscale status --json 2>/dev/null \
+                | jq -r '.MagicDNSSuffix // empty' 2>/dev/null || true)
+            if [ -n "$domain" ]; then
+                url="https://${name}.${domain}"
+            else
+                url='(not authenticated yet)'
+            fi
         else
-            url='(not authenticated yet)'
+            running='not running'
+            url='(stopped)'
         fi
         printf '%-20s  %-30s  %s\n' "$name" "$url" "$running"
     done

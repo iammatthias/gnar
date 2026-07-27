@@ -22,9 +22,10 @@ for svc in docker postgresql valkey fail2ban ufw gnar-stack; do
     printf '  '; dot "$state"; printf ' %-26s %s\n' "$svc" "$state"
 done
 
-# fail2ban — show currently banned count, useful at a glance.
+# fail2ban — show currently banned count, useful at a glance. Needs root:
+# sudo -n rides the NOPASSWD grant; if that's absent, skip silently.
 if systemctl is-active --quiet fail2ban; then
-    banned=$(fail2ban-client status sshd 2>/dev/null \
+    banned=$(sudo -n fail2ban-client status sshd 2>/dev/null \
         | awk -F'[ \t]+' '/Currently banned/ {print $NF}')
     [ -n "$banned" ] && printf '  fail2ban (sshd): %s currently banned\n' "$banned"
 fi

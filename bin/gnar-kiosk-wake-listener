@@ -25,8 +25,10 @@ flock -n 9 || exit 0
 
 trap 'pkill -f "ncat -ulk $PORT" 2>/dev/null' EXIT
 
-exec 3< <(stdbuf -oL ncat -ulk "$PORT" 2>/dev/null)
+start_pipe() { exec 3< <(stdbuf -oL ncat -ulk "$PORT" 2>/dev/null); }
+start_pipe
 
+restarts=0
 while :; do
     # 5s read timeout so we notice a dead sway session even when quiet.
     if read -r -t 5 -u 3 line; then
@@ -40,6 +42,23 @@ while :; do
                 fi
                 ;;
         esac
+    else
+        rc=$?
+        # read rc >128 = timeout (quiet, normal); anything else = EOF —
+        # the ncat pipeline died (port busy, binary missing). Without
+        # this, EOF returns instantly and the loop busy-spins at 100% CPU.
+        if [ "$rc" -le 128 ]; then
+            exec 3<&-
+            pkill -f "ncat -ulk $PORT" 2>/dev/null
+            restarts=$((restarts + 1))
+            if [ "$restarts" -le 5 ]; then
+                logger -t gnar-display "wake listener: ncat pipeline died (attempt $restarts) — restarting in 5s"
+            elif [ "$restarts" -eq 6 ]; then
+                logger -t gnar-display "wake listener: ncat keeps dying — retrying quietly (no further logs)"
+            fi
+            sleep 5
+            start_pipe
+        fi
     fi
     [ -n "${SWAYSOCK:-}" ] && [ ! -S "$SWAYSOCK" ] && exit 0
 done

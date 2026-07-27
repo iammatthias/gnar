@@ -38,6 +38,7 @@ snapshot() {
 snapshot /etc/locale.gen
 snapshot /etc/locale.conf
 snapshot /etc/ssh/sshd_config
+snapshot /etc/docker/daemon.json
 
 echo -e "${GREEN}GNAR - Home Server Bootstrap${NC}"
 echo
@@ -140,7 +141,7 @@ if [ "$ROOT_FS" = "btrfs" ]; then
             # snapper just made a fresh subvol at /.snapshots; ditch it
             # and re-mount archinstall's @.snapshots in its place.
             btrfs subvolume delete /.snapshots 2>/dev/null || true
-            mkdir /.snapshots
+            mkdir -p /.snapshots
             mount -a
         else
             snapper -c root create-config /
@@ -193,11 +194,16 @@ fi
 # -----------------------------------------------------------------------------
 echo -e "${GREEN}Configuring zsh...${NC}"
 
-if [[ -f "$REAL_HOME/.zshrc" ]]; then
+# Back up an existing .zshrc, but only if it differs from what we're about
+# to install — re-runs shouldn't spam identical .gnar-backup files.
+if [[ -f "$REAL_HOME/.zshrc" ]] && ! cmp -s "$CONFIGS/zshrc" "$REAL_HOME/.zshrc"; then
     cp "$REAL_HOME/.zshrc" "$REAL_HOME/.zshrc.gnar-backup.$(date +%Y%m%d_%H%M%S)" || true
 fi
 
-sudo -u "$REAL_USER" bash <<EOF
+# Tolerate network flakes (same policy as the per-user tooling heredoc
+# below) — a GitHub blip here must not abort Docker/firewall/databases.
+# Failure is tracked so the finale can call it out.
+sudo -u "$REAL_USER" bash <<EOF || FAILED_SERVICES+=("oh-my-zsh")
 set -e
 export HOME="$REAL_HOME"
 
@@ -303,6 +309,10 @@ ufw allow 8666/udp || true
 ufw allow from 172.16.0.0/12 comment 'docker containers -> host services' || true
 
 install -m 644 "$CONFIGS/fail2ban-jail.local" /etc/fail2ban/jail.local
+# Match the jail to the real sshd port(s) detected above — the template's
+# `port = ssh` only covers 22, which is wrong on a non-default-port box.
+F2B_PORTS=$(printf '%s' "$SSH_PORTS" | tr -s ' \n' ',')
+sed -i "s/^port = ssh$/port = $F2B_PORTS/" /etc/fail2ban/jail.local
 systemctl enable fail2ban
 if ! systemctl start fail2ban; then
     journalctl -xeu fail2ban.service --no-pager -n 10 || true
@@ -354,7 +364,10 @@ if [ ! -d "/var/lib/postgres/data" ] || [ -z "$(ls -A /var/lib/postgres/data 2>/
 fi
 
 systemctl enable postgresql
-systemctl start postgresql || journalctl -xeu postgresql.service --no-pager -n 10
+if ! systemctl start postgresql; then
+    journalctl -xeu postgresql.service --no-pager -n 10 || true
+    FAILED_SERVICES+=("postgresql")
+fi
 
 if systemctl is-active --quiet postgresql; then
     if ! sudo -u postgres psql -tAc "SELECT 1 FROM pg_roles WHERE rolname='$REAL_USER'" | grep -q 1; then
@@ -369,11 +382,16 @@ if ! systemctl start valkey; then
     FAILED_SERVICES+=("valkey")
 fi
 
-install -m 644 "$CONFIGS/logrotate-gnar.conf" /etc/logrotate.d/gnar
-
 # tmpfiles rules (RAPL counters readable for gnar-board power display).
 install -m 644 "$CONFIGS/tmpfiles-gnar.conf" /etc/tmpfiles.d/gnar.conf
 systemd-tmpfiles --create /etc/tmpfiles.d/gnar.conf 2>/dev/null || true
+
+# RAPL perms, deterministically: at boot the tmpfiles pass races the
+# intel_rapl module load, and when it loses gnar-board's wattage silently
+# disappears. A udev rule fires when the powercap device appears; the
+# tmpfiles rule above remains as a fallback for the already-booted case.
+install -m 644 "$CONFIGS/udev-rapl.rules" /etc/udev/rules.d/99-gnar-rapl.rules
+udevadm control --reload-rules 2>/dev/null || true
 
 # Cap the persistent journal — unbounded, it quietly eats gigabytes.
 install -d /etc/systemd/journald.conf.d
@@ -617,7 +635,7 @@ echo -e "${GREEN}Enabling firewall...${NC}"
 # whether the immediate `ufw enable` succeeds. If it fails now (kernel module
 # mismatch from pacman -Syu), the unit will retry post-reboot when modules
 # match — and at that point everything we configured will Just Work.
-systemctl enable ufw &>/dev/null
+systemctl enable ufw &>/dev/null || true
 if ! ufw --force enable; then
     echo -e "${YELLOW}UFW enable failed now (running kernel missing iptables modules).${NC}"
     echo -e "${YELLOW}Marked enabled in /etc/ufw/ufw.conf — will activate on next boot.${NC}"
