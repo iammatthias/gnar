@@ -1,12 +1,13 @@
 # GNAR — prune Docker build leftovers. Repeated `docker compose up --build`
 # (gnar-stack at boot, gnar-deploy) strands the previous build as a
-# dangling image —
-# so without this the disk fills with untagged layers. Dangling-only prune:
-# tagged images, running containers, and volumes are never touched.
-# Triggered weekly by gnar-docker-prune.timer.
+# dangling image AND accumulates BuildKit build cache under
+# /var/lib/docker — the cache is the larger of the two and grows
+# unbounded without the builder prune. Dangling/stale-only: tagged
+# images, running containers, volumes, and cache younger than a week are
+# never touched. Triggered weekly by gnar-docker-prune.timer.
 
 [Unit]
-Description=GNAR weekly Docker prune (dangling images + old stopped containers)
+Description=GNAR weekly Docker prune (dangling images, stopped containers, stale build cache)
 Requires=docker.service
 After=docker.service
 
@@ -14,3 +15,4 @@ After=docker.service
 Type=oneshot
 ExecStart=/usr/bin/docker image prune -f
 ExecStart=/usr/bin/docker container prune -f --filter until=168h
+ExecStart=/usr/bin/docker builder prune -f --filter until=168h

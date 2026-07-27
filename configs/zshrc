@@ -201,7 +201,7 @@ alias fail2ban-status="sudo fail2ban-client status"
 # Caddy
 # Caddy lives in the gnar-caddy container under /srv/stack now.
 alias caddy-edit="sudo \$EDITOR /srv/stack/Caddyfile"
-alias caddy-reload="sudo docker compose -f /srv/stack/docker-compose.yml exec -T caddy caddy reload"
+alias caddy-reload="sudo docker compose -f /srv/stack/docker-compose.yml exec -T caddy caddy reload --config /etc/caddy/Caddyfile"
 alias caddy-logs="sudo docker compose -f /srv/stack/docker-compose.yml logs -f caddy"
 alias caddy-restart="sudo docker compose -f /srv/stack/docker-compose.yml restart caddy"
 

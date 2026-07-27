@@ -18,7 +18,8 @@
 # from /srv/stack/.env.
 #
 # Edits land via:
-#   docker compose -f /srv/stack/docker-compose.yml exec caddy caddy reload
+#   docker compose -f /srv/stack/docker-compose.yml exec caddy caddy reload --config /etc/caddy/Caddyfile
+# (--config is required: the image's workdir has no Caddyfile.)
 # `add-site` (private :80), `add-public-site` (cloudflared :8080), and
 # `add-preview-site` (private HTTPS subdomain) all do this for you.
 

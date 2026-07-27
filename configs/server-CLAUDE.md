@@ -42,7 +42,8 @@ namespace:
 - `gnar-tailscale` — tailnet identity, ingress
 - `gnar-caddy` — reverse proxy (`add-site <name> <port>` writes to
   `/srv/stack/Caddyfile` and reloads via `docker compose exec caddy
-  caddy reload`)
+  caddy reload --config /etc/caddy/Caddyfile` — without `--config` the
+  image's workdir has no Caddyfile and the reload errors out)
 - `gnar-cloudflared` — Cloudflare Tunnel connector for opt-in public
   sites (`add-public-site`)
 
