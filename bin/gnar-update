@@ -34,6 +34,17 @@ else
     sudo pacman -Syu
 fi
 
+# An openssh upgrade leaves the OLD listener paired with a NEW
+# per-session binary it can't exec — every fresh connection then dies at
+# the handshake until sshd restarts, and Arch deliberately doesn't
+# restart it for you. Restarting does NOT drop existing sessions
+# (children are independent processes). This exact lockout happened
+# 2026-07-26; never again.
+if sudo tail -n 2000 /var/log/pacman.log | grep -q "upgraded openssh "; then
+    echo "openssh was upgraded — restarting sshd (existing sessions unaffected)"
+    sudo systemctl try-restart sshd
+fi
+
 echo "Cleaning package cache..."
 sudo pacman -Sc --noconfirm
 echo "Done."
